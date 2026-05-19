@@ -9,18 +9,20 @@ import (
 	"github.com/zboard/api-server/internal/authsvc"
 	"github.com/zboard/api-server/internal/bizsvc"
 	"github.com/zboard/api-server/internal/nodesvc"
+	"github.com/zboard/api-server/internal/payment/registry"
 	"github.com/zboard/api-server/internal/store"
 	"github.com/zboard/api-server/internal/worker"
 )
 
 // Deps bundles everything the HTTP layer needs.
 type Deps struct {
-	DB     *sqlx.DB
-	Store  *store.Store
-	Auth   *authsvc.Service
-	Biz    *bizsvc.Service
-	Nodes  *nodesvc.Service
-	Worker *worker.Service
+	DB       *sqlx.DB
+	Store    *store.Store
+	Auth     *authsvc.Service
+	Biz      *bizsvc.Service
+	Nodes    *nodesvc.Service
+	Worker   *worker.Service
+	Payments *registry.Registry
 }
 
 func New(d Deps) *gin.Engine {
@@ -42,6 +44,7 @@ func New(d Deps) *gin.Engine {
 		api.POST("/auth/login", loginUser(d))
 		api.GET("/plans", listPlans(d))
 		api.POST("/payments/mock-callback", mockPaymentCallback(d))
+		api.POST("/payments/:provider/callback", paymentCallback(d))
 
 		authed := api.Group("")
 		authed.Use(userAuth(d.Auth))
@@ -49,7 +52,7 @@ func New(d Deps) *gin.Engine {
 			authed.GET("/me", currentUser(d))
 			authed.POST("/auth/logout", logoutUser(d))
 			authed.POST("/orders", createOrder(d))
-			authed.POST("/orders/:order_no/pay", payOrder(d))
+			authed.POST("/orders/:order_no/pay", createPaymentWithProvider(d, d.Payments))
 			authed.GET("/subscription", subToken(d))
 			authed.POST("/subscription/reset-token", subResetToken(d))
 		}

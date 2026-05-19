@@ -273,3 +273,43 @@ func (s *Service) HandleMockCallback(ctx context.Context, eventID, orderNo, paym
 	}
 	return nil
 }
+
+// ActivateByCallback is called from the generic payment webhook handler. It
+// marks the payment + order as paid and activates the user's plan — same logic
+// as HandleMockCallback but provider-agnostic.
+func (s *Service) ActivateByCallback(ctx context.Context, orderNo, provider, providerTradeNo string) error {
+	o, err := s.Store.FindOrderByNo(ctx, orderNo)
+	if err != nil {
+		return err
+	}
+	if o.Status == "paid" {
+		return nil // already activated, idempotent
+	}
+	now := time.Now().UTC()
+	paymentNo := "PAY-" + provider + "-" + orderNo
+	_ = s.Store.MarkPaymentSuccess(ctx, paymentNo, providerTradeNo, now)
+	if err := s.Store.MarkOrderPaid(ctx, orderNo, now); err != nil {
+		return err
+	}
+	plan, err := s.Store.FindPlanByID(ctx, o.PlanID)
+	if err != nil {
+		return err
+	}
+	if err := s.Store.ActivateUserPlan(ctx, o.UserID, plan); err != nil {
+		return err
+	}
+	nodes, err := s.Store.ListActiveNodes(ctx)
+	if err != nil {
+		return err
+	}
+	clientID, err := newClientID()
+	if err != nil {
+		return err
+	}
+	for _, n := range nodes {
+		if err := s.Store.EnsureNodeUser(ctx, o.UserID, n.ID, clientID, n.Protocol); err != nil {
+			return err
+		}
+	}
+	return nil
+}

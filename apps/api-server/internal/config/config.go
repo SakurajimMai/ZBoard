@@ -22,6 +22,21 @@ type Config struct {
 	DBDSN            string
 	AdminSetupToken  string
 	TokenSecret      string
+
+	// EasyPay (易支付)
+	EpayAPIURL string
+	EpayPID    string
+	EpayKey    string
+
+	// Creem
+	CreemAPIKey        string
+	CreemWebhookSecret string
+	CreemAPIURL        string
+
+	// NOWPayments
+	NowPayAPIKey    string
+	NowPayIPNSecret string
+	NowPayAPIURL    string
 }
 
 func Load() (*Config, error) {
@@ -50,6 +65,18 @@ func Load() (*Config, error) {
 		DBDSN:           dsn,
 		AdminSetupToken: getenv("ZBOARD_ADMIN_SETUP_TOKEN", "dev-admin-token"),
 		TokenSecret:     getenv("ZBOARD_TOKEN_SECRET", "dev-token-secret"),
+
+		EpayAPIURL: os.Getenv("ZBOARD_EPAY_API_URL"),
+		EpayPID:    os.Getenv("ZBOARD_EPAY_PID"),
+		EpayKey:    os.Getenv("ZBOARD_EPAY_KEY"),
+
+		CreemAPIKey:        os.Getenv("ZBOARD_CREEM_API_KEY"),
+		CreemWebhookSecret: os.Getenv("ZBOARD_CREEM_WEBHOOK_SECRET"),
+		CreemAPIURL:        os.Getenv("ZBOARD_CREEM_API_URL"),
+
+		NowPayAPIKey:    os.Getenv("ZBOARD_NOWPAY_API_KEY"),
+		NowPayIPNSecret: os.Getenv("ZBOARD_NOWPAY_IPN_SECRET"),
+		NowPayAPIURL:    os.Getenv("ZBOARD_NOWPAY_API_URL"),
 	}, nil
 }
 

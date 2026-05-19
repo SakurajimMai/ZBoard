@@ -15,6 +15,10 @@ import (
 	"github.com/zboard/api-server/internal/config"
 	"github.com/zboard/api-server/internal/db"
 	"github.com/zboard/api-server/internal/nodesvc"
+	"github.com/zboard/api-server/internal/payment/creem"
+	"github.com/zboard/api-server/internal/payment/epay"
+	"github.com/zboard/api-server/internal/payment/nowpay"
+	"github.com/zboard/api-server/internal/payment/registry"
 	"github.com/zboard/api-server/internal/server"
 	"github.com/zboard/api-server/internal/store"
 	"github.com/zboard/api-server/internal/worker"
@@ -44,7 +48,31 @@ func main() {
 	nodes := nodesvc.New(st)
 	wk := worker.New(st)
 
-	r := server.New(server.Deps{DB: database, Store: st, Auth: auth, Biz: biz, Nodes: nodes, Worker: wk})
+	// Payment providers — each is optional; only registered when env vars are set.
+	payments := registry.New()
+	if cfg.EpayPID != "" {
+		payments.Register(epay.New(epay.Config{
+			APIURL:    cfg.EpayAPIURL,
+			PID:       cfg.EpayPID,
+			SecretKey: cfg.EpayKey,
+		}))
+	}
+	if cfg.CreemAPIKey != "" {
+		payments.Register(creem.New(creem.Config{
+			APIKey:        cfg.CreemAPIKey,
+			WebhookSecret: cfg.CreemWebhookSecret,
+			APIURL:        cfg.CreemAPIURL,
+		}))
+	}
+	if cfg.NowPayAPIKey != "" {
+		payments.Register(nowpay.New(nowpay.Config{
+			APIKey:    cfg.NowPayAPIKey,
+			IPNSecret: cfg.NowPayIPNSecret,
+			APIURL:    cfg.NowPayAPIURL,
+		}))
+	}
+
+	r := server.New(server.Deps{DB: database, Store: st, Auth: auth, Biz: biz, Nodes: nodes, Worker: wk, Payments: payments})
 	srv := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 		Handler: r,
