@@ -2,8 +2,10 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 
+RUN npm install -g pnpm@10.14.0
+
 COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 COPY . .
 RUN pnpm build
@@ -11,8 +13,6 @@ RUN pnpm build
 # Runtime stage
 FROM node:22-alpine AS runtime
 WORKDIR /app
-
-RUN corepack enable
 
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
