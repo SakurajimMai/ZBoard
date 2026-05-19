@@ -1,0 +1,10 @@
+{
+  "enabledMcpjsonServers": [
+    "fetch",
+    "context7",
+    "sequential-thinking",
+    "memory",
+    "playwright",
+    "shrimp-task-manager"
+  ]
+}

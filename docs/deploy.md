@@ -1,216 +1,246 @@
-# 部署方案文档
+# Zboard 部署方案
 
-## 部署原则
+## 架构概览
 
-- 本地开发不执行 Docker，直接使用 Node.js + SQLite3。
-- 正式环境控制面使用 Docker Compose。
-- 当前阶段不配置反向代理，不引入 Nginx / Caddy / Traefik。
-- Node Agent 生产环境优先 systemd 部署。
-- 数据库迁移和初始化管理员需要可重复执行。
-- 日志、备份、健康检查必须有明确位置。
-
-## 当前 Docker 化边界
-
-当前 Compose 只包含：
-
-```text
-api-server
+```
+┌─────────────────────────────────────────────────────┐
+│                    用户设备                           │
+│         (Clash Meta / sing-box / V2rayN)            │
+└──────────────────────┬──────────────────────────────┘
+                       │ 订阅链接 / 代理连接
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│              Docker Host (控制面)                     │
+│  ┌──────────────┐  ┌──────────────┐                 │
+│  │ zboard-api   │  │zboard-frontend│                │
+│  │ (Go, :3000)  │  │(Next.js,:3001)│                │
+│  └──────┬───────┘  └──────────────┘                 │
+│         │                                           │
+│  ┌──────┴───────┐                                   │
+│  │  MariaDB     │                                   │
+│  │  (外部托管)   │                                   │
+│  └──────────────┘                                   │
+└─────────────────────────────────────────────────────┘
+                       │ HMAC 签名 API
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│              VPS 节点 (每台)                          │
+│  ┌──────────────┐  ┌──────────────┐                 │
+│  │ zboard-agent │──│ Xray/sing-box│                 │
+│  │ (Go)         │  │ (子进程)      │                 │
+│  └──────────────┘  └──────────────┘                 │
+└─────────────────────────────────────────────────────┘
 ```
 
-当前不包含：
+## Docker 镜像
 
-```text
-nginx
-caddy
-traefik
-postgres
-redis
-worker-service
-admin-web
-user-web
-```
+| 镜像 | 说明 | DockerHub |
+|------|------|-----------|
+| `sakurajiamai/zboard-api` | Go API Server | [链接](https://hub.docker.com/r/sakurajiamai/zboard-api) |
+| `sakurajiamai/zboard-frontend` | Next.js 前端 | [链接](https://hub.docker.com/r/sakurajiamai/zboard-frontend) |
+| `sakurajiamai/zboard-agent` | Node Agent | [链接](https://hub.docker.com/r/sakurajiamai/zboard-agent) |
 
-说明：
+镜像由 GitHub Actions 在每次 push 到 `main` 时自动构建并推送。
 
-- 第一版后端仍使用 SQLite3 文件，数据库文件挂载到 `/data/zboard.sqlite`。
-- Worker 维护任务当前在 API Server 内部，通过后台接口手动触发。
-- PostgreSQL、Redis、独立 Worker 和 Web 前端等正式拆分后再加入 Compose。
+## 控制面部署
 
-## 目录结构
+### 1. 准备环境变量
 
-```text
-deploy/
-├── docker/
-│   └── docker-compose.prod.yml
-├── env/
-│   └── api.env.example
-└── scripts/
-    └── backup-sqlite.sh
-```
-
-## 环境变量
-
-复制示例文件：
-
-```bash
-cp deploy/env/api.env.example deploy/env/api.env
-```
-
-必须修改：
-
-```env
-ZBOARD_ADMIN_SETUP_TOKEN=replace-with-one-time-setup-token
-ZBOARD_TOKEN_SECRET=replace-with-random-token-secret
-```
-
-当前 API Server 使用：
+创建 `api.env`：
 
 ```env
 ZBOARD_HOST=0.0.0.0
 ZBOARD_PORT=3000
-ZBOARD_DB_PATH=/data/zboard.sqlite
-ZBOARD_BACKUP_DIR=/backups
+ZBOARD_DB_DIALECT=mysql
+ZBOARD_DB_DSN=user:pass@tcp(your-mariadb-host:3306)/zboard?parseTime=true&charset=utf8mb4
+ZBOARD_ADMIN_SETUP_TOKEN=你的一次性初始化密钥
+ZBOARD_TOKEN_SECRET=随机生成的长字符串
 ```
 
-## 生产启动
+### 2. Docker Compose 部署
 
-生产环境启动命令：
+```yaml
+# docker-compose.yml
+services:
+  api:
+    image: sakurajiamai/zboard-api:latest
+    container_name: zboard-api
+    env_file: ./api.env
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  frontend:
+    image: sakurajiamai/zboard-frontend:latest
+    container_name: zboard-frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:3000
+    ports:
+      - "3001:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+```
 
 ```bash
-docker compose -f deploy/docker/docker-compose.prod.yml up -d --build
+docker compose up -d
 ```
 
-查看状态：
+### 3. 初始化管理员
 
 ```bash
-docker compose -f deploy/docker/docker-compose.prod.yml ps
+curl -X POST http://your-server:3000/api/admin/v1/auth/bootstrap \
+  -H "Content-Type: application/json" \
+  -d '{"setup_token":"你的一次性初始化密钥","email":"admin@example.com","password":"强密码"}'
 ```
 
-查看日志：
+初始化完成后，`ZBOARD_ADMIN_SETUP_TOKEN` 即失效（admin_users 非空时 bootstrap 返回 409）。
+
+### 4. 反向代理（可选）
+
+如果需要 HTTPS，在前面加一层 Nginx / Caddy：
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name panel.example.com;
+
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+## 节点部署
+
+### 方式一：Docker（推荐）
 
 ```bash
-docker compose -f deploy/docker/docker-compose.prod.yml logs -f api-server
+docker run -d \
+  --name zboard-agent \
+  --restart unless-stopped \
+  --network host \
+  -v /etc/zboard-agent:/etc/zboard-agent \
+  -v /var/lib/zboard-agent:/var/lib/zboard-agent \
+  -v /usr/local/bin/xray:/usr/local/bin/xray \
+  sakurajiamai/zboard-agent:latest
 ```
 
-## 初始化管理员
+配置文件 `/etc/zboard-agent/agent.env`：
 
-服务启动后调用：
-
-```http
-POST /api/admin/v1/auth/bootstrap
+```env
+ZBOARD_AGENT_API_BASE_URL=https://panel.example.com
+ZBOARD_AGENT_NODE_ID=1
+ZBOARD_AGENT_NODE_SECRET=创建节点时返回的一次性密钥
+ZBOARD_AGENT_RUNTIME_BINARY=/usr/local/bin/xray
+ZBOARD_AGENT_RUNTIME_TYPE=xray
+ZBOARD_AGENT_STATS_API_ADDR=127.0.0.1:10085
 ```
 
-请求体需要提供 `ZBOARD_ADMIN_SETUP_TOKEN` 对应的一次性初始化令牌。系统中已有管理员后，该接口返回 409。
-
-## 数据库迁移
-
-当前 SQLite migration 路径：
-
-```text
-apps/api-server/src/db/migrations/sqlite
-```
-
-API Server 启动时自动应用未执行 migration，并记录到 `schema_migrations`。
-
-PostgreSQL migration 预留路径：
-
-```text
-apps/api-server/src/db/migrations/postgres
-```
-
-正式环境切 PostgreSQL 前，需要先补齐同版本 PostgreSQL SQL，并在预发布数据库执行完整迁移和回归测试。
-
-## 健康检查
-
-API Server 健康检查：
-
-```http
-GET /health
-```
-
-Compose 已配置容器 healthcheck：
-
-```text
-http://127.0.0.1:3000/health
-```
-
-健康检查用于判断 API 进程是否可响应；数据库连通性已经在应用启动和业务请求中覆盖，后续可以把数据库状态加入 `/health` 返回。
-
-## 日志
-
-Compose 使用 Docker `json-file` 日志驱动，并配置轮转：
-
-```text
-max-size=10m
-max-file=5
-```
-
-查看日志：
+### 方式二：systemd（裸机）
 
 ```bash
-docker compose -f deploy/docker/docker-compose.prod.yml logs --tail=200 api-server
-```
+wget -O /usr/local/bin/zboard-agent <release-url>
+chmod +x /usr/local/bin/zboard-agent
+mkdir -p /etc/zboard-agent /var/lib/zboard-agent
 
-## 备份
-
-必须备份：
-
-- `/data/zboard.sqlite`
-- `deploy/env/api.env` 的安全副本
-
-备份脚本：
-
-```text
-deploy/scripts/backup-sqlite.sh
-```
-
-容器内执行示例：
-
-```bash
-docker compose -f deploy/docker/docker-compose.prod.yml exec api-server sh deploy/scripts/backup-sqlite.sh
-```
-
-脚本行为：
-
-- 从 `ZBOARD_DB_PATH` 读取 SQLite 文件。
-- 输出到 `ZBOARD_BACKUP_DIR`。
-- 使用 gzip 压缩。
-- 删除 30 天前的旧备份。
-
-也可以在宿主机直接备份 Docker volume，生产环境应至少保留 7-30 天。
-
-## Agent systemd 部署
-
-服务文件目标：
-
-```ini
+cat > /etc/systemd/system/zboard-agent.service << 'EOF'
 [Unit]
 Description=Zboard Node Agent
 After=network-online.target
-Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/zboard-agent -config /etc/zboard/agent.yaml
-Restart=always
+EnvironmentFile=/etc/zboard-agent/agent.env
+ExecStart=/usr/local/bin/zboard-agent --config /etc/zboard-agent/agent.env
+Restart=on-failure
 RestartSec=5
-User=root
-WorkingDirectory=/var/lib/zboard-agent
+LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now zboard-agent
 ```
 
-Agent 需要管理宿主机上的运行时、写配置、调用 systemd、采集本机流量。第一版生产环境不建议把 Agent 放进 Docker。
+### 节点运行时
 
-## 上线检查表
+Agent 需要 Xray 或 sing-box 已安装：
 
-- `deploy/env/api.env` 已创建且未提交仓库。
-- `ZBOARD_ADMIN_SETUP_TOKEN` 已设置为一次性强随机值。
-- `ZBOARD_TOKEN_SECRET` 已设置为强随机值。
-- Docker Compose 已启动。
-- `/health` 返回正常。
-- 数据库迁移已自动应用。
-- 管理员账号已创建。
-- 备份脚本可执行。
-- 日志轮转已生效。
+```bash
+# Xray
+bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+
+# sing-box
+bash -c "$(curl -fsSL https://sing-box.app/deb-install.sh)"
+```
+
+## 添加节点流程
+
+1. 管理员后台 `POST /api/admin/v1/nodes` 创建节点
+2. 记录返回的 `node_id` + `node_secret`（仅返回一次）
+3. 在 VPS 上部署 Agent，填入上述信息
+4. Agent 自动注册、拉取配置、启动运行时
+5. 管理员 `POST /api/admin/v1/nodes/:id/sync-config` 生成配置
+6. Agent 下次 pull 时自动应用
+
+## 环境变量参考
+
+### API Server
+
+| 变量 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `ZBOARD_HOST` | 否 | `127.0.0.1` | 监听地址 |
+| `ZBOARD_PORT` | 否 | `3000` | 监听端口 |
+| `ZBOARD_DB_DIALECT` | 是 | `sqlite` | `mysql` / `postgres` / `sqlite` |
+| `ZBOARD_DB_DSN` | 是* | - | 数据库连接串 |
+| `ZBOARD_ADMIN_SETUP_TOKEN` | 是 | - | 首次初始化管理员密钥 |
+| `ZBOARD_TOKEN_SECRET` | 是 | - | 会话 token 签名密钥 |
+
+### Node Agent
+
+| 变量 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `ZBOARD_AGENT_API_BASE_URL` | 是 | - | 控制面地址 |
+| `ZBOARD_AGENT_NODE_ID` | 是 | - | 节点 ID |
+| `ZBOARD_AGENT_NODE_SECRET` | 是 | - | 节点密钥 |
+| `ZBOARD_AGENT_RUNTIME_BINARY` | 否 | `/usr/local/bin/xray` | 运行时路径 |
+| `ZBOARD_AGENT_RUNTIME_TYPE` | 否 | `xray` | `xray` 或 `sing-box` |
+| `ZBOARD_AGENT_STATS_API_ADDR` | 否 | `127.0.0.1:10085` | stats gRPC 地址 |
+
+## 数据库
+
+线上推荐 MariaDB。启动时自动执行 migration，无需手动建表。
+
+DSN 格式：`user:password@tcp(host:3306)/dbname?parseTime=true&charset=utf8mb4`
+
+## 监控
+
+- 健康检查：`GET /health`
+- Agent 心跳：`nodes.last_heartbeat_at`
+- 审计日志：`GET /api/admin/v1/audit-logs`
+
+## CI/CD
+
+GitHub Actions 在 push 到 `main` 时自动构建三个镜像并推送到 DockerHub。
+
+生产更新：`docker compose pull && docker compose up -d`

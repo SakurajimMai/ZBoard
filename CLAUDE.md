@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-Zboard 是纯自研的商业订阅节点中控系统，自研控制面、Node Agent、订阅生成和流量统计，直接管理 Xray-core / sing-box core 运行时。**严禁** 依赖、兼容、读取或迁移 3x-ui 的任何数据/接口/逻辑。Agent 主动连控制面，控制面**不**主动 SSH 到节点。
+Zboard 是纯自研的商业订阅节点中控系统，自研控制面、Node Agent、订阅生成和流量统计，直接管理 Xray-core / sing-box core 运行时。完全自研，不依赖任何第三方面板系统。Agent 主动连控制面，控制面**不**主动 SSH 到节点。
 
 后端：Go 1.25 + Gin + sqlx，三方言 migration（MySQL/PostgreSQL/SQLite）。线上目标库是 MariaDB（走 MySQL 协议）。
 
