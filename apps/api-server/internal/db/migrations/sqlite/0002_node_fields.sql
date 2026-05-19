@@ -1,0 +1,9 @@
+-- 0002 node transport / TLS / Reality fields (SQLite)
+ALTER TABLE nodes ADD COLUMN ws_path TEXT NOT NULL DEFAULT '/';
+ALTER TABLE nodes ADD COLUMN ws_host TEXT NOT NULL DEFAULT '';
+ALTER TABLE nodes ADD COLUMN grpc_service_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE nodes ADD COLUMN sni TEXT NOT NULL DEFAULT '';
+ALTER TABLE nodes ADD COLUMN fingerprint TEXT NOT NULL DEFAULT '';
+ALTER TABLE nodes ADD COLUMN reality_public_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE nodes ADD COLUMN reality_short_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE nodes ADD COLUMN reality_server_name TEXT NOT NULL DEFAULT '';

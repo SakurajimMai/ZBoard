@@ -1,0 +1,10 @@
+-- 0002 node transport / TLS / Reality fields (MySQL / MariaDB)
+ALTER TABLE nodes
+  ADD COLUMN ws_path VARCHAR(255) NOT NULL DEFAULT '/',
+  ADD COLUMN ws_host VARCHAR(255) NOT NULL DEFAULT '',
+  ADD COLUMN grpc_service_name VARCHAR(128) NOT NULL DEFAULT '',
+  ADD COLUMN sni VARCHAR(255) NOT NULL DEFAULT '',
+  ADD COLUMN fingerprint VARCHAR(64) NOT NULL DEFAULT '',
+  ADD COLUMN reality_public_key VARCHAR(128) NOT NULL DEFAULT '',
+  ADD COLUMN reality_short_id VARCHAR(32) NOT NULL DEFAULT '',
+  ADD COLUMN reality_server_name VARCHAR(255) NOT NULL DEFAULT '';

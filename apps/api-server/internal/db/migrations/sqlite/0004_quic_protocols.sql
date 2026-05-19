@@ -1,0 +1,5 @@
+-- 0004 hysteria2 / tuic fields (SQLite)
+ALTER TABLE nodes ADD COLUMN obfs_password TEXT NOT NULL DEFAULT '';
+ALTER TABLE nodes ADD COLUMN congestion_control TEXT NOT NULL DEFAULT '';
+ALTER TABLE nodes ADD COLUMN up_mbps INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE nodes ADD COLUMN down_mbps INTEGER NOT NULL DEFAULT 0;

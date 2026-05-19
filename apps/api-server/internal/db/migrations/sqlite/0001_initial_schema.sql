@@ -1,0 +1,297 @@
+-- Initial schema (SQLite)
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version TEXT PRIMARY KEY,
+  applied_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  balance TEXT DEFAULT '0.00' NOT NULL,
+  plan_id INTEGER,
+  expired_at DATETIME,
+  traffic_limit INTEGER DEFAULT 0 NOT NULL,
+  traffic_used INTEGER DEFAULT 0 NOT NULL,
+  status TEXT DEFAULT 'active' NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS plans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  price TEXT NOT NULL,
+  duration_days INTEGER NOT NULL,
+  traffic_limit INTEGER NOT NULL,
+  device_limit INTEGER DEFAULT 3 NOT NULL,
+  speed_limit INTEGER DEFAULT 0 NOT NULL,
+  node_group_id INTEGER,
+  status TEXT DEFAULT 'active' NOT NULL,
+  sort INTEGER DEFAULT 0 NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_no TEXT UNIQUE NOT NULL,
+  user_id INTEGER NOT NULL,
+  plan_id INTEGER NOT NULL,
+  amount TEXT NOT NULL,
+  currency TEXT DEFAULT 'CNY' NOT NULL,
+  status TEXT DEFAULT 'pending' NOT NULL,
+  paid_at DATETIME,
+  cancelled_at DATETIME,
+  expired_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  payment_no TEXT UNIQUE NOT NULL,
+  order_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  provider TEXT NOT NULL,
+  provider_trade_no TEXT,
+  amount TEXT NOT NULL,
+  status TEXT DEFAULT 'pending' NOT NULL,
+  paid_at DATETIME,
+  raw_payload TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS payment_callbacks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider TEXT NOT NULL,
+  provider_event_id TEXT,
+  order_no TEXT,
+  signature_valid INTEGER DEFAULT 1 NOT NULL,
+  processed INTEGER DEFAULT 0 NOT NULL,
+  processed_at DATETIME,
+  raw_headers TEXT,
+  raw_body TEXT,
+  error_message TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  UNIQUE(provider, provider_event_id)
+);
+
+CREATE TABLE IF NOT EXISTS subscription_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  token TEXT UNIQUE NOT NULL,
+  token_hash TEXT UNIQUE NOT NULL,
+  status TEXT DEFAULT 'active' NOT NULL,
+  last_access_ip TEXT,
+  last_access_user_agent TEXT,
+  last_access_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS nodes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  node_code TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  region TEXT,
+  host TEXT NOT NULL,
+  port INTEGER DEFAULT 443 NOT NULL,
+  protocol TEXT DEFAULT 'vless' NOT NULL,
+  transport TEXT DEFAULT 'tcp' NOT NULL,
+  security TEXT DEFAULT 'tls' NOT NULL,
+  runtime_type TEXT DEFAULT 'xray' NOT NULL,
+  agent_version TEXT,
+  status TEXT DEFAULT 'active' NOT NULL,
+  last_heartbeat_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS node_agents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  node_id INTEGER UNIQUE NOT NULL,
+  node_secret_hash TEXT NOT NULL,
+  status TEXT DEFAULT 'pending' NOT NULL,
+  version TEXT,
+  os_info TEXT,
+  runtime_info TEXT,
+  registered_at DATETIME,
+  last_seen_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_heartbeats (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  node_id INTEGER NOT NULL,
+  agent_version TEXT,
+  runtime_status TEXT,
+  runtime_info TEXT,
+  system_load TEXT,
+  reported_at DATETIME NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS admin_users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  role TEXT DEFAULT 'admin' NOT NULL,
+  two_factor_enabled INTEGER DEFAULT 0 NOT NULL,
+  two_factor_secret TEXT,
+  status TEXT DEFAULT 'active' NOT NULL,
+  last_login_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  admin_id INTEGER NOT NULL,
+  token_hash TEXT UNIQUE NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  token_hash TEXT UNIQUE NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS node_groups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  description TEXT,
+  status TEXT DEFAULT 'active' NOT NULL,
+  sort INTEGER DEFAULT 0 NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS node_users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  node_id INTEGER NOT NULL,
+  client_id TEXT NOT NULL,
+  protocol TEXT NOT NULL,
+  enabled INTEGER DEFAULT 1 NOT NULL,
+  upload INTEGER DEFAULT 0 NOT NULL,
+  download INTEGER DEFAULT 0 NOT NULL,
+  speed_limit INTEGER DEFAULT 0 NOT NULL,
+  device_limit INTEGER DEFAULT 0 NOT NULL,
+  last_sync_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  UNIQUE(user_id, node_id)
+);
+
+CREATE TABLE IF NOT EXISTS runtime_configs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  node_id INTEGER NOT NULL,
+  version TEXT NOT NULL,
+  config_hash TEXT NOT NULL,
+  config_json TEXT NOT NULL,
+  status TEXT DEFAULT 'pending' NOT NULL,
+  applied_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  UNIQUE(node_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS node_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT UNIQUE NOT NULL,
+  node_id INTEGER NOT NULL,
+  task_type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT DEFAULT 'pending' NOT NULL,
+  retry_count INTEGER DEFAULT 0 NOT NULL,
+  max_retry_count INTEGER DEFAULT 5 NOT NULL,
+  locked_at DATETIME,
+  executed_at DATETIME,
+  failed_reason TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS node_task_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT NOT NULL,
+  node_id INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  message TEXT,
+  detail TEXT,
+  reported_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS traffic_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  node_id INTEGER NOT NULL,
+  upload_delta INTEGER DEFAULT 0 NOT NULL,
+  download_delta INTEGER DEFAULT 0 NOT NULL,
+  total_delta INTEGER DEFAULT 0 NOT NULL,
+  reported_at DATETIME NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_traffic_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER UNIQUE NOT NULL,
+  upload_total INTEGER DEFAULT 0 NOT NULL,
+  download_total INTEGER DEFAULT 0 NOT NULL,
+  total_used INTEGER DEFAULT 0 NOT NULL,
+  traffic_limit INTEGER DEFAULT 0 NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS subscription_access_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  token_hash TEXT,
+  target TEXT,
+  ip TEXT,
+  user_agent TEXT,
+  result TEXT NOT NULL,
+  reason TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_type TEXT NOT NULL,
+  actor_id INTEGER,
+  action TEXT NOT NULL,
+  resource_type TEXT,
+  resource_id TEXT,
+  ip TEXT,
+  user_agent TEXT,
+  detail TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key_value TEXT UNIQUE NOT NULL,
+  scope TEXT NOT NULL,
+  request_hash TEXT,
+  response_body TEXT,
+  status TEXT DEFAULT 'processing' NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_nonces (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  node_id INTEGER NOT NULL,
+  nonce TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  UNIQUE(node_id, nonce)
+);
