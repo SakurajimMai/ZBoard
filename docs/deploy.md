@@ -211,7 +211,7 @@ curl -O https://raw.githubusercontent.com/SakurajimMai/ZBoard/main/deploy/docker
 mv docker-compose.agent.yml docker-compose.yml   # 让 docker compose 直接识别
 curl -O https://raw.githubusercontent.com/SakurajimMai/ZBoard/main/deploy/docker/agent.env.example
 cp agent.env.example agent.env                   # 必须与 docker-compose.yml 同目录
-mkdir -p data && touch data/runtime.json
+mkdir -p data/etc data/agent
 ```
 
 > ⚠️ `agent.env` 必须放在 `docker-compose.yml` 同目录,不要放进 `data/` 子目录,否则启动时会报 `env file ... not found`。

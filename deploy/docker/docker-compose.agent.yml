@@ -14,12 +14,9 @@ services:
     network_mode: host
     env_file: ./agent.env
     volumes:
-      - ./data/runtime.json:/etc/zboard-agent/runtime.json
+      # 挂目录而非文件,避免 Docker 把不存在的 runtime.json 创建成目录的陷阱
+      - ./data/etc:/etc/zboard-agent
       - ./data/agent:/var/lib/zboard-agent
-      # 挂载 Xray 或 sing-box 二进制（根据实际路径调整）
-      - /usr/local/bin/xray:/usr/local/bin/xray:ro
-      # 如果用 sing-box，取消下面注释：
-      # - /usr/local/bin/sing-box:/usr/local/bin/sing-box:ro
     logging:
       driver: json-file
       options:
