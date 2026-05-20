@@ -90,16 +90,17 @@ func xray(node *store.Node, users []store.NodeUser) map[string]any {
 		}
 		stream["tlsSettings"] = tls
 	case "reality":
+		// Xray Reality inbound = 服务端模式,必须有 dest + serverNames(复数) + privateKey。
+		// 如果缺 dest,Xray 会走客户端解析分支,报 empty "password"。
+		dest := node.RealityDest
+		if dest == "" {
+			dest = defaultStr(node.RealityServerName, node.Host) + ":443"
+		}
 		reality := map[string]any{
-			"show":       false,
-			"serverName": node.RealityServerName,
+			"show":        false,
+			"dest":        dest,
+			"serverNames": []string{node.RealityServerName},
 		}
-		if node.RealityDest != "" {
-			reality["dest"] = node.RealityDest
-		}
-		// Reality requires the *server's* private key on the inbound; the
-		// public key is exposed to clients. The private key must never leak
-		// to the subscription renderer.
 		if node.RealityPrivateKey != "" {
 			reality["privateKey"] = node.RealityPrivateKey
 		}
