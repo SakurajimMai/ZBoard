@@ -1,4 +1,17 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3000'
+// API base URL: use env var at build time, or derive from browser location at runtime.
+// In production, the API runs on the same host at port 3000.
+function getApiBase(): string {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL
+  }
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname } = window.location
+    return `${protocol}//${hostname}:3000`
+  }
+  return 'http://127.0.0.1:3000'
+}
+
+const API_BASE = getApiBase()
 
 class ApiError extends Error {
   status: number

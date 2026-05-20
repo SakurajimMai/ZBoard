@@ -90,10 +90,6 @@ export default function LoginPage() {
             {isLogin ? "注册" : "登录"}
           </button>
         </p>
-
-        <p className="text-center text-sm text-muted-foreground">
-          <a href="/admin/login" className="text-primary hover:underline">管理员入口</a>
-        </p>
       </div>
     </div>
   )
