@@ -44,11 +44,19 @@ func Default() *Config {
 
 // Load reads a key=value file (lines starting with # are comments) and
 // overlays env variables on top. Both layers use the ZBOARD_AGENT_* prefix.
+//
+// If the config file does not exist, Load gracefully falls back to env-only
+// mode. This supports the Docker `env_file:` pattern, where the compose runtime
+// injects the variables into the container environment without creating a file
+// at the configured --config path.
 func Load(path string) (*Config, error) {
 	cfg := Default()
 	if path != "" {
 		if err := readKVFile(path, cfg); err != nil {
-			return nil, err
+			if !os.IsNotExist(err) {
+				return nil, err
+			}
+			// File missing is OK — rely on env vars below.
 		}
 	}
 	overlayEnv(cfg)
