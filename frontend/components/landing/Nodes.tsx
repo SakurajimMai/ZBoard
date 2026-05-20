@@ -1,89 +1,52 @@
 "use client"
 
-import { Globe, Wifi, Server } from "lucide-react"
-import { useI18n } from "@/lib/i18n/context"
+import { useEffect, useState } from "react"
+import { Globe, Server } from "lucide-react"
+import { getPlans } from "@/lib/api"
 
-const regions = [
-  { code: "HK", latency: "8ms",   count: 20, status: "online" },
-  { code: "JP", latency: "15ms",  count: 18, status: "online" },
-  { code: "SG", latency: "22ms",  count: 16, status: "online" },
-  { code: "TW", latency: "12ms",  count: 14, status: "online" },
-  { code: "US", latency: "140ms", count: 30, status: "online" },
-  { code: "UK", latency: "185ms", count: 12, status: "online" },
-  { code: "DE", latency: "195ms", count: 10, status: "online" },
-  { code: "KR", latency: "18ms",  count: 15, status: "online" },
-  { code: "NL", latency: "190ms", count: 8,  status: "maintenance" },
-  { code: "CA", latency: "155ms", count: 10, status: "online" },
-  { code: "AU", latency: "88ms",  count: 8,  status: "online" },
-  { code: "IN", latency: "75ms",  count: 6,  status: "online" },
-]
-
-// Country names per locale are handled via browser-native Intl API
-function getCountryName(code: string, locale: string) {
-  try {
-    return new Intl.DisplayNames([locale], { type: "region" }).of(code) ?? code
-  } catch {
-    return code
-  }
-}
-
+// This component shows available regions on the landing page.
+// Since the public API doesn't expose node details (security), we show
+// a simple "X regions available" message based on whether plans exist.
 export default function Nodes() {
-  const { t, locale } = useI18n()
+  const [hasPlans, setHasPlans] = useState(false)
+
+  useEffect(() => {
+    getPlans()
+      .then((res) => setHasPlans((res.items || []).length > 0))
+      .catch(() => {})
+  }, [])
 
   return (
-    <section id="nodes" className="py-20 sm:py-28 px-4 sm:px-6 lg:px-8 bg-muted/30">
-      <div className="mx-auto max-w-7xl">
-        <div className="text-center mb-12 sm:mb-16">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-2 text-sm text-primary font-medium mb-4">
-            {t.nodes.title}
+    <section id="nodes" className="py-20 px-4 bg-muted/30">
+      <div className="max-w-6xl mx-auto text-center">
+        <h2 className="text-3xl font-bold">全球节点覆盖</h2>
+        <p className="text-muted-foreground mt-2 max-w-xl mx-auto">
+          多地区高速节点，支持 VLESS+Reality、Hysteria2、TUIC 等抗封锁协议，智能选路确保最佳连接体验。
+        </p>
+
+        <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-2xl mx-auto">
+          <div className="rounded-2xl border bg-card p-6 text-center">
+            <Globe className="w-8 h-8 text-primary mx-auto mb-3" />
+            <div className="text-2xl font-bold">多地区</div>
+            <p className="text-sm text-muted-foreground mt-1">全球节点覆盖</p>
           </div>
-          <h2 className="text-balance text-3xl sm:text-4xl md:text-5xl font-bold text-foreground mb-4">
-            {t.nodes.subtitle}
-          </h2>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 sm:gap-4">
-          {regions.map((r) => (
-            <div
-              key={r.code}
-              className="rounded-2xl border border-border/50 bg-card p-4 sm:p-5 card-shadow hover:card-shadow-hover hover:border-primary/20 transition-all group"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <span className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-xs font-bold text-primary group-hover:bg-primary/15 transition-colors">
-                  {r.code}
-                </span>
-                <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${r.status === "online" ? "bg-success" : "bg-yellow-500"}`} />
-              </div>
-              <div className="font-semibold text-sm text-foreground mb-1 truncate">
-                {getCountryName(r.code, locale)}
-              </div>
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{r.count} {t.nodes.online === "Online" ? "nodes" : "节点"}</span>
-                <span className="text-primary font-mono font-medium">{r.latency}</span>
-              </div>
+          <div className="rounded-2xl border bg-card p-6 text-center">
+            <Server className="w-8 h-8 text-primary mx-auto mb-3" />
+            <div className="text-2xl font-bold">高可用</div>
+            <p className="text-sm text-muted-foreground mt-1">自动故障转移</p>
+          </div>
+          <div className="rounded-2xl border bg-card p-6 text-center">
+            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3">
+              <div className="w-3 h-3 rounded-full bg-green-500" />
             </div>
-          ))}
+            <div className="text-2xl font-bold">{hasPlans ? "在线" : "—"}</div>
+            <p className="text-sm text-muted-foreground mt-1">服务状态</p>
+          </div>
         </div>
 
-        {/* Line types */}
-        <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
-          {[
-            { icon: Globe, title: "IPLC", desc: "国际私人租用电路，点对点直连，延迟最低。" },
-            { icon: Wifi,  title: "BGP",  desc: "自动选择最优出口，多运营商互联，智能规避拥堵。" },
-            { icon: Server, title: "中转加速", desc: "国内中转 + 海外出口，有效绕过跨境访问障碍。" },
-          ].map((item) => {
-            const Icon = item.icon
-            return (
-              <div key={item.title} className="rounded-2xl border border-border/50 bg-card p-6 card-shadow">
-                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
-                  <Icon className="w-6 h-6 text-primary" />
-                </div>
-                <h3 className="font-semibold text-foreground text-lg mb-2">{item.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
-              </div>
-            )
-          })}
-        </div>
+        <p className="mt-8 text-sm text-muted-foreground">
+          注册后可在控制台查看完整节点列表和实时状态。
+        </p>
       </div>
     </section>
   )

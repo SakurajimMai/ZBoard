@@ -1,130 +1,52 @@
 "use client"
 
-import { Plus, Edit, Trash2, Eye, EyeOff } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { useState } from "react"
-
-const plans = [
-  {
-    id: 1,
-    name: "入门版",
-    price: 15,
-    traffic: 100,
-    devices: 3,
-    speed: "100 Mbps",
-    subscribers: 3241,
-    visible: true,
-  },
-  {
-    id: 2,
-    name: "标准版",
-    price: 30,
-    traffic: 300,
-    devices: 5,
-    speed: "500 Mbps",
-    subscribers: 6892,
-    visible: true,
-  },
-  {
-    id: 3,
-    name: "旗舰版",
-    price: 60,
-    traffic: 1024,
-    devices: 10,
-    speed: "不限速",
-    subscribers: 2348,
-    visible: true,
-  },
-  {
-    id: 4,
-    name: "体验版（已下架）",
-    price: 5,
-    traffic: 20,
-    devices: 1,
-    speed: "50 Mbps",
-    subscribers: 0,
-    visible: false,
-  },
-]
+import { useEffect, useState } from "react"
+import { adminGetPlans } from "@/lib/api"
 
 export default function AdminPlans() {
-  const [planList, setPlanList] = useState(plans)
+  const [plans, setPlans] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const toggleVisible = (id: number) => {
-    setPlanList((prev) => prev.map((p) => p.id === id ? { ...p, visible: !p.visible } : p))
-  }
+  useEffect(() => {
+    adminGetPlans()
+      .then((res) => setPlans(res.items || []))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div className="text-muted-foreground p-8">加载中...</div>
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">套餐管理</h1>
-          <p className="text-sm text-muted-foreground mt-1">管理对外展示的订阅套餐。</p>
+      <div>
+        <h1 className="text-2xl font-bold">套餐管理</h1>
+        <p className="text-sm text-muted-foreground mt-1">共 {plans.length} 个套餐</p>
+      </div>
+
+      {plans.length === 0 ? (
+        <div className="text-center text-muted-foreground py-12">暂无套餐，请通过 API 创建</div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {plans.map((p: any) => (
+            <div key={p.id} className="rounded-xl border bg-card p-5">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">{p.name}</h3>
+                <span className={`text-xs rounded-full px-2 py-0.5 ${
+                  p.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"
+                }`}>
+                  {p.status === "active" ? "上架" : "下架"}
+                </span>
+              </div>
+              <div className="text-2xl font-bold">¥{p.price}</div>
+              <div className="text-sm text-muted-foreground mt-1">{p.duration_days} 天</div>
+              <div className="mt-3 text-xs text-muted-foreground space-y-1">
+                <p>流量: {(p.traffic_limit / 1073741824).toFixed(0)} GB</p>
+                <p>设备: {p.device_limit} 台</p>
+              </div>
+            </div>
+          ))}
         </div>
-        <Button className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90">
-          <Plus className="w-4 h-4" />
-          新建套餐
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {planList.map((plan) => (
-          <div
-            key={plan.id}
-            className={`rounded-xl border p-5 ${
-              plan.visible ? "border-border bg-card" : "border-border/40 bg-card/50 opacity-60"
-            }`}
-          >
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="font-semibold text-foreground">{plan.name}</h3>
-                  <span className={`text-xs rounded-full px-2 py-0.5 ${
-                    plan.visible ? "bg-green-500/15 text-green-400" : "bg-secondary text-muted-foreground"
-                  }`}>
-                    {plan.visible ? "已上架" : "已下架"}
-                  </span>
-                </div>
-                <p className="text-2xl font-bold text-foreground mt-1">¥{plan.price}<span className="text-sm font-normal text-muted-foreground">/月</span></p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => toggleVisible(plan.id)}
-                  className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-primary transition-colors"
-                  aria-label={plan.visible ? "下架套餐" : "上架套餐"}
-                >
-                  {plan.visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                </button>
-                <button className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
-                  <Edit className="w-4 h-4" />
-                </button>
-                <button className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 text-sm mb-4">
-              <div className="rounded-lg bg-secondary p-3">
-                <p className="text-xs text-muted-foreground mb-0.5">月流量</p>
-                <p className="font-medium text-foreground">{plan.traffic} GB</p>
-              </div>
-              <div className="rounded-lg bg-secondary p-3">
-                <p className="text-xs text-muted-foreground mb-0.5">设备数</p>
-                <p className="font-medium text-foreground">{plan.devices} 台</p>
-              </div>
-              <div className="rounded-lg bg-secondary p-3">
-                <p className="text-xs text-muted-foreground mb-0.5">速度限制</p>
-                <p className="font-medium text-foreground">{plan.speed}</p>
-              </div>
-              <div className="rounded-lg bg-secondary p-3">
-                <p className="text-xs text-muted-foreground mb-0.5">订阅人数</p>
-                <p className="font-medium text-foreground">{plan.subscribers.toLocaleString()}</p>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      )}
     </div>
   )
 }
