@@ -45,6 +45,7 @@ func New(d Deps) *gin.Engine {
 		api.GET("/plans", listPlans(d))
 		api.POST("/payments/mock-callback", mockPaymentCallback(d))
 		api.POST("/payments/:provider/callback", paymentCallback(d))
+		api.GET("/payment-methods", listAvailablePaymentMethods(d))
 
 		authed := api.Group("")
 		authed.Use(userAuth(d.Auth))
@@ -88,6 +89,10 @@ func New(d Deps) *gin.Engine {
 			authed.GET("/traffic/users", adminListTrafficSnapshots(d))
 			authed.GET("/traffic/logs", adminListTrafficLogs(d))
 			authed.POST("/workers/maintenance/run", adminRunMaintenance(d))
+			authed.GET("/payment-providers", adminListPaymentProviders(d))
+			authed.POST("/payment-providers", adminCreatePaymentProvider(d))
+			authed.PUT("/payment-providers/:id", adminUpdatePaymentProvider(d))
+			authed.DELETE("/payment-providers/:id", adminDeletePaymentProvider(d))
 		}
 	}
 
