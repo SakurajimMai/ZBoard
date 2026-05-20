@@ -103,6 +103,14 @@ ZBOARD_NOWPAY_IPN_SECRET=your_ipn_secret
 
 #### 4. 启动服务
 
+如果前端和 API 暴露在同一台服务器的默认端口，可直接留空 `NEXT_PUBLIC_API_URL`；前端会按浏览器当前主机推导 `http(s)://<host>:3000`。如果 API 使用其它公网地址或端口，请在启动前设置为浏览器可访问的地址：
+
+```env
+NEXT_PUBLIC_API_URL=http://你的服务器IP:3000
+```
+
+注意：不要填写 Docker 内部服务名，例如 `http://api:3000`，用户浏览器无法解析这个地址。
+
 ```bash
 docker compose -f docker-compose.prod.yml up -d
 ```
@@ -131,36 +139,6 @@ curl -X POST http://127.0.0.1:3000/api/admin/v1/auth/bootstrap \
 ```
 
 初始化成功后 `ZBOARD_ADMIN_SETUP_TOKEN` 即失效，无法再次使用。
-
-#### 7. 配置反向代理（推荐）
-
-Nginx 示例：
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name panel.example.com;
-
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    # API
-    location /api/ {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # 前端
-    location / {
-        proxy_pass http://127.0.0.1:3001;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
 
 ### 更新控制面
 

@@ -61,7 +61,7 @@ The agent's three loops:
 | --------- | --------------- | -------------------------------- |
 | Heartbeat | `30s` default   | `POST /api/agent/v1/heartbeat`   |
 | Tasks     | `10s` default   | `POST /api/agent/v1/tasks/pull`  |
-| Traffic   | `60s` default   | `POST /api/agent/v1/traffic/report` (stub for MVP) |
+| Traffic   | `60s` default   | `POST /api/agent/v1/traffic/report` |
 
 `sync_config` tasks include the full runtime config inline; the supervisor
 hashes it and skips the restart when nothing changed. `disable_user` tasks are

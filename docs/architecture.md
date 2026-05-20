@@ -63,16 +63,15 @@ VPS 节点
 
 ### 控制面
 
-MVP 推荐：
+当前实现：
 
-- 后端：NestJS + TypeScript。
-- ORM：Drizzle ORM 或 Prisma。
-- 数据库：PostgreSQL。
-- 缓存和锁：Redis。
-- 队列：BullMQ。
-- 前端：Next.js + React + Tailwind CSS + shadcn/ui。
+- 后端：Go 1.25 + Gin + sqlx。
+- 数据库：MySQL / MariaDB / PostgreSQL / SQLite，按方言维护 migration。
+- 任务：维护任务运行在 API Server 内，负责到期/超额停用、任务超时清理和失败重试。
+- 前端：Next.js 16 + React 19 + Tailwind 4 + shadcn/ui。
+- 部署：API Server、前端和 Node Agent 都提供 Dockerfile，正式环境通过 Docker Compose 或 systemd 运行。
 
-说明：原始方案中的 Hono 适合轻量 API，但 Zboard 的商业模块、后台权限、支付回调、队列和审计复杂度较高，MVP 默认采用 NestJS 更利于模块化和团队协作。若后续需要边缘部署或极轻量网关，可以在局部服务中引入 Hono。
+说明：当前代码已经落地为 Go 控制面和独立 Next.js 前端，不再使用早期草案中的 NestJS/Hono 方案。后续如需独立 worker、边缘网关或更多拆分服务，应在保持 API 契约稳定的前提下增量演进。
 
 ### 节点 Agent
 
@@ -87,27 +86,13 @@ MVP 推荐：
 ```text
 zboard/
 ├── apps/
-│   ├── user-web/                  # 用户前台
-│   ├── admin-web/                 # 管理后台
-│   ├── api-server/                # 商业主后端
-│   ├── worker-service/            # 异步任务服务
-│   └── node-agent/                # 自研节点 Agent
+│   ├── api-server/                # Go 控制面 API
+│   └── node-agent/                # Go 节点 Agent
 │
-├── packages/
-│   ├── shared-types/              # 公共类型
-│   ├── sdk/                       # 内部 SDK
-│   ├── config-builder/            # 节点配置生成器
-│   ├── subscription-renderer/     # 订阅格式生成器
-│   ├── payment-sdk/               # 支付适配器
-│   ├── agent-protocol/            # Agent 通信协议
-│   ├── runtime-schema/            # Xray / sing-box 配置模型
-│   └── security-kit/              # 加密、签名、鉴权、限流工具
+├── frontend/                      # Next.js 用户端和管理端
 │
 ├── deploy/
-│   ├── docker/
-│   ├── systemd/
-│   ├── k8s/
-│   └── terraform/
+│   └── docker/
 │
 ├── docs/
 └── scripts/
@@ -117,33 +102,18 @@ zboard/
 
 ```text
 api-server/
-├── src/
-│   ├── modules/
-│   │   ├── auth/                  # 登录注册
-│   │   ├── users/                 # 用户管理
-│   │   ├── plans/                 # 套餐管理
-│   │   ├── orders/                # 订单管理
-│   │   ├── payments/              # 支付系统
-│   │   ├── subscriptions/         # 订阅 token
-│   │   ├── nodes/                 # 节点管理
-│   │   ├── node-groups/           # 节点组
-│   │   ├── node-agents/           # Agent 管理
-│   │   ├── node-tasks/            # 节点任务
-│   │   ├── runtime-configs/       # 节点运行配置
-│   │   ├── traffic/               # 流量统计
-│   │   ├── admin/                 # 管理员
-│   │   ├── audit-logs/            # 操作日志
-│   │   └── system-settings/       # 系统配置
-│   │
-│   ├── services/
-│   │   ├── config-builder/        # 配置生成
-│   │   ├── node-dispatcher/       # 节点任务分发
-│   │   ├── traffic-aggregator/    # 流量聚合
-│   │   └── subscription-builder/  # 订阅生成
-│   │
-│   ├── common/
-│   ├── database/
-│   └── main.ts
+├── cmd/server/                    # 启动入口
+└── internal/
+    ├── authsvc/                   # 用户/管理员登录注册
+    ├── bizsvc/                    # 套餐、订单、支付激活
+    ├── db/                        # sqlx 连接和三方言 migration
+    ├── nodesvc/                   # 配置同步和回滚任务
+    ├── runtime/                   # Xray / sing-box 配置生成
+    ├── subrender/                 # Clash / sing-box / Base64 订阅渲染
+    ├── agentauth/                 # Agent HMAC 鉴权
+    ├── store/                     # 仓储层
+    ├── worker/                    # 到期/超额/任务维护
+    └── server/                    # Gin 路由和 HTTP handler
 ```
 
 ## 核心流程

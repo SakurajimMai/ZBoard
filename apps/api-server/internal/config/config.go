@@ -24,7 +24,15 @@ type Config struct {
 	AdminEmail      string
 	AdminPassword   string
 	TokenSecret     string
-	CORSOrigins     []string // allowed origins, e.g. ["http://localhost:3001","https://panel.example.com"]
+	CORSOrigins     []string
+
+	// SMTP for transactional emails. When SMTPHost/From are empty, the mailer
+	// is disabled and code sends become no-ops (logged only).
+	SMTPHost string
+	SMTPPort int
+	SMTPUser string
+	SMTPPass string
+	SMTPFrom string
 }
 
 func Load() (*Config, error) {
@@ -56,7 +64,24 @@ func Load() (*Config, error) {
 		AdminPassword:   os.Getenv("ZBOARD_ADMIN_PASSWORD"),
 		TokenSecret:     getenv("ZBOARD_TOKEN_SECRET", "dev-token-secret"),
 		CORSOrigins:     parseCORSOrigins(os.Getenv("ZBOARD_CORS_ORIGINS")),
+
+		SMTPHost: os.Getenv("ZBOARD_SMTP_HOST"),
+		SMTPPort: atoiOr(os.Getenv("ZBOARD_SMTP_PORT"), 587),
+		SMTPUser: os.Getenv("ZBOARD_SMTP_USER"),
+		SMTPPass: os.Getenv("ZBOARD_SMTP_PASS"),
+		SMTPFrom: os.Getenv("ZBOARD_SMTP_FROM"),
 	}, nil
+}
+
+func atoiOr(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return def
+	}
+	return n
 }
 
 // parseCORSOrigins splits a comma-separated list of origins.

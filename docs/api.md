@@ -13,17 +13,17 @@
 
 ## 前端入口
 
-当前第一阶段前端由 API Server 同源提供：
+当前前端是独立 Next.js 工程，位于 `frontend/`：
 
-```http
-GET /
-GET /app
-GET /admin
+```text
+/                  # 落地页
+/login             # 用户登录
+/dashboard         # 用户控制台
+/admin/login       # 管理员登录
+/admin             # 管理后台
 ```
 
-- `/` 和 `/app` 返回用户控制台。
-- `/admin` 返回管理工作台。
-- 当前不引入独立前端构建链路，后续复杂交互再迁移到独立 Next/React 工程。
+前端通过 `NEXT_PUBLIC_API_URL` 指向控制面 API。该变量会暴露给浏览器，正式环境必须填写用户浏览器可访问的地址；留空时前端会按当前主机推导 `:3000` 端口作为 API 地址。
 
 ## 通用响应
 

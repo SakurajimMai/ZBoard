@@ -2,28 +2,153 @@ package authsvc
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/zboard/api-server/internal/authx"
 	"github.com/zboard/api-server/internal/httpx"
+	"github.com/zboard/api-server/internal/mailer"
 	"github.com/zboard/api-server/internal/store"
 )
 
 const (
 	UserSessionTTL  = 7 * 24 * time.Hour
 	AdminSessionTTL = 12 * time.Hour
+	EmailCodeTTL    = 10 * time.Minute
+	EmailResendCool = 120 * time.Second
 )
 
 type Service struct {
 	Store      *store.Store
 	SetupToken string
+	Mailer     *mailer.Mailer
 }
 
-func New(s *store.Store, setupToken string) *Service {
-	return &Service{Store: s, SetupToken: setupToken}
+func New(s *store.Store, setupToken string, m *mailer.Mailer) *Service {
+	return &Service{Store: s, SetupToken: setupToken, Mailer: m}
+}
+
+// SendEmailCode generates a 6-digit code, persists it, and emails it. Enforces
+// 120s resend cooldown per (email, purpose). When SMTP is not configured, the
+// code is logged only; useful for dev environments.
+func (s *Service) SendEmailCode(ctx context.Context, email, purpose string) error {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" {
+		return httpx.NewError(http.StatusBadRequest, "bad_request", "邮箱为空")
+	}
+
+	// Cooldown check
+	last, err := s.Store.FindLatestEmailCode(ctx, email, purpose)
+	if err != nil && !store.IsNoRows(err) {
+		return err
+	}
+	if last != nil {
+		gap := time.Since(last.LastSentAt)
+		if gap < EmailResendCool {
+			remain := int((EmailResendCool - gap).Seconds())
+			return httpx.NewError(http.StatusTooManyRequests, "rate_limited",
+				fmt.Sprintf("请 %d 秒后再试", remain))
+		}
+	}
+
+	// Purpose-specific guard
+	switch purpose {
+	case "register":
+		if u, err := s.Store.FindUserByEmail(ctx, email); err == nil && u != nil {
+			return httpx.NewError(http.StatusConflict, "email_taken", "邮箱已注册")
+		}
+	case "reset_password":
+		if _, err := s.Store.FindUserByEmail(ctx, email); err != nil {
+			if store.IsNoRows(err) {
+				return httpx.NewError(http.StatusNotFound, "email_not_found", "该邮箱未注册")
+			}
+			return err
+		}
+	default:
+		return httpx.NewError(http.StatusBadRequest, "bad_request", "无效的 purpose")
+	}
+
+	code := genCode6()
+	if err := s.Store.CreateEmailCode(ctx, email, code, purpose, EmailCodeTTL); err != nil {
+		return err
+	}
+	if s.Mailer != nil {
+		_ = s.Mailer.SendCode(email, code, purpose)
+	}
+	return nil
+}
+
+// RegisterUserWithCode validates the verification code, then creates the user.
+func (s *Service) RegisterUserWithCode(ctx context.Context, email, password, code string) (int64, error) {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" || password == "" || code == "" {
+		return 0, httpx.NewError(http.StatusBadRequest, "bad_request", "邮箱、密码或验证码为空")
+	}
+	if len(password) < 6 {
+		return 0, httpx.NewError(http.StatusBadRequest, "bad_request", "密码至少 6 位")
+	}
+	ok, err := s.Store.VerifyEmailCode(ctx, email, code, "register")
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, httpx.NewError(http.StatusBadRequest, "invalid_code", "验证码错误或已过期")
+	}
+	hash, err := authx.HashPassword(password)
+	if err != nil {
+		return 0, err
+	}
+	id, err := s.Store.CreateUser(ctx, email, hash)
+	if err != nil {
+		if store.IsUniqueViolation(err) {
+			return 0, httpx.NewError(http.StatusConflict, "email_taken", "邮箱已注册")
+		}
+		return 0, err
+	}
+	return id, nil
+}
+
+// ResetPasswordWithCode verifies the code then updates the user's password hash.
+func (s *Service) ResetPasswordWithCode(ctx context.Context, email, newPassword, code string) error {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" || newPassword == "" || code == "" {
+		return httpx.NewError(http.StatusBadRequest, "bad_request", "邮箱、新密码或验证码为空")
+	}
+	if len(newPassword) < 6 {
+		return httpx.NewError(http.StatusBadRequest, "bad_request", "密码至少 6 位")
+	}
+	u, err := s.Store.FindUserByEmail(ctx, email)
+	if err != nil {
+		if store.IsNoRows(err) {
+			return httpx.NewError(http.StatusNotFound, "email_not_found", "该邮箱未注册")
+		}
+		return err
+	}
+	ok, err := s.Store.VerifyEmailCode(ctx, email, code, "reset_password")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return httpx.NewError(http.StatusBadRequest, "invalid_code", "验证码错误或已过期")
+	}
+	hash, err := authx.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	return s.Store.UpdateUserPasswordHash(ctx, u.ID, hash)
+}
+
+// genCode6 returns a 6-digit numeric verification code.
+func genCode6() string {
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	n := binary.BigEndian.Uint32(b[:]) % 1000000
+	return fmt.Sprintf("%06d", n)
 }
 
 // ===== User =====

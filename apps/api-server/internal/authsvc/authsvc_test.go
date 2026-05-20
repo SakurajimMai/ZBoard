@@ -12,7 +12,7 @@ import (
 
 func TestUserRegisterLoginResolve(t *testing.T) {
 	s := testsupport.NewStore(t)
-	svc := authsvc.New(s, "setup")
+	svc := authsvc.New(s, "setup", nil)
 	ctx := context.Background()
 
 	id, err := svc.RegisterUser(ctx, "X@Example.com", "secret123")
@@ -43,7 +43,7 @@ func TestUserRegisterLoginResolve(t *testing.T) {
 
 func TestAdminBootstrapSingleton(t *testing.T) {
 	s := testsupport.NewStore(t)
-	svc := authsvc.New(s, "setup-token")
+	svc := authsvc.New(s, "setup-token", nil)
 	ctx := context.Background()
 
 	id, err := svc.BootstrapAdmin(ctx, "setup-token", "owner@zboard.local", "pw")

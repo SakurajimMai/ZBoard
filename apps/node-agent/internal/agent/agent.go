@@ -1,8 +1,7 @@
 // Package agent ties the apiclient + runtime supervisor together: it registers
 // on startup, then runs three concurrent loops (heartbeat, task pull/apply,
-// traffic report). The traffic loop is currently a no-op stub because the
-// MVP's Xray/sing-box configs do not expose per-user counters yet — wired in
-// future when stats sidecar is added.
+// traffic report). The traffic loop scrapes the runtime stats gRPC API and
+// reports per-user deltas back to the control plane.
 package agent
 
 import (

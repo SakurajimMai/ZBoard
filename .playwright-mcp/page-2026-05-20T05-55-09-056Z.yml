@@ -1,0 +1,17 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Zboard 管理后台" [level=1] [ref=e5]
+      - paragraph [ref=e6]: 管理员登录
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - text: 邮箱
+        - textbox [ref=e9]
+      - generic [ref=e10]:
+        - text: 密码
+        - textbox [ref=e11]
+      - button "登录" [ref=e12]
+    - paragraph [ref=e13]:
+      - link "返回用户登录" [ref=e14] [cursor=pointer]:
+        - /url: /login
+  - alert [ref=e15]

@@ -14,6 +14,7 @@ import (
 	"github.com/zboard/api-server/internal/bizsvc"
 	"github.com/zboard/api-server/internal/config"
 	"github.com/zboard/api-server/internal/db"
+	"github.com/zboard/api-server/internal/mailer"
 	"github.com/zboard/api-server/internal/nodesvc"
 	"github.com/zboard/api-server/internal/payment/registry"
 	"github.com/zboard/api-server/internal/server"
@@ -40,7 +41,19 @@ func main() {
 	cancelMigrate()
 
 	st := store.New(database, cfg.DBDialect)
-	auth := authsvc.New(st, cfg.AdminSetupToken)
+	mail := mailer.New(mailer.Config{
+		Host: cfg.SMTPHost,
+		Port: cfg.SMTPPort,
+		User: cfg.SMTPUser,
+		Pass: cfg.SMTPPass,
+		From: cfg.SMTPFrom,
+	})
+	if mail.Enabled() {
+		log.Printf("SMTP enabled: %s:%d (from=%s)", cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPFrom)
+	} else {
+		log.Printf("SMTP disabled — verification codes will be logged only")
+	}
+	auth := authsvc.New(st, cfg.AdminSetupToken, mail)
 	biz := bizsvc.New(st)
 	nodes := nodesvc.New(st)
 	wk := worker.New(st)

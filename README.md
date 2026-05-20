@@ -77,7 +77,7 @@ cd frontend && pnpm install && pnpm dev
 
 ## 文档
 
-- [部署方案](./docs/deploy.md) — Docker Compose 部署、环境变量、反向代理
+- [部署方案](./docs/deploy.md) — Docker Compose 部署、环境变量、控制面与节点启动
 - [API 设计](./docs/api.md) — 接口文档
 - [系统架构](./docs/architecture.md) — 整体设计
 - [Agent 协议](./docs/agent-protocol.md) — HMAC 签名、任务拉取

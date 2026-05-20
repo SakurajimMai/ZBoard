@@ -29,7 +29,11 @@ services:
     image: sakurajiamai/zboard-frontend:latest
     container_name: zboard-frontend
     environment:
-      - NEXT_PUBLIC_API_URL=http://api:3000
+      # Browser-side API base URL. Must be reachable from the user's browser,
+      # not a Docker-internal service name. Keep it empty to let the frontend
+      # derive http(s)://<current-host>:3000 at runtime, or set it to a public
+      # address such as http://your-server-ip:3000.
+      - NEXT_PUBLIC_API_URL=
     ports:
       - "3001:3000"
     depends_on:

@@ -1,0 +1,12 @@
+-- 0009 email verification codes (MySQL / MariaDB)
+CREATE TABLE IF NOT EXISTS email_codes (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  email VARCHAR(255) NOT NULL,
+  code VARCHAR(16) NOT NULL,
+  purpose VARCHAR(32) NOT NULL,
+  used TINYINT(1) NOT NULL DEFAULT 0,
+  expires_at DATETIME NOT NULL,
+  last_sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_email_purpose (email, purpose, used)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
