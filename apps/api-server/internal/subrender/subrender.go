@@ -480,6 +480,9 @@ func SingBox(items []Item) string {
 			if it.DownMbps > 0 {
 				o["down_mbps"] = it.DownMbps
 			}
+			if it.PortRange != "" {
+				o["server_ports"] = it.PortRange
+			}
 		case "tuic":
 			pw := it.ObfsPassword
 			if pw == "" {

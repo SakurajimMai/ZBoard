@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// portHoppingConfig is the `_zboard_port_hopping` block embedded in the
-// runtime config JSON by the control plane for Hysteria2 nodes with port_range.
+// portHoppingConfig is the `port_hopping` block from the sync_config task
+// payload (NOT from the runtime config JSON — sing-box rejects unknown fields).
 type portHoppingConfig struct {
 	Enabled      bool     `json:"enabled"`
 	ListenPort   int      `json:"listen_port"`
@@ -18,24 +18,13 @@ type portHoppingConfig struct {
 	TeardownCmds []string `json:"teardown_cmds"`
 }
 
-// applyPortHopping parses the runtime config for `_zboard_port_hopping` and
-// executes the iptables setup commands. It first tears down any existing rules
-// (idempotent) then applies the new ones.
-func applyPortHopping(configJSON []byte) {
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal(configJSON, &doc); err != nil {
-		return
-	}
-	raw, ok := doc["_zboard_port_hopping"]
-	if !ok {
-		return
-	}
-	var ph portHoppingConfig
-	if err := json.Unmarshal(raw, &ph); err != nil || !ph.Enabled {
-		return
-	}
-	if ph.PortRange == "" || len(ph.SetupCmds) == 0 {
-		return
+// applyPortHopping reads the `port_hopping` block from the task payload JSON
+// and executes the iptables setup commands. Returns an error if any setup
+// command fails so the caller can report the task as failed.
+func applyPortHopping(taskPayload []byte) error {
+	ph, err := parsePortHopping(taskPayload)
+	if err != nil || ph == nil {
+		return nil // no port hopping configured — not an error
 	}
 
 	log.Printf("port-hopping: setting up %s -> :%d", ph.PortRange, ph.ListenPort)
@@ -44,32 +33,44 @@ func applyPortHopping(configJSON []byte) {
 	for _, cmd := range ph.TeardownCmds {
 		runShell(cmd, true)
 	}
-	// Setup.
+	// Setup — any failure is fatal.
 	for _, cmd := range ph.SetupCmds {
 		if err := runShell(cmd, false); err != nil {
-			log.Printf("port-hopping: setup cmd failed: %s -> %v", cmd, err)
+			return fmt.Errorf("port-hopping setup failed: %s -> %w", cmd, err)
 		}
 	}
+	return nil
 }
 
 // teardownPortHopping removes iptables rules. Called before applying a new
 // config (in case port range changed) and on agent shutdown.
-func teardownPortHopping(configJSON []byte) {
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal(configJSON, &doc); err != nil {
+func teardownPortHopping(taskPayload []byte) {
+	ph, err := parsePortHopping(taskPayload)
+	if err != nil || ph == nil {
 		return
 	}
-	raw, ok := doc["_zboard_port_hopping"]
-	if !ok {
-		return
-	}
-	var ph portHoppingConfig
-	if err := json.Unmarshal(raw, &ph); err != nil || !ph.Enabled {
-		return
-	}
+	log.Printf("port-hopping: tearing down %s", ph.PortRange)
 	for _, cmd := range ph.TeardownCmds {
 		runShell(cmd, true)
 	}
+}
+
+// parsePortHopping extracts the port_hopping config from a task payload JSON.
+// Returns nil (no error) when the payload doesn't contain port_hopping.
+func parsePortHopping(payload []byte) (*portHoppingConfig, error) {
+	var doc struct {
+		PortHopping *portHoppingConfig `json:"port_hopping"`
+	}
+	if err := json.Unmarshal(payload, &doc); err != nil {
+		return nil, err
+	}
+	if doc.PortHopping == nil || !doc.PortHopping.Enabled {
+		return nil, nil
+	}
+	if doc.PortHopping.PortRange == "" || len(doc.PortHopping.SetupCmds) == 0 {
+		return nil, nil
+	}
+	return doc.PortHopping, nil
 }
 
 func runShell(cmd string, ignoreErr bool) error {

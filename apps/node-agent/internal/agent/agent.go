@@ -20,11 +20,11 @@ import (
 )
 
 type Agent struct {
-	Cfg        *config.Config
-	Client     *apiclient.Client
-	Supervisor *runtime.Supervisor
-	Stats      *stats.Client // nil when StatsAPIAddr is empty
-	lastConfig []byte        // last applied runtime config (for port hopping teardown)
+	Cfg         *config.Config
+	Client      *apiclient.Client
+	Supervisor  *runtime.Supervisor
+	Stats       *stats.Client // nil when StatsAPIAddr is empty
+	lastPayload []byte        // last task payload (for port hopping teardown)
 }
 
 func New(cfg *config.Config) *Agent {
@@ -60,8 +60,8 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	_ = a.Supervisor.Stop()
 	// Teardown port hopping iptables rules on shutdown.
-	if a.lastConfig != nil {
-		teardownPortHopping(a.lastConfig)
+	if a.lastPayload != nil {
+		teardownPortHopping(a.lastPayload)
 	}
 	if a.Stats != nil {
 		_ = a.Stats.Close()
@@ -146,8 +146,8 @@ func (a *Agent) pullAndApply(ctx context.Context) error {
 				continue
 			}
 			// Teardown old port hopping rules before applying new config.
-			if a.lastConfig != nil {
-				teardownPortHopping(a.lastConfig)
+			if a.lastPayload != nil {
+				teardownPortHopping(a.lastPayload)
 			}
 			if changed, err := a.Supervisor.Apply(ctx, t.RuntimeConfig); err != nil {
 				log.Printf("task %s sync_config FAILED: %v", t.TaskID, err)
@@ -156,9 +156,14 @@ func (a *Agent) pullAndApply(ctx context.Context) error {
 			} else {
 				log.Printf("task %s sync_config applied (changed=%t)", t.TaskID, changed)
 			}
-			// Apply port hopping iptables rules if present in the config.
-			applyPortHopping(t.RuntimeConfig)
-			a.lastConfig = t.RuntimeConfig
+			// Apply port hopping iptables rules from the task PAYLOAD (not
+			// runtime config — sing-box rejects unknown fields).
+			if err := applyPortHopping(t.Payload); err != nil {
+				log.Printf("task %s port-hopping FAILED: %v", t.TaskID, err)
+				a.reportResult(ctx, t.TaskID, "failed", "config applied but port-hopping failed: "+err.Error())
+				continue
+			}
+			a.lastPayload = t.Payload
 			a.reportResult(ctx, t.TaskID, "success", "")
 		case "disable_user":
 			log.Printf("task %s disable_user acknowledged", t.TaskID)

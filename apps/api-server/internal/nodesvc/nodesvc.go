@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -38,7 +39,17 @@ func (s *Service) GenerateSyncTask(ctx context.Context, nodeID int64) (string, s
 		return "", "", err
 	}
 	taskID := "task-" + version
-	payload := fmt.Sprintf(`{"version":%q,"config_hash":%q}`, version, hash)
+	// Build payload: always include version + hash; add port_hopping metadata
+	// when the node has a port_range configured (Hysteria2 port jumping).
+	payloadMap := map[string]any{
+		"version":     version,
+		"config_hash": hash,
+	}
+	if phMeta := runtime.PortHoppingMeta(node); phMeta != nil {
+		payloadMap["port_hopping"] = phMeta
+	}
+	payloadBytes, _ := json.Marshal(payloadMap)
+	payload := string(payloadBytes)
 	if err := s.Store.CreateNodeTask(ctx, taskID, nodeID, "sync_config", payload); err != nil {
 		return "", "", err
 	}

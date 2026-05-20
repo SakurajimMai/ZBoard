@@ -372,26 +372,35 @@ func singBoxHysteria2(node *store.Node, users []store.NodeUser) map[string]any {
 		},
 	}
 
-	// Port hopping: include iptables setup commands in a metadata block so the
-	// agent can apply them after writing the config. The runtime itself only
-	// listens on node.Port; iptables DNAT redirects the port range to it.
-	if node.PortRange != "" {
-		doc["_zboard_port_hopping"] = map[string]any{
-			"enabled":     true,
-			"listen_port": node.Port,
-			"port_range":  node.PortRange,
-			"setup_cmds": []string{
-				fmt.Sprintf("iptables -t nat -A PREROUTING -p udp --dport %s -j DNAT --to-destination :%d", node.PortRange, node.Port),
-				fmt.Sprintf("ip6tables -t nat -A PREROUTING -p udp --dport %s -j DNAT --to-destination :%d", node.PortRange, node.Port),
-			},
-			"teardown_cmds": []string{
-				fmt.Sprintf("iptables -t nat -D PREROUTING -p udp --dport %s -j DNAT --to-destination :%d", node.PortRange, node.Port),
-				fmt.Sprintf("ip6tables -t nat -D PREROUTING -p udp --dport %s -j DNAT --to-destination :%d", node.PortRange, node.Port),
-			},
-		}
-	}
+	// Port hopping metadata is NOT embedded in the runtime config (sing-box
+	// rejects unknown top-level fields). Instead, it's returned separately via
+	// BuildPortHoppingMeta() and the nodesvc layer includes it in the task
+	// payload — the agent reads it from there, not from the config JSON.
 
 	return doc
+}
+
+// PortHoppingMeta returns the iptables setup/teardown commands for a Hysteria2
+// node with port hopping. Returns nil when port_range is empty.
+func PortHoppingMeta(node *store.Node) map[string]any {
+	if node.PortRange == "" || node.Protocol != "hysteria2" {
+		return nil
+	}
+	// iptables --dport uses colon syntax for ranges: 20000:40000
+	iptablesRange := strings.ReplaceAll(node.PortRange, "-", ":")
+	return map[string]any{
+		"enabled":     true,
+		"listen_port": node.Port,
+		"port_range":  node.PortRange,
+		"setup_cmds": []string{
+			fmt.Sprintf("iptables -t nat -A PREROUTING -p udp --dport %s -j DNAT --to-destination :%d", iptablesRange, node.Port),
+			fmt.Sprintf("ip6tables -t nat -A PREROUTING -p udp --dport %s -j DNAT --to-destination :%d", iptablesRange, node.Port),
+		},
+		"teardown_cmds": []string{
+			fmt.Sprintf("iptables -t nat -D PREROUTING -p udp --dport %s -j DNAT --to-destination :%d", iptablesRange, node.Port),
+			fmt.Sprintf("ip6tables -t nat -D PREROUTING -p udp --dport %s -j DNAT --to-destination :%d", iptablesRange, node.Port),
+		},
+	}
 }
 
 func singBoxTUIC(node *store.Node, users []store.NodeUser) map[string]any {
