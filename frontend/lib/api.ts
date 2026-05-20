@@ -49,6 +49,27 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 // ===== Auth =====
 
+export async function sendEmailCode(email: string, purpose: 'register' | 'reset_password') {
+  return request<{ ok: boolean }>('/api/v1/auth/send-email-code', {
+    method: 'POST',
+    body: JSON.stringify({ email, purpose }),
+  })
+}
+
+export async function registerWithCode(email: string, password: string, code: string) {
+  return request<{ user_id: number }>('/api/v1/auth/register-with-code', {
+    method: 'POST',
+    body: JSON.stringify({ email, password, code }),
+  })
+}
+
+export async function resetPassword(email: string, newPassword: string, code: string) {
+  return request<{ ok: boolean }>('/api/v1/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ email, new_password: newPassword, code }),
+  })
+}
+
 export async function register(email: string, password: string) {
   return request<{ user_id: number }>('/api/v1/auth/register', {
     method: 'POST',
