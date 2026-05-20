@@ -201,17 +201,20 @@ curl -X POST https://panel.example.com/api/admin/v1/nodes \
 #### 3. 创建部署目录
 
 ```bash
-mkdir -p /opt/zboard-agent && cd /opt/zboard-agent
+mkdir -p /root/docker/agent && cd /root/docker/agent
 ```
 
 #### 4. 下载 compose 文件
 
 ```bash
 curl -O https://raw.githubusercontent.com/SakurajimMai/ZBoard/main/deploy/docker/docker-compose.agent.yml
+mv docker-compose.agent.yml docker-compose.yml   # 让 docker compose 直接识别
 curl -O https://raw.githubusercontent.com/SakurajimMai/ZBoard/main/deploy/docker/agent.env.example
-cp agent.env.example agent.env
-touch runtime.json
+cp agent.env.example agent.env                   # 必须与 docker-compose.yml 同目录
+mkdir -p data && touch data/runtime.json
 ```
+
+> ⚠️ `agent.env` 必须放在 `docker-compose.yml` 同目录,不要放进 `data/` 子目录,否则启动时会报 `env file ... not found`。
 
 #### 5. 编辑 agent.env
 
@@ -231,7 +234,7 @@ ZBOARD_AGENT_STATS_API_ADDR=127.0.0.1:10085
 #### 6. 启动 Agent
 
 ```bash
-docker compose -f docker-compose.agent.yml up -d
+docker compose up -d
 ```
 
 #### 7. 验证

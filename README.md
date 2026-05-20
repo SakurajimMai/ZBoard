@@ -14,12 +14,13 @@ nano api.env  # 填入数据库连接和管理员信息
 docker compose -f docker-compose.prod.yml up -d
 
 # 节点
-mkdir /opt/zboard-agent && cd /opt/zboard-agent
+mkdir -p /root/docker/agent && cd /root/docker/agent
 curl -O https://raw.githubusercontent.com/SakurajimMai/ZBoard/main/deploy/docker/docker-compose.agent.yml
+mv docker-compose.agent.yml docker-compose.yml   # 让 docker compose 直接识别
 curl -O https://raw.githubusercontent.com/SakurajimMai/ZBoard/main/deploy/docker/agent.env.example
-cp agent.env.example agent.env
-nano agent.env  # 填入控制面地址和节点密钥
-docker compose -f docker-compose.agent.yml up -d
+cp agent.env.example agent.env                   # 必须与 docker-compose.yml 同目录
+nano agent.env                                   # 填入控制面地址和节点密钥
+docker compose up -d
 ```
 
 详细步骤见 [部署文档](./docs/deploy.md)。

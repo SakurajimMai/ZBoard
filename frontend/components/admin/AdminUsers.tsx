@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { adminCreateUser, adminGetUsers, adminUpdateUser } from "@/lib/api"
+import { adminCreateUser, adminGetPlans, adminGetUsers, adminUpdateUser } from "@/lib/api"
 
 type UserForm = {
   email: string
@@ -34,6 +34,7 @@ const emptyForm: UserForm = {
 
 export default function AdminUsers() {
   const [users, setUsers] = useState<any[]>([])
+  const [plans, setPlans] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -41,12 +42,20 @@ export default function AdminUsers() {
   const [form, setForm] = useState<UserForm>(emptyForm)
 
   const isEditing = useMemo(() => Boolean(editing), [editing])
+  const planMap = useMemo(() => {
+    const m = new Map<number, any>()
+    for (const p of plans) m.set(Number(p.id), p)
+    return m
+  }, [plans])
 
   const load = () => {
     setLoading(true)
-    adminGetUsers()
-      .then((res) => setUsers(res.items || []))
-      .catch((err) => alert(err.message || "加载用户失败"))
+    Promise.all([adminGetUsers(), adminGetPlans()])
+      .then(([u, p]) => {
+        setUsers(u.items || [])
+        setPlans(p.items || [])
+      })
+      .catch((err) => alert(err.message || "加载失败"))
       .finally(() => setLoading(false))
   }
 
@@ -235,8 +244,44 @@ export default function AdminUsers() {
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="套餐 ID">
-                <Input value={form.plan_id} onChange={(e) => setForm({ ...form, plan_id: e.target.value })} placeholder="可留空" />
+              <Field label="订阅套餐">
+                <Select
+                  value={form.plan_id || "none"}
+                  onValueChange={(v) => {
+                    if (v === "none") {
+                      setForm({ ...form, plan_id: "" })
+                      return
+                    }
+                    const planId = v
+                    const plan = planMap.get(Number(planId))
+                    if (!plan) {
+                      setForm({ ...form, plan_id: planId })
+                      return
+                    }
+                    // 自动填充该套餐的流量上限与到期时间(从今天 +duration_days)
+                    const days = Number(plan.duration_days || 0)
+                    const expire = days > 0
+                      ? new Date(Date.now() + days * 86400_000).toISOString().slice(0, 10)
+                      : form.expired_at
+                    const limitGB = bytesToGB(plan.traffic_limit)
+                    setForm({
+                      ...form,
+                      plan_id: planId,
+                      expired_at: expire,
+                      traffic_limit_gb: limitGB,
+                    })
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="未分配" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">未分配</SelectItem>
+                    {plans.map((p: any) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.name} · {bytesToGB(p.traffic_limit)}GB · {p.duration_days}天
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </Field>
               <Field label="到期日期">
                 <Input type="date" value={form.expired_at} onChange={(e) => setForm({ ...form, expired_at: e.target.value })} />

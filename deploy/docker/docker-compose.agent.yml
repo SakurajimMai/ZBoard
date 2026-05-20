@@ -1,7 +1,11 @@
 # Zboard Node Agent Docker Compose
-# 部署目录: /root/docker/zboard-agent/
+# 部署目录: /root/docker/agent/
 # 数据存放: ./data/
-# 用法: docker compose up -d
+# 用法:
+#   1. 把本文件保存为 docker-compose.yml
+#   2. 把 agent.env.example 复制为 agent.env (与 docker-compose.yml **同目录**)
+#   3. docker compose up -d
+# env_file 路径相对 docker-compose.yml 所在目录,不要把 agent.env 放进 data/ 子目录。
 
 services:
   agent:
