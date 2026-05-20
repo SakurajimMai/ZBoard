@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
-import { Copy, Edit3, Plus, RefreshCw } from "lucide-react"
+import { Copy, Edit3, Plus, RefreshCw, Server, Lock, Network, Sliders, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -72,6 +72,33 @@ const emptyForm: NodeForm = {
   port_range: "",
 }
 
+// Protocol-specific UI capabilities
+function caps(protocol: string, transport: string, security: string) {
+  const isQUIC = protocol === "hysteria2" || protocol === "tuic"
+  const isSS = protocol === "ss" || protocol === "shadowsocks"
+  const isVless = protocol === "vless"
+  return {
+    isQUIC,
+    isSS,
+    isVless,
+    showTransport: !isQUIC && !isSS,
+    showSecurity: !isQUIC,
+    showWS: transport === "ws" && !isQUIC,
+    showGRPC: transport === "grpc" && !isQUIC,
+    showTLS: (security === "tls" || isQUIC) && !isSS,
+    showReality: security === "reality" && isVless,
+    showFlow: isVless,
+    showALPN: !isSS,
+    showMux: !isQUIC && !isSS,
+    showSSMethod: isSS,
+    showHysteria: protocol === "hysteria2",
+    showTUIC: protocol === "tuic",
+    showObfs: isQUIC,
+    showCongestion: isQUIC,
+    showPortRange: protocol === "hysteria2",
+  }
+}
+
 export default function AdminNodes() {
   const [nodes, setNodes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -79,7 +106,10 @@ export default function AdminNodes() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
   const [lastSecret, setLastSecret] = useState("")
+  const [secretRevealed, setSecretRevealed] = useState(false)
   const [form, setForm] = useState<NodeForm>(emptyForm)
+
+  const cap = useMemo(() => caps(form.protocol, form.transport, form.security), [form.protocol, form.transport, form.security])
 
   const load = () => {
     setLoading(true)
@@ -94,6 +124,7 @@ export default function AdminNodes() {
   const openCreate = () => {
     setEditing(null)
     setLastSecret("")
+    setSecretRevealed(false)
     setForm(emptyForm)
     setDialogOpen(true)
   }
@@ -101,6 +132,7 @@ export default function AdminNodes() {
   const openEdit = (n: any) => {
     setEditing(n)
     setLastSecret("")
+    setSecretRevealed(false)
     setForm({
       name: n.name || "",
       region: n.region || "",
@@ -139,7 +171,30 @@ export default function AdminNodes() {
     setDialogOpen(false)
     setEditing(null)
     setLastSecret("")
+    setSecretRevealed(false)
     setForm(emptyForm)
+  }
+
+  // Auto-pick sensible defaults when protocol changes
+  const onProtocolChange = (protocol: string) => {
+    const next = { ...form, protocol }
+    if (protocol === "hysteria2" || protocol === "tuic") {
+      next.runtime_type = "sing-box"
+      next.transport = "udp"
+      next.security = "tls"
+      if (!next.congestion_control) next.congestion_control = "bbr"
+    } else if (protocol === "ss" || protocol === "shadowsocks") {
+      next.security = "none"
+      next.transport = "tcp"
+      if (!next.ss_method) next.ss_method = "2022-blake3-aes-128-gcm"
+    } else {
+      if (next.transport === "udp") next.transport = "tcp"
+      if (next.security === "none") next.security = "tls"
+    }
+    if (protocol === "vless" && next.security === "reality" && !next.flow) {
+      next.flow = "xtls-rprx-vision"
+    }
+    setForm(next)
   }
 
   const payload = () => ({
@@ -264,179 +319,323 @@ export default function AdminNodes() {
       )}
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); else setDialogOpen(true) }}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editing ? "编辑节点" : "新建节点"}</DialogTitle>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0 gap-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b">
+            <DialogTitle className="text-lg">{editing ? "编辑节点" : "新建节点"}</DialogTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              {editing
+                ? "修改后立即生效，可在节点列表中触发同步使 Agent 拉取最新配置。"
+                : "创建后将返回一次性节点密钥，请立即记录并填入 Agent 配置。"}
+            </p>
           </DialogHeader>
 
           {lastSecret ? (
-            <div className="rounded-lg border bg-muted/40 p-4 space-y-3">
+            <div className="px-6 py-6 space-y-4">
+              <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-4">
+                <p className="font-semibold text-amber-900">⚠ 节点已创建，请立即保存密钥</p>
+                <p className="text-sm text-amber-800 mt-1">该密钥只返回一次，关闭对话框后无法再次查看。</p>
+              </div>
               <div>
-                <p className="font-medium">节点已创建，请立即保存密钥</p>
-                <p className="text-sm text-muted-foreground mt-1">该密钥只返回一次，Agent 注册时需要使用。</p>
+                <Label className="text-xs text-muted-foreground">节点密钥 (node_secret)</Label>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <Input
+                    readOnly
+                    value={secretRevealed ? lastSecret : "•".repeat(Math.min(lastSecret.length, 48))}
+                    className="font-mono text-xs h-10"
+                  />
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={() => setSecretRevealed(!secretRevealed)}
+                    title={secretRevealed ? "隐藏" : "显示"}
+                  >
+                    {secretRevealed ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </Button>
+                  <Button size="icon" variant="outline" onClick={copySecret} title="复制密钥">
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Input readOnly value={lastSecret} className="font-mono text-xs" />
-                <Button size="icon" variant="outline" onClick={copySecret} title="复制密钥">
-                  <Copy className="w-4 h-4" />
-                </Button>
-              </div>
-              <div className="flex justify-end">
+              <div className="flex justify-end pt-2">
                 <Button onClick={closeDialog}>完成</Button>
               </div>
             </div>
           ) : (
             <>
-              <div className="grid gap-5 py-2">
-                <section className="grid gap-3">
-                  <h3 className="text-sm font-semibold">基础信息</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="节点名称">
-                      <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <div className="px-6 py-5 space-y-6">
+                {/* Section: 基础信息 */}
+                <Section title="基础信息" icon={<Server className="w-4 h-4" />}>
+                  <Row cols={2}>
+                    <Field label="节点名称" required hint="显示在订阅与管理页">
+                      <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="HK-01" className="h-10" />
                     </Field>
-                    <Field label="地区">
-                      <Input value={form.region} onChange={(e) => setForm({ ...form, region: e.target.value })} placeholder="HK / JP / US" />
+                    <Field label="地区" hint="可选 · 显示用">
+                      <Input value={form.region} onChange={(e) => setForm({ ...form, region: e.target.value })} placeholder="HK / JP / US" className="h-10" />
                     </Field>
-                  </div>
-                  <div className="grid grid-cols-[1fr_120px_140px] gap-3">
-                    <Field label="地址">
-                      <Input value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} />
+                  </Row>
+                  <Row cols={3} template="1fr 110px 130px">
+                    <Field label="服务器地址" required>
+                      <Input value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} placeholder="example.com 或 IP" className="h-10" />
                     </Field>
-                    <Field label="端口">
-                      <Input type="number" min="1" max="65535" value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} />
+                    <Field label="端口" required>
+                      <Input type="number" min="1" max="65535" value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} className="h-10" />
                     </Field>
                     <Field label="状态">
                       <Select value={form.status} onValueChange={(status: "active" | "inactive") => setForm({ ...form, status })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="active">启用</SelectItem>
                           <SelectItem value="inactive">停用</SelectItem>
                         </SelectContent>
                       </Select>
                     </Field>
-                  </div>
-                </section>
+                  </Row>
+                </Section>
 
-                <section className="grid gap-3">
-                  <h3 className="text-sm font-semibold">协议与运行时</h3>
-                  <div className="grid grid-cols-4 gap-3">
-                    <Field label="协议">
-                      <Select value={form.protocol} onValueChange={(protocol) => setForm({ ...form, protocol })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                {/* Section: 协议配置 */}
+                <Section title="协议配置" icon={<Network className="w-4 h-4" />}>
+                  <Row cols={2}>
+                    <Field label="协议" required>
+                      <Select value={form.protocol} onValueChange={onProtocolChange}>
+                        <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="vless">VLESS</SelectItem>
                           <SelectItem value="vmess">VMess</SelectItem>
-                          <SelectItem value="ss">Shadowsocks</SelectItem>
                           <SelectItem value="trojan">Trojan</SelectItem>
+                          <SelectItem value="ss">Shadowsocks</SelectItem>
                           <SelectItem value="hysteria2">Hysteria2</SelectItem>
                           <SelectItem value="tuic">TUIC</SelectItem>
                         </SelectContent>
                       </Select>
                     </Field>
-                    <Field label="传输">
-                      <Input value={form.transport} onChange={(e) => setForm({ ...form, transport: e.target.value })} />
-                    </Field>
-                    <Field label="安全">
-                      <Input value={form.security} onChange={(e) => setForm({ ...form, security: e.target.value })} />
-                    </Field>
-                    <Field label="Runtime">
-                      <Select value={form.runtime_type} onValueChange={(runtime_type) => setForm({ ...form, runtime_type })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                    <Field label="运行时" hint={cap.isQUIC ? "QUIC 协议仅 sing-box 支持" : ""}>
+                      <Select value={form.runtime_type} onValueChange={(runtime_type) => setForm({ ...form, runtime_type })} disabled={cap.isQUIC}>
+                        <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="xray">Xray</SelectItem>
                           <SelectItem value="sing-box">sing-box</SelectItem>
                         </SelectContent>
                       </Select>
                     </Field>
-                  </div>
-                </section>
+                  </Row>
+                  {cap.showTransport && (
+                    <Row cols={2}>
+                      <Field label="传输方式">
+                        <Select value={form.transport} onValueChange={(transport) => setForm({ ...form, transport })}>
+                          <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="tcp">TCP</SelectItem>
+                            <SelectItem value="ws">WebSocket</SelectItem>
+                            <SelectItem value="grpc">gRPC</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      {cap.showSecurity && (
+                        <Field label="加密层">
+                          <Select value={form.security} onValueChange={(security) => setForm({ ...form, security })}>
+                            <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="tls">TLS</SelectItem>
+                              {cap.isVless && <SelectItem value="reality">Reality</SelectItem>}
+                              <SelectItem value="none">None</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      )}
+                    </Row>
+                  )}
+                </Section>
 
-                <section className="grid gap-3">
-                  <h3 className="text-sm font-semibold">TLS / Reality / 传输参数</h3>
-                  <div className="grid grid-cols-3 gap-3">
-                    <Field label="SNI">
-                      <Input value={form.sni} onChange={(e) => setForm({ ...form, sni: e.target.value })} />
-                    </Field>
-                    <Field label="Fingerprint">
-                      <Input value={form.fingerprint} onChange={(e) => setForm({ ...form, fingerprint: e.target.value })} />
-                    </Field>
-                    <Field label="Flow">
-                      <Input value={form.flow} onChange={(e) => setForm({ ...form, flow: e.target.value })} />
-                    </Field>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <Field label="WS Path">
-                      <Input value={form.ws_path} onChange={(e) => setForm({ ...form, ws_path: e.target.value })} />
-                    </Field>
-                    <Field label="WS Host">
-                      <Input value={form.ws_host} onChange={(e) => setForm({ ...form, ws_host: e.target.value })} />
-                    </Field>
-                    <Field label="gRPC Service">
-                      <Input value={form.grpc_service_name} onChange={(e) => setForm({ ...form, grpc_service_name: e.target.value })} />
-                    </Field>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <Field label="Reality Public Key">
-                      <Input value={form.reality_public_key} onChange={(e) => setForm({ ...form, reality_public_key: e.target.value })} />
-                    </Field>
-                    <Field label="Reality Short ID">
-                      <Input value={form.reality_short_id} onChange={(e) => setForm({ ...form, reality_short_id: e.target.value })} />
-                    </Field>
-                    <Field label="Reality Server Name">
-                      <Input value={form.reality_server_name} onChange={(e) => setForm({ ...form, reality_server_name: e.target.value })} />
-                    </Field>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Reality Private Key">
-                      <Input value={form.reality_private_key} onChange={(e) => setForm({ ...form, reality_private_key: e.target.value })} />
-                    </Field>
-                    <Field label="Reality Dest">
-                      <Input value={form.reality_dest} onChange={(e) => setForm({ ...form, reality_dest: e.target.value })} placeholder="www.cloudflare.com:443" />
-                    </Field>
-                  </div>
-                </section>
+                {/* Section: TLS / Reality */}
+                {cap.showTLS && (
+                  <Section title={cap.showReality ? "Reality 设置" : "TLS 设置"} icon={<Lock className="w-4 h-4" />}>
+                    {!cap.showReality && (
+                      <Row cols={2}>
+                        <Field label="SNI" hint="留空则使用服务器地址">
+                          <Input value={form.sni} onChange={(e) => setForm({ ...form, sni: e.target.value })} placeholder={form.host || "example.com"} className="h-10" />
+                        </Field>
+                        <Field label="Fingerprint">
+                          <Select value={form.fingerprint || "none"} onValueChange={(v) => setForm({ ...form, fingerprint: v === "none" ? "" : v })}>
+                            <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">默认</SelectItem>
+                              <SelectItem value="chrome">chrome</SelectItem>
+                              <SelectItem value="firefox">firefox</SelectItem>
+                              <SelectItem value="safari">safari</SelectItem>
+                              <SelectItem value="edge">edge</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      </Row>
+                    )}
+                    {cap.showReality && (
+                      <>
+                        <Row cols={2}>
+                          <Field label="Reality 服务器名" required hint="客户端连接时使用">
+                            <Input value={form.reality_server_name} onChange={(e) => setForm({ ...form, reality_server_name: e.target.value })} placeholder="www.cloudflare.com" className="h-10" />
+                          </Field>
+                          <Field label="Reality 目标" hint="服务端伪装回源地址">
+                            <Input value={form.reality_dest} onChange={(e) => setForm({ ...form, reality_dest: e.target.value })} placeholder="www.cloudflare.com:443" className="h-10" />
+                          </Field>
+                        </Row>
+                        <Row cols={2}>
+                          <Field label="Reality Public Key" required>
+                            <Input value={form.reality_public_key} onChange={(e) => setForm({ ...form, reality_public_key: e.target.value })} className="h-10 font-mono text-xs" placeholder="客户端使用" />
+                          </Field>
+                          <Field label="Reality Private Key" required hint="服务端使用，不会下发到订阅">
+                            <Input type="password" value={form.reality_private_key} onChange={(e) => setForm({ ...form, reality_private_key: e.target.value })} className="h-10 font-mono text-xs" />
+                          </Field>
+                        </Row>
+                        <Row cols={2}>
+                          <Field label="Short ID">
+                            <Input value={form.reality_short_id} onChange={(e) => setForm({ ...form, reality_short_id: e.target.value })} className="h-10 font-mono text-xs" placeholder="可选 · 短标识" />
+                          </Field>
+                          <Field label="Fingerprint">
+                            <Select value={form.fingerprint || "none"} onValueChange={(v) => setForm({ ...form, fingerprint: v === "none" ? "" : v })}>
+                              <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">默认</SelectItem>
+                                <SelectItem value="chrome">chrome</SelectItem>
+                                <SelectItem value="firefox">firefox</SelectItem>
+                                <SelectItem value="safari">safari</SelectItem>
+                                <SelectItem value="edge">edge</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                        </Row>
+                      </>
+                    )}
+                  </Section>
+                )}
 
-                <section className="grid gap-3">
-                  <h3 className="text-sm font-semibold">高级参数</h3>
-                  <div className="grid grid-cols-4 gap-3">
-                    <Field label="ALPN">
-                      <Input value={form.alpn} onChange={(e) => setForm({ ...form, alpn: e.target.value })} placeholder="h2,http/1.1" />
+                {/* Section: WebSocket */}
+                {cap.showWS && (
+                  <Section title="WebSocket 参数" icon={<Network className="w-4 h-4" />}>
+                    <Row cols={2}>
+                      <Field label="WS Path">
+                        <Input value={form.ws_path} onChange={(e) => setForm({ ...form, ws_path: e.target.value })} placeholder="/" className="h-10" />
+                      </Field>
+                      <Field label="WS Host" hint="留空则使用 SNI">
+                        <Input value={form.ws_host} onChange={(e) => setForm({ ...form, ws_host: e.target.value })} placeholder="cdn.example.com" className="h-10" />
+                      </Field>
+                    </Row>
+                  </Section>
+                )}
+
+                {/* Section: gRPC */}
+                {cap.showGRPC && (
+                  <Section title="gRPC 参数" icon={<Network className="w-4 h-4" />}>
+                    <Field label="Service Name" required>
+                      <Input value={form.grpc_service_name} onChange={(e) => setForm({ ...form, grpc_service_name: e.target.value })} placeholder="grpc-service" className="h-10" />
                     </Field>
-                    <Field label="Mux">
-                      <Select value={form.mux_enabled} onValueChange={(mux_enabled) => setForm({ ...form, mux_enabled })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                  </Section>
+                )}
+
+                {/* Section: Hysteria2 / TUIC */}
+                {cap.isQUIC && (
+                  <Section title={cap.showHysteria ? "Hysteria2 参数" : "TUIC 参数"} icon={<Sliders className="w-4 h-4" />}>
+                    <Row cols={2}>
+                      <Field label="SNI" hint="留空则使用服务器地址">
+                        <Input value={form.sni} onChange={(e) => setForm({ ...form, sni: e.target.value })} placeholder={form.host || "example.com"} className="h-10" />
+                      </Field>
+                      <Field label="拥塞控制">
+                        <Select value={form.congestion_control} onValueChange={(v) => setForm({ ...form, congestion_control: v })}>
+                          <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="bbr">BBR</SelectItem>
+                            <SelectItem value="cubic">CUBIC</SelectItem>
+                            <SelectItem value="new_reno">New Reno</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    </Row>
+                    {cap.showHysteria && (
+                      <>
+                        <Row cols={2}>
+                          <Field label="上行 Mbps">
+                            <Input type="number" min="0" value={form.up_mbps} onChange={(e) => setForm({ ...form, up_mbps: e.target.value })} className="h-10" />
+                          </Field>
+                          <Field label="下行 Mbps">
+                            <Input type="number" min="0" value={form.down_mbps} onChange={(e) => setForm({ ...form, down_mbps: e.target.value })} className="h-10" />
+                          </Field>
+                        </Row>
+                        <Row cols={2}>
+                          <Field label="Salamander 混淆密码" hint="留空则不启用混淆">
+                            <Input value={form.obfs_password} onChange={(e) => setForm({ ...form, obfs_password: e.target.value })} className="h-10" />
+                          </Field>
+                          <Field label="端口跳跃" hint="格式 20000-40000，需 root 权限">
+                            <Input value={form.port_range} onChange={(e) => setForm({ ...form, port_range: e.target.value })} placeholder="20000-40000" className="h-10" />
+                          </Field>
+                        </Row>
+                      </>
+                    )}
+                    {cap.showTUIC && (
+                      <Field label="共享密码" hint="留空则使用每用户 client_id">
+                        <Input value={form.obfs_password} onChange={(e) => setForm({ ...form, obfs_password: e.target.value })} className="h-10" />
+                      </Field>
+                    )}
+                  </Section>
+                )}
+
+                {/* Section: Shadowsocks */}
+                {cap.isSS && (
+                  <Section title="Shadowsocks 参数" icon={<Lock className="w-4 h-4" />}>
+                    <Field label="加密方式">
+                      <Select value={form.ss_method || "2022-blake3-aes-128-gcm"} onValueChange={(v) => setForm({ ...form, ss_method: v })}>
+                        <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="0">关闭</SelectItem>
-                          <SelectItem value="1">开启</SelectItem>
+                          <SelectItem value="2022-blake3-aes-128-gcm">2022-blake3-aes-128-gcm</SelectItem>
+                          <SelectItem value="2022-blake3-aes-256-gcm">2022-blake3-aes-256-gcm</SelectItem>
+                          <SelectItem value="2022-blake3-chacha20-poly1305">2022-blake3-chacha20-poly1305</SelectItem>
+                          <SelectItem value="aes-128-gcm">aes-128-gcm</SelectItem>
+                          <SelectItem value="aes-256-gcm">aes-256-gcm</SelectItem>
+                          <SelectItem value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</SelectItem>
                         </SelectContent>
                       </Select>
                     </Field>
-                    <Field label="SS Method">
-                      <Input value={form.ss_method} onChange={(e) => setForm({ ...form, ss_method: e.target.value })} />
-                    </Field>
-                    <Field label="端口跳跃">
-                      <Input value={form.port_range} onChange={(e) => setForm({ ...form, port_range: e.target.value })} placeholder="20000-40000" />
-                    </Field>
-                  </div>
-                  <div className="grid grid-cols-4 gap-3">
-                    <Field label="Obfs Password">
-                      <Input value={form.obfs_password} onChange={(e) => setForm({ ...form, obfs_password: e.target.value })} />
-                    </Field>
-                    <Field label="拥塞控制">
-                      <Input value={form.congestion_control} onChange={(e) => setForm({ ...form, congestion_control: e.target.value })} />
-                    </Field>
-                    <Field label="上行 Mbps">
-                      <Input type="number" min="0" value={form.up_mbps} onChange={(e) => setForm({ ...form, up_mbps: e.target.value })} />
-                    </Field>
-                    <Field label="下行 Mbps">
-                      <Input type="number" min="0" value={form.down_mbps} onChange={(e) => setForm({ ...form, down_mbps: e.target.value })} />
-                    </Field>
-                  </div>
-                </section>
+                  </Section>
+                )}
+
+                {/* Section: 高级 */}
+                {(cap.showFlow || cap.showALPN || cap.showMux) && (
+                  <Section title="高级选项" icon={<Sliders className="w-4 h-4" />} collapsible>
+                    {cap.showFlow && cap.isVless && (
+                      <Field label="VLESS Flow" hint="Reality 推荐 xtls-rprx-vision">
+                        <Select value={form.flow || "none"} onValueChange={(v) => setForm({ ...form, flow: v === "none" ? "" : v })}>
+                          <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">无</SelectItem>
+                            <SelectItem value="xtls-rprx-vision">xtls-rprx-vision</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    )}
+                    <Row cols={2}>
+                      {cap.showALPN && (
+                        <Field label="ALPN" hint="逗号分隔，如 h2,http/1.1">
+                          <Input value={form.alpn} onChange={(e) => setForm({ ...form, alpn: e.target.value })} placeholder="h2,http/1.1" className="h-10" />
+                        </Field>
+                      )}
+                      {cap.showMux && (
+                        <Field label="多路复用 (Mux)">
+                          <Select value={form.mux_enabled} onValueChange={(v) => setForm({ ...form, mux_enabled: v })}>
+                            <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="0">关闭</SelectItem>
+                              <SelectItem value="1">开启</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      )}
+                    </Row>
+                  </Section>
+                )}
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="px-6 py-4 border-t bg-muted/30 flex justify-end gap-2">
                 <Button variant="outline" onClick={closeDialog} disabled={saving}>取消</Button>
-                <Button onClick={save} disabled={saving}>{saving ? "保存中..." : "保存"}</Button>
+                <Button onClick={save} disabled={saving} className="min-w-24">
+                  {saving ? "保存中..." : editing ? "保存修改" : "创建节点"}
+                </Button>
               </div>
             </>
           )}
@@ -446,11 +645,42 @@ export default function AdminNodes() {
   )
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Section({ title, icon, children, collapsible = false }: { title: string; icon?: ReactNode; children: ReactNode; collapsible?: boolean }) {
+  const [open, setOpen] = useState(!collapsible)
+  return (
+    <section className="rounded-lg border bg-card/50">
+      <button
+        type="button"
+        onClick={() => collapsible && setOpen(!open)}
+        className={`w-full flex items-center gap-2 px-4 py-2.5 text-left ${collapsible ? "cursor-pointer hover:bg-accent/50" : "cursor-default"}`}
+        disabled={!collapsible}
+      >
+        {icon && <span className="text-primary">{icon}</span>}
+        <h3 className="text-sm font-semibold flex-1">{title}</h3>
+        {collapsible && (
+          <span className="text-xs text-muted-foreground">{open ? "收起" : "展开"}</span>
+        )}
+      </button>
+      {open && <div className="px-4 pb-4 space-y-3 border-t pt-3">{children}</div>}
+    </section>
+  )
+}
+
+function Row({ cols, template, children }: { cols?: number; template?: string; children: ReactNode }) {
+  const style = template ? { gridTemplateColumns: template } : undefined
+  const className = template ? "grid gap-3" : `grid gap-3 grid-cols-1 sm:grid-cols-${cols || 2}`
+  return <div className={className} style={style}>{children}</div>
+}
+
+function Field({ label, required, hint, children }: { label: string; required?: boolean; hint?: string; children: ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <Label>{label}</Label>
+      <Label className="text-xs font-medium">
+        {label}
+        {required && <span className="text-red-500 ml-0.5">*</span>}
+      </Label>
       {children}
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
     </div>
   )
 }
