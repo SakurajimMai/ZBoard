@@ -234,4 +234,52 @@ export async function adminGetTrafficUsers() {
   return adminRequest<{ items: any[] }>('/api/admin/v1/traffic/users')
 }
 
+// ===== Tickets (User) =====
+
+export async function getTickets() {
+  return request<{ items: any[] }>('/api/v1/tickets')
+}
+
+export async function createTicket(subject: string, category: string, content: string) {
+  return request<{ ticket_id: number; ticket_no: string }>('/api/v1/tickets', {
+    method: 'POST',
+    body: JSON.stringify({ subject, category, content }),
+  })
+}
+
+export async function getTicketDetail(ticketNo: string) {
+  return request<{ ticket: any; messages: any[] }>(`/api/v1/tickets/${ticketNo}`)
+}
+
+export async function replyTicket(ticketNo: string, content: string) {
+  return request<{ ok: boolean }>(`/api/v1/tickets/${ticketNo}/reply`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  })
+}
+
+// ===== Tickets (Admin) =====
+
+export async function adminGetTickets(status?: string) {
+  const q = status && status !== 'all' ? `?status=${status}` : ''
+  return adminRequest<{ items: any[] }>(`/api/admin/v1/tickets${q}`)
+}
+
+export async function adminGetTicketDetail(id: number) {
+  return adminRequest<{ ticket: any; messages: any[] }>(`/api/admin/v1/tickets/${id}`)
+}
+
+export async function adminReplyTicket(id: number, content: string) {
+  return adminRequest<{ ok: boolean }>(`/api/admin/v1/tickets/${id}/reply`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  })
+}
+
+export async function adminCloseTicket(id: number) {
+  return adminRequest<{ ok: boolean }>(`/api/admin/v1/tickets/${id}/close`, {
+    method: 'POST',
+  })
+}
+
 export { ApiError }

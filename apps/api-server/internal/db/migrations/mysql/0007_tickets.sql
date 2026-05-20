@@ -1,0 +1,25 @@
+-- 0007 ticket system (MySQL / MariaDB)
+CREATE TABLE IF NOT EXISTS tickets (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  ticket_no VARCHAR(32) NOT NULL UNIQUE,
+  user_id BIGINT NOT NULL,
+  subject VARCHAR(255) NOT NULL,
+  category VARCHAR(64) NOT NULL DEFAULT 'general',
+  status VARCHAR(32) NOT NULL DEFAULT 'open',
+  priority VARCHAR(16) NOT NULL DEFAULT 'medium',
+  closed_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_tickets_user (user_id),
+  KEY idx_tickets_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ticket_messages (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  ticket_id BIGINT NOT NULL,
+  sender_type VARCHAR(16) NOT NULL,
+  sender_id BIGINT NOT NULL,
+  content TEXT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_messages_ticket (ticket_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

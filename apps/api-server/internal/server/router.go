@@ -58,6 +58,10 @@ func New(d Deps) *gin.Engine {
 			authed.POST("/orders/:order_no/pay", createPaymentWithProvider(d, d.Payments))
 			authed.GET("/subscription", subToken(d))
 			authed.POST("/subscription/reset-token", subResetToken(d))
+			authed.GET("/tickets", listUserTickets(d))
+			authed.POST("/tickets", createTicket(d))
+			authed.GET("/tickets/:ticket_no", getUserTicketDetail(d))
+			authed.POST("/tickets/:ticket_no/reply", replyUserTicket(d))
 		}
 	}
 
@@ -95,6 +99,10 @@ func New(d Deps) *gin.Engine {
 			authed.POST("/payment-providers", adminCreatePaymentProvider(d))
 			authed.PUT("/payment-providers/:id", adminUpdatePaymentProvider(d))
 			authed.DELETE("/payment-providers/:id", adminDeletePaymentProvider(d))
+			authed.GET("/tickets", adminListTickets(d))
+			authed.GET("/tickets/:id", adminGetTicketDetail(d))
+			authed.POST("/tickets/:id/reply", adminReplyTicket(d))
+			authed.POST("/tickets/:id/close", adminCloseTicket(d))
 		}
 	}
 
