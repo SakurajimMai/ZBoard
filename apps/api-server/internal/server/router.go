@@ -16,19 +16,21 @@ import (
 
 // Deps bundles everything the HTTP layer needs.
 type Deps struct {
-	DB       *sqlx.DB
-	Store    *store.Store
-	Auth     *authsvc.Service
-	Biz      *bizsvc.Service
-	Nodes    *nodesvc.Service
-	Worker   *worker.Service
-	Payments *registry.Registry
+	DB          *sqlx.DB
+	Store       *store.Store
+	Auth        *authsvc.Service
+	Biz         *bizsvc.Service
+	Nodes       *nodesvc.Service
+	Worker      *worker.Service
+	Payments    *registry.Registry
+	CORSOrigins []string
 }
 
 func New(d Deps) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(cors(d.CORSOrigins))
 
 	r.GET("/health", func(c *gin.Context) {
 		if err := d.DB.PingContext(c.Request.Context()); err != nil {

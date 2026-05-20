@@ -21,9 +21,10 @@ type Config struct {
 	DBDialect       Dialect
 	DBDSN           string
 	AdminSetupToken string
-	AdminEmail      string // auto-bootstrap: create admin on first start
-	AdminPassword   string // auto-bootstrap: admin password
+	AdminEmail      string
+	AdminPassword   string
 	TokenSecret     string
+	CORSOrigins     []string // allowed origins, e.g. ["http://localhost:3001","https://panel.example.com"]
 }
 
 func Load() (*Config, error) {
@@ -54,7 +55,26 @@ func Load() (*Config, error) {
 		AdminEmail:      os.Getenv("ZBOARD_ADMIN_EMAIL"),
 		AdminPassword:   os.Getenv("ZBOARD_ADMIN_PASSWORD"),
 		TokenSecret:     getenv("ZBOARD_TOKEN_SECRET", "dev-token-secret"),
+		CORSOrigins:     parseCORSOrigins(os.Getenv("ZBOARD_CORS_ORIGINS")),
 	}, nil
+}
+
+// parseCORSOrigins splits a comma-separated list of origins.
+// Example: "http://localhost:3001,https://panel.example.com"
+// A single "*" means allow all origins.
+func parseCORSOrigins(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func getenv(k, def string) string {
