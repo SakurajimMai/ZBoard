@@ -62,6 +62,10 @@ func New(d Deps) *gin.Engine {
 			authed.POST("/tickets", createTicket(d))
 			authed.GET("/tickets/:ticket_no", getUserTicketDetail(d))
 			authed.POST("/tickets/:ticket_no/reply", replyUserTicket(d))
+			authed.GET("/notifications", listNotifications(d))
+			authed.GET("/notifications/unread", countUnreadNotifications(d))
+			authed.POST("/notifications/:id/read", markNotificationRead(d))
+			authed.POST("/notifications/read-all", markAllNotificationsRead(d))
 		}
 	}
 

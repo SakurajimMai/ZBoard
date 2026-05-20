@@ -172,6 +172,10 @@ func adminReplyTicket(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, err)
 			return
 		}
+		// Notify the ticket owner that admin replied
+		d.Store.NotifyUser(c.Request.Context(), ticket.UserID, "ticket_reply",
+			"工单已回复", "您的工单「"+ticket.Subject+"」收到了新回复",
+			"/dashboard/ticket")
 		// Auto-reopen if closed
 		if ticket.Status == "closed" {
 			_ = d.Store.UpdateTicketStatus(c.Request.Context(), ticket.ID, "replied")

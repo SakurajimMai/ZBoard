@@ -311,5 +311,9 @@ func (s *Service) ActivateByCallback(ctx context.Context, orderNo, provider, pro
 			return err
 		}
 	}
+	// Notify user: payment success
+	s.Store.NotifyUser(ctx, o.UserID, "payment_success",
+		"支付成功", "您的订单 "+orderNo+" 已支付成功，套餐已激活",
+		"/dashboard")
 	return nil
 }

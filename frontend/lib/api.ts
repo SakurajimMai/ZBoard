@@ -258,6 +258,24 @@ export async function replyTicket(ticketNo: string, content: string) {
   })
 }
 
+// ===== Notifications =====
+
+export async function getNotifications() {
+  return request<{ items: any[]; unread: number }>('/api/v1/notifications')
+}
+
+export async function getUnreadCount() {
+  return request<{ unread: number }>('/api/v1/notifications/unread')
+}
+
+export async function markNotificationRead(id: number) {
+  return request<{ ok: boolean }>(`/api/v1/notifications/${id}/read`, { method: 'POST' })
+}
+
+export async function markAllNotificationsRead() {
+  return request<{ ok: boolean }>('/api/v1/notifications/read-all', { method: 'POST' })
+}
+
 // ===== Tickets (Admin) =====
 
 export async function adminGetTickets(status?: string) {

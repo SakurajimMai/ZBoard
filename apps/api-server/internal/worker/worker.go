@@ -99,6 +99,17 @@ func (s *Service) disableUser(ctx context.Context, userID int64, reason string) 
 			return 0, err
 		}
 	}
+	// Notify user about account suspension
+	switch reason {
+	case "expired":
+		s.Store.NotifyUser(ctx, userID, "plan_expired",
+			"套餐已到期", "您的套餐已到期，服务已暂停。请续费以恢复使用。",
+			"/dashboard/billing")
+	case "traffic_exceeded":
+		s.Store.NotifyUser(ctx, userID, "plan_expired",
+			"流量已用尽", "您的流量已超出限额，服务已暂停。请购买新套餐或流量包。",
+			"/dashboard/billing")
+	}
 	return len(nodeIDs), nil
 }
 

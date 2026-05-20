@@ -19,6 +19,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useI18n } from "@/lib/i18n/context"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
+import NotificationBell from "@/components/dashboard/NotificationBell"
 
 export default function Sidebar() {
   const pathname = usePathname()
@@ -37,13 +38,14 @@ export default function Sidebar() {
   const SidebarContent = () => (
     <>
       {/* Logo */}
-      <div className="h-16 flex items-center gap-2.5 px-5 border-b border-sidebar-border">
+      <div className="h-16 flex items-center justify-between px-5 border-b border-sidebar-border">
         <Link href="/" className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl btn-gradient flex items-center justify-center shadow-sm">
             <Zap className="w-5 h-5 text-primary-foreground" strokeWidth={2.5} />
           </div>
           <span className="font-bold text-lg text-sidebar-foreground">Zboard</span>
         </Link>
+        <NotificationBell />
       </div>
 
       {/* Nav */}
