@@ -45,6 +45,16 @@ func main() {
 	nodes := nodesvc.New(st)
 	wk := worker.New(st)
 
+	// Auto-bootstrap: create initial admin if ZBOARD_ADMIN_EMAIL is set and
+	// no admin exists yet. This replaces the manual POST /auth/bootstrap step.
+	if cfg.AdminEmail != "" && cfg.AdminPassword != "" {
+		if _, err := auth.BootstrapAdmin(context.Background(), cfg.AdminSetupToken, cfg.AdminEmail, cfg.AdminPassword); err != nil {
+			log.Printf("auto-bootstrap: %v (already initialized or token mismatch)", err)
+		} else {
+			log.Printf("auto-bootstrap: admin %s created", cfg.AdminEmail)
+		}
+	}
+
 	// Payment providers — loaded from DB (payment_providers table).
 	// Admin manages them via POST/PUT/DELETE /api/admin/v1/payment-providers.
 	payments := registry.New(st)

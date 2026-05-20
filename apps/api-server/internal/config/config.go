@@ -21,6 +21,8 @@ type Config struct {
 	DBDialect       Dialect
 	DBDSN           string
 	AdminSetupToken string
+	AdminEmail      string // auto-bootstrap: create admin on first start
+	AdminPassword   string // auto-bootstrap: admin password
 	TokenSecret     string
 }
 
@@ -48,7 +50,9 @@ func Load() (*Config, error) {
 		Port:            port,
 		DBDialect:       dialect,
 		DBDSN:           dsn,
-		AdminSetupToken: getenv("ZBOARD_ADMIN_SETUP_TOKEN", "dev-admin-token"),
+		AdminSetupToken: os.Getenv("ZBOARD_ADMIN_SETUP_TOKEN"),
+		AdminEmail:      os.Getenv("ZBOARD_ADMIN_EMAIL"),
+		AdminPassword:   os.Getenv("ZBOARD_ADMIN_PASSWORD"),
 		TokenSecret:     getenv("ZBOARD_TOKEN_SECRET", "dev-token-secret"),
 	}, nil
 }
