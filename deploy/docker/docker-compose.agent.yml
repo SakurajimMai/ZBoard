@@ -1,0 +1,26 @@
+# Zboard Node Agent Docker Compose
+# 部署在每台 VPS 节点上，连接控制面
+# 用法: docker compose up -d
+
+services:
+  agent:
+    image: sakurajiamai/zboard-agent:latest
+    container_name: zboard-agent
+    network_mode: host
+    env_file: ./agent.env
+    volumes:
+      - ./runtime.json:/etc/zboard-agent/runtime.json
+      - agent_data:/var/lib/zboard-agent
+      # 挂载 Xray 或 sing-box 二进制（根据实际路径调整）
+      - /usr/local/bin/xray:/usr/local/bin/xray:ro
+      # 如果用 sing-box，取消下面注释：
+      # - /usr/local/bin/sing-box:/usr/local/bin/sing-box:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+volumes:
+  agent_data:

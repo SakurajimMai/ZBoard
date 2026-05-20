@@ -10,7 +10,7 @@
                        │ 订阅链接 / 代理连接
                        ▼
 ┌─────────────────────────────────────────────────────┐
-│              Docker Host (控制面)                     │
+│              控制面服务器                              │
 │  ┌──────────────┐  ┌──────────────┐                 │
 │  │ zboard-api   │  │zboard-frontend│                │
 │  │ (Go, :3000)  │  │(Next.js,:3001)│                │
@@ -34,77 +34,107 @@
 
 ## Docker 镜像
 
-| 镜像 | 说明 | DockerHub |
-|------|------|-----------|
-| `sakurajiamai/zboard-api` | Go API Server | [链接](https://hub.docker.com/r/sakurajiamai/zboard-api) |
-| `sakurajiamai/zboard-frontend` | Next.js 前端 | [链接](https://hub.docker.com/r/sakurajiamai/zboard-frontend) |
-| `sakurajiamai/zboard-agent` | Node Agent | [链接](https://hub.docker.com/r/sakurajiamai/zboard-agent) |
+| 镜像 | 说明 |
+|------|------|
+| `sakurajiamai/zboard-api:latest` | Go API Server |
+| `sakurajiamai/zboard-frontend:latest` | Next.js 前端 |
+| `sakurajiamai/zboard-agent:latest` | Node Agent |
 
-镜像由 GitHub Actions 在每次 push 到 `main` 时自动构建并推送。
+镜像由 GitHub Actions 在每次 push 到 `main` 时自动构建并推送到 DockerHub。
 
-## 控制面部署
+---
 
-### 1. 准备环境变量
+## 一、控制面部署
 
-创建 `api.env`：
+### 前置条件
+
+- 一台服务器（1C1G 起步）
+- Docker + Docker Compose 已安装
+- MariaDB / MySQL 数据库（可用云数据库）
+- 域名（可选，用于 HTTPS）
+
+### 步骤
+
+#### 1. 创建部署目录
+
+```bash
+mkdir -p /opt/zboard && cd /opt/zboard
+```
+
+#### 2. 下载 compose 文件
+
+```bash
+curl -O https://raw.githubusercontent.com/SakurajimMai/ZBoard/main/deploy/docker/docker-compose.prod.yml
+curl -O https://raw.githubusercontent.com/SakurajimMai/ZBoard/main/deploy/docker/api.env.example
+cp api.env.example api.env
+```
+
+#### 3. 编辑环境变量
+
+```bash
+nano api.env
+```
+
+必填项：
 
 ```env
-ZBOARD_HOST=0.0.0.0
-ZBOARD_PORT=3000
 ZBOARD_DB_DIALECT=mysql
-ZBOARD_DB_DSN=user:pass@tcp(your-mariadb-host:3306)/zboard?parseTime=true&charset=utf8mb4
-ZBOARD_ADMIN_SETUP_TOKEN=你的一次性初始化密钥
-ZBOARD_TOKEN_SECRET=随机生成的长字符串
+ZBOARD_DB_DSN=user:password@tcp(db-host:3306)/zboard?parseTime=true&charset=utf8mb4
+ZBOARD_ADMIN_SETUP_TOKEN=你的随机初始化密钥
+ZBOARD_TOKEN_SECRET=你的随机签名密钥
 ```
 
-### 2. Docker Compose 部署
+支付渠道（按需启用）：
 
-```yaml
-# docker-compose.yml
-services:
-  api:
-    image: sakurajiamai/zboard-api:latest
-    container_name: zboard-api
-    env_file: ./api.env
-    ports:
-      - "3000:3000"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    restart: unless-stopped
+```env
+# 易支付
+ZBOARD_EPAY_API_URL=https://pay.example.com
+ZBOARD_EPAY_PID=商户ID
+ZBOARD_EPAY_KEY=密钥
 
-  frontend:
-    image: sakurajiamai/zboard-frontend:latest
-    container_name: zboard-frontend
-    environment:
-      - NEXT_PUBLIC_API_URL=http://api:3000
-    ports:
-      - "3001:3000"
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
+# Creem（海外卡）
+ZBOARD_CREEM_API_KEY=your_api_key
+ZBOARD_CREEM_WEBHOOK_SECRET=your_webhook_secret
+
+# NOWPayments（加密货币）
+ZBOARD_NOWPAY_API_KEY=your_api_key
+ZBOARD_NOWPAY_IPN_SECRET=your_ipn_secret
 ```
+
+#### 4. 启动服务
 
 ```bash
-docker compose up -d
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-### 3. 初始化管理员
+#### 5. 检查状态
 
 ```bash
-curl -X POST http://your-server:3000/api/admin/v1/auth/bootstrap \
+# 健康检查
+curl http://127.0.0.1:3000/health
+# 应返回 {"status":"ok"}
+
+# 查看日志
+docker compose -f docker-compose.prod.yml logs -f
+```
+
+#### 6. 初始化管理员
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/admin/v1/auth/bootstrap \
   -H "Content-Type: application/json" \
-  -d '{"setup_token":"你的一次性初始化密钥","email":"admin@example.com","password":"强密码"}'
+  -d '{
+    "setup_token": "你在api.env里设置的ZBOARD_ADMIN_SETUP_TOKEN",
+    "email": "admin@example.com",
+    "password": "你的强密码"
+  }'
 ```
 
-初始化完成后，`ZBOARD_ADMIN_SETUP_TOKEN` 即失效（admin_users 非空时 bootstrap 返回 409）。
+初始化成功后 `ZBOARD_ADMIN_SETUP_TOKEN` 即失效，无法再次使用。
 
-### 4. 反向代理（可选）
+#### 7. 配置反向代理（推荐）
 
-如果需要 HTTPS，在前面加一层 Nginx / Caddy：
+Nginx 示例：
 
 ```nginx
 server {
@@ -114,12 +144,16 @@ server {
     ssl_certificate /path/to/cert.pem;
     ssl_certificate_key /path/to/key.pem;
 
+    # API
     location /api/ {
         proxy_pass http://127.0.0.1:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # 前端
     location / {
         proxy_pass http://127.0.0.1:3001;
         proxy_set_header Host $host;
@@ -128,119 +162,262 @@ server {
 }
 ```
 
-## 节点部署
-
-### 方式一：Docker（推荐）
+### 更新控制面
 
 ```bash
-docker run -d \
-  --name zboard-agent \
-  --restart unless-stopped \
-  --network host \
-  -v /etc/zboard-agent:/etc/zboard-agent \
-  -v /var/lib/zboard-agent:/var/lib/zboard-agent \
-  -v /usr/local/bin/xray:/usr/local/bin/xray \
-  sakurajiamai/zboard-agent:latest
+cd /opt/zboard
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-配置文件 `/etc/zboard-agent/agent.env`：
+---
+
+## 二、节点部署
+
+### 前置条件
+
+- VPS（任意 Linux）
+- Docker + Docker Compose 已安装
+- Xray 或 sing-box 已安装
+- 控制面已部署且可访问
+
+### 步骤
+
+#### 1. 安装运行时
+
+```bash
+# Xray（推荐）
+bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+
+# 或 sing-box
+bash -c "$(curl -fsSL https://sing-box.app/deb-install.sh)"
+```
+
+#### 2. 在控制面创建节点
+
+通过管理后台或 API 创建节点：
+
+```bash
+curl -X POST https://panel.example.com/api/admin/v1/nodes \
+  -H "Authorization: Bearer 你的管理员token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "HK-01",
+    "region": "香港",
+    "host": "节点IP或域名",
+    "port": 443,
+    "protocol": "vless",
+    "transport": "tcp",
+    "security": "reality",
+    "fingerprint": "chrome",
+    "reality_public_key": "你的公钥",
+    "reality_private_key": "你的私钥",
+    "reality_short_id": "短ID",
+    "reality_server_name": "www.cloudflare.com",
+    "reality_dest": "www.cloudflare.com:443"
+  }'
+```
+
+返回值中的 `node_id` 和 `node_secret` **只显示一次**，务必记录。
+
+#### 3. 创建部署目录
+
+```bash
+mkdir -p /opt/zboard-agent && cd /opt/zboard-agent
+```
+
+#### 4. 下载 compose 文件
+
+```bash
+curl -O https://raw.githubusercontent.com/SakurajimMai/ZBoard/main/deploy/docker/docker-compose.agent.yml
+curl -O https://raw.githubusercontent.com/SakurajimMai/ZBoard/main/deploy/docker/agent.env.example
+cp agent.env.example agent.env
+touch runtime.json
+```
+
+#### 5. 编辑 agent.env
+
+```bash
+nano agent.env
+```
 
 ```env
 ZBOARD_AGENT_API_BASE_URL=https://panel.example.com
-ZBOARD_AGENT_NODE_ID=1
-ZBOARD_AGENT_NODE_SECRET=创建节点时返回的一次性密钥
+ZBOARD_AGENT_NODE_ID=创建节点返回的ID
+ZBOARD_AGENT_NODE_SECRET=创建节点返回的密钥
 ZBOARD_AGENT_RUNTIME_BINARY=/usr/local/bin/xray
 ZBOARD_AGENT_RUNTIME_TYPE=xray
 ZBOARD_AGENT_STATS_API_ADDR=127.0.0.1:10085
 ```
 
-### 方式二：systemd（裸机）
+#### 6. 启动 Agent
 
 ```bash
-wget -O /usr/local/bin/zboard-agent <release-url>
-chmod +x /usr/local/bin/zboard-agent
-mkdir -p /etc/zboard-agent /var/lib/zboard-agent
-
-cat > /etc/systemd/system/zboard-agent.service << 'EOF'
-[Unit]
-Description=Zboard Node Agent
-After=network-online.target
-
-[Service]
-Type=simple
-EnvironmentFile=/etc/zboard-agent/agent.env
-ExecStart=/usr/local/bin/zboard-agent --config /etc/zboard-agent/agent.env
-Restart=on-failure
-RestartSec=5
-LimitNOFILE=65535
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable --now zboard-agent
+docker compose -f docker-compose.agent.yml up -d
 ```
 
-### 节点运行时
-
-Agent 需要 Xray 或 sing-box 已安装：
+#### 7. 验证
 
 ```bash
-# Xray
-bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+# 查看日志
+docker compose -f docker-compose.agent.yml logs -f
 
-# sing-box
-bash -c "$(curl -fsSL https://sing-box.app/deb-install.sh)"
+# 应看到：
+# agent registered with control plane (node_id=X)
+# task ... sync_config applied (changed=true)
 ```
 
-## 添加节点流程
+#### 8. 生成节点配置
 
-1. 管理员后台 `POST /api/admin/v1/nodes` 创建节点
-2. 记录返回的 `node_id` + `node_secret`（仅返回一次）
-3. 在 VPS 上部署 Agent，填入上述信息
-4. Agent 自动注册、拉取配置、启动运行时
-5. 管理员 `POST /api/admin/v1/nodes/:id/sync-config` 生成配置
-6. Agent 下次 pull 时自动应用
+在控制面触发配置同步：
 
-## 环境变量参考
+```bash
+curl -X POST https://panel.example.com/api/admin/v1/nodes/节点ID/sync-config \
+  -H "Authorization: Bearer 管理员token"
+```
+
+Agent 会在下次 pull（默认 10 秒）时自动拉取并应用配置。
+
+### 更新 Agent
+
+```bash
+cd /opt/zboard-agent
+docker compose -f docker-compose.agent.yml pull
+docker compose -f docker-compose.agent.yml up -d
+```
+
+---
+
+## 三、支付配置
+
+### 易支付 (EasyPay)
+
+适用场景：国内用户，支付宝/微信支付。
+
+1. 注册易支付商户，获取 `PID` 和 `Key`
+2. 在易支付后台设置异步通知地址：`https://panel.example.com/api/v1/payments/epay/callback`
+3. 配置环境变量：
+
+```env
+ZBOARD_EPAY_API_URL=https://你的易支付地址
+ZBOARD_EPAY_PID=商户ID
+ZBOARD_EPAY_KEY=商户密钥
+```
+
+用户发起支付：
+
+```
+POST /api/v1/orders/:order_no/pay?provider=epay&pay_type=alipay
+POST /api/v1/orders/:order_no/pay?provider=epay&pay_type=wxpay
+```
+
+### Creem
+
+适用场景：海外用户，信用卡/Apple Pay/Google Pay。
+
+1. 注册 Creem 账号，获取 API Key 和 Webhook Secret
+2. 在 Creem 后台配置 Webhook URL：`https://panel.example.com/api/v1/payments/creem/callback`
+3. 配置环境变量：
+
+```env
+ZBOARD_CREEM_API_KEY=你的API密钥
+ZBOARD_CREEM_WEBHOOK_SECRET=你的Webhook签名密钥
+```
+
+用户发起支付：
+
+```
+POST /api/v1/orders/:order_no/pay?provider=creem
+```
+
+### NOWPayments（加密货币）
+
+适用场景：匿名支付，BTC/ETH/USDT。
+
+1. 注册 NOWPayments，获取 API Key 和 IPN Secret
+2. 在 NOWPayments 后台设置 IPN URL：`https://panel.example.com/api/v1/payments/nowpayments/callback`
+3. 配置环境变量：
+
+```env
+ZBOARD_NOWPAY_API_KEY=你的API密钥
+ZBOARD_NOWPAY_IPN_SECRET=你的IPN签名密钥
+```
+
+用户发起支付：
+
+```
+POST /api/v1/orders/:order_no/pay?provider=nowpayments&pay_type=usdttrc20
+POST /api/v1/orders/:order_no/pay?provider=nowpayments&pay_type=btc
+POST /api/v1/orders/:order_no/pay?provider=nowpayments&pay_type=eth
+```
+
+---
+
+## 四、环境变量参考
 
 ### API Server
 
-| 变量 | 必填 | 默认值 | 说明 |
-|------|------|--------|------|
-| `ZBOARD_HOST` | 否 | `127.0.0.1` | 监听地址 |
-| `ZBOARD_PORT` | 否 | `3000` | 监听端口 |
-| `ZBOARD_DB_DIALECT` | 是 | `sqlite` | `mysql` / `postgres` / `sqlite` |
-| `ZBOARD_DB_DSN` | 是* | - | 数据库连接串 |
-| `ZBOARD_ADMIN_SETUP_TOKEN` | 是 | - | 首次初始化管理员密钥 |
-| `ZBOARD_TOKEN_SECRET` | 是 | - | 会话 token 签名密钥 |
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| `ZBOARD_HOST` | 否 | 监听地址，默认 `127.0.0.1` |
+| `ZBOARD_PORT` | 否 | 监听端口，默认 `3000` |
+| `ZBOARD_DB_DIALECT` | 是 | `mysql` / `postgres` / `sqlite` |
+| `ZBOARD_DB_DSN` | 是 | 数据库连接串 |
+| `ZBOARD_ADMIN_SETUP_TOKEN` | 是 | 首次初始化管理员密钥 |
+| `ZBOARD_TOKEN_SECRET` | 是 | 会话签名密钥 |
+| `ZBOARD_EPAY_*` | 否 | 易支付配置 |
+| `ZBOARD_CREEM_*` | 否 | Creem 配置 |
+| `ZBOARD_NOWPAY_*` | 否 | NOWPayments 配置 |
 
 ### Node Agent
 
-| 变量 | 必填 | 默认值 | 说明 |
-|------|------|--------|------|
-| `ZBOARD_AGENT_API_BASE_URL` | 是 | - | 控制面地址 |
-| `ZBOARD_AGENT_NODE_ID` | 是 | - | 节点 ID |
-| `ZBOARD_AGENT_NODE_SECRET` | 是 | - | 节点密钥 |
-| `ZBOARD_AGENT_RUNTIME_BINARY` | 否 | `/usr/local/bin/xray` | 运行时路径 |
-| `ZBOARD_AGENT_RUNTIME_TYPE` | 否 | `xray` | `xray` 或 `sing-box` |
-| `ZBOARD_AGENT_STATS_API_ADDR` | 否 | `127.0.0.1:10085` | stats gRPC 地址 |
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| `ZBOARD_AGENT_API_BASE_URL` | 是 | 控制面地址 |
+| `ZBOARD_AGENT_NODE_ID` | 是 | 节点 ID |
+| `ZBOARD_AGENT_NODE_SECRET` | 是 | 节点密钥（创建时返回一次） |
+| `ZBOARD_AGENT_RUNTIME_BINARY` | 否 | 运行时路径，默认 `/usr/local/bin/xray` |
+| `ZBOARD_AGENT_RUNTIME_TYPE` | 否 | `xray` 或 `sing-box`，默认 `xray` |
+| `ZBOARD_AGENT_STATS_API_ADDR` | 否 | stats gRPC 地址，默认 `127.0.0.1:10085` |
+| `ZBOARD_AGENT_HEARTBEAT_INTERVAL` | 否 | 心跳间隔，默认 `30s` |
+| `ZBOARD_AGENT_PULL_INTERVAL` | 否 | 任务拉取间隔，默认 `10s` |
+| `ZBOARD_AGENT_TRAFFIC_INTERVAL` | 否 | 流量上报间隔，默认 `60s` |
 
-## 数据库
+---
 
-线上推荐 MariaDB。启动时自动执行 migration，无需手动建表。
+## 五、运维
 
-DSN 格式：`user:password@tcp(host:3306)/dbname?parseTime=true&charset=utf8mb4`
+### 数据库
 
-## 监控
+启动时自动执行 migration，无需手动建表。支持 MySQL/MariaDB、PostgreSQL、SQLite。
+
+### 监控
 
 - 健康检查：`GET /health`
-- Agent 心跳：`nodes.last_heartbeat_at`
+- Agent 心跳：管理后台可查看 `last_heartbeat_at`
 - 审计日志：`GET /api/admin/v1/audit-logs`
 
-## CI/CD
+### 备份
 
-GitHub Actions 在 push 到 `main` 时自动构建三个镜像并推送到 DockerHub。
+MariaDB 建议使用云厂商自动备份或 `mysqldump` 定时任务。
 
-生产更新：`docker compose pull && docker compose up -d`
+### 更新
+
+```bash
+# 控制面
+docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+
+# 节点
+docker compose -f docker-compose.agent.yml pull && docker compose -f docker-compose.agent.yml up -d
+```
+
+### 日志
+
+```bash
+# 控制面
+docker compose -f docker-compose.prod.yml logs -f api
+docker compose -f docker-compose.prod.yml logs -f frontend
+
+# 节点
+docker compose -f docker-compose.agent.yml logs -f agent
+```
