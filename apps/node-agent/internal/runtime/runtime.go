@@ -39,6 +39,28 @@ func New(binary, runtimeType, configFile, workDir string) *Supervisor {
 	}
 }
 
+// TryBootExisting starts the runtime if a config file already exists on disk.
+// This handles the case where the agent container restarts but the control plane
+// has no new sync_config task (previous task already succeeded or failed to max retries).
+// Returns true if the runtime was started.
+func (s *Supervisor) TryBootExisting(ctx context.Context) bool {
+	data, err := os.ReadFile(s.ConfigFile)
+	if err != nil || len(data) == 0 {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cmd != nil {
+		return false
+	}
+	sum := sha256.Sum256(data)
+	s.configSum = hex.EncodeToString(sum[:])
+	if err := s.restartLocked(ctx); err != nil {
+		return false
+	}
+	return true
+}
+
 // Apply writes `configJSON` to disk if its hash differs from the last applied
 // config and restarts the runtime process. It is a no-op when nothing changed.
 // Returns (changed, error).

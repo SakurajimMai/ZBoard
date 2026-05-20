@@ -50,6 +50,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	log.Printf("agent registered with control plane (node_id=%d)", a.Cfg.NodeID)
 
+	// If a runtime config already exists on disk (from a previous sync_config),
+	// start the runtime immediately instead of waiting for a new task.
+	if a.Supervisor.TryBootExisting(ctx) {
+		log.Printf("runtime started from existing config file")
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() { defer wg.Done(); a.heartbeatLoop(ctx) }()
@@ -210,14 +216,11 @@ func (a *Agent) reportTraffic(ctx context.Context) error {
 		DownloadDelta int64 `json:"download_delta"`
 	}
 	out := []item{}
-	if a.Stats != nil {
-		// Bound the gRPC call so a stuck runtime can't wedge the loop.
+	if a.Stats != nil && a.Supervisor.IsRunning() {
 		qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		deltas, err := a.Stats.QueryAndReset(qctx)
 		cancel()
 		if err != nil {
-			// Don't drop the report cycle; the server happily accepts an
-			// empty list as a heartbeat.
 			log.Printf("stats scrape failed (sending empty report): %v", err)
 		} else {
 			for _, d := range deltas {
