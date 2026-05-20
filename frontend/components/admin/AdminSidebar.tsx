@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   LayoutDashboard,
   Users,
@@ -14,18 +14,25 @@ import {
   LogOut,
   Zap,
   ChevronRight,
-  Bell,
   Menu,
   X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useI18n } from "@/lib/i18n/context"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
+import { adminGetMe, adminGetTickets, adminLogout } from "@/lib/api"
 
 export default function AdminSidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
   const { t } = useI18n()
+  const [adminEmail, setAdminEmail] = useState("")
+  const [openTickets, setOpenTickets] = useState(0)
+
+  useEffect(() => {
+    adminGetMe().then((res) => setAdminEmail(res.admin?.email || "")).catch(() => {})
+    adminGetTickets("open").then((res) => setOpenTickets((res.items || []).length)).catch(() => {})
+  }, [])
 
   const navItems = [
     { href: "/admin",          label: t.admin.overview,  icon: LayoutDashboard },
@@ -33,9 +40,14 @@ export default function AdminSidebar() {
     { href: "/admin/nodes",    label: t.admin.nodes,     icon: Server },
     { href: "/admin/plans",    label: t.admin.plans,     icon: Package },
     { href: "/admin/orders",   label: t.admin.orders,    icon: ShoppingBag },
-    { href: "/admin/tickets",  label: t.admin.tickets,   icon: Ticket, badge: 3 },
+    { href: "/admin/tickets",  label: t.admin.tickets,   icon: Ticket, badge: openTickets },
     { href: "/admin/settings", label: t.admin.settings,  icon: Settings },
   ]
+
+  const handleLogout = () => {
+    adminLogout()
+    window.location.href = "/admin/login"
+  }
 
   const SidebarContent = () => (
     <>
@@ -69,12 +81,12 @@ export default function AdminSidebar() {
             >
               <Icon className="w-5 h-5 flex-shrink-0" />
               <span className="flex-1">{item.label}</span>
-              {"badge" in item && item.badge && (
+              {"badge" in item && item.badge > 0 && (
                 <span className="w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center font-medium">
                   {item.badge}
                 </span>
               )}
-              {active && !("badge" in item && item.badge) && (
+              {active && !("badge" in item && item.badge > 0) && (
                 <ChevronRight className="w-4 h-4 opacity-60" />
               )}
             </Link>
@@ -86,19 +98,19 @@ export default function AdminSidebar() {
       <div className="px-3 py-4 border-t border-sidebar-border space-y-2">
         <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-sidebar-accent/50">
           <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center text-sm font-bold text-primary">
-            A
+            {adminEmail ? adminEmail[0].toUpperCase() : "A"}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-sidebar-foreground truncate">admin@zboard.io</p>
+            <p className="text-sm font-medium text-sidebar-foreground truncate">{adminEmail || "管理员"}</p>
             <p className="text-xs text-sidebar-foreground/50">{t.admin.super}</p>
           </div>
-          <button className="w-9 h-9 rounded-xl hover:bg-sidebar-accent flex items-center justify-center transition-colors" aria-label="通知">
-            <Bell className="w-5 h-5 text-sidebar-foreground/50 hover:text-primary" />
-          </button>
         </div>
         <div className="flex items-center justify-between px-2">
           <LanguageSwitcher align="left" />
-          <button className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors">
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
+          >
             <LogOut className="w-4 h-4" />
             <span>{t.admin.logout}</span>
           </button>
@@ -148,10 +160,12 @@ export default function AdminSidebar() {
         <SidebarContent />
       </aside>
 
-      {/* Desktop sidebar */}
-      <aside className="hidden lg:flex w-64 flex-shrink-0 border-r border-sidebar-border bg-sidebar min-h-screen flex-col sticky top-0">
+      {/* Desktop sidebar — fixed position so it doesn't scroll with content */}
+      <aside className="hidden lg:flex w-64 flex-shrink-0 border-r border-sidebar-border bg-sidebar h-screen flex-col fixed top-0 left-0">
         <SidebarContent />
       </aside>
+      {/* Spacer to offset the fixed sidebar */}
+      <div className="hidden lg:block w-64 flex-shrink-0" />
     </>
   )
 }
