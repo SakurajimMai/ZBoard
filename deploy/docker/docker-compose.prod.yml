@@ -29,11 +29,14 @@ services:
     image: sakurajiamai/zboard-frontend:latest
     container_name: zboard-frontend
     environment:
-      # Browser-side API base URL. Must be reachable from the user's browser,
-      # not a Docker-internal service name. Keep it empty to let the frontend
-      # derive http(s)://<current-host>:3000 at runtime, or set it to a public
-      # address such as http://your-server-ip:3000.
+      # 浏览器端 API 基址。
+      # 留空(推荐):前端走同源 /api/*,由 Next.js rewrites 反代到 API_INTERNAL_URL。
+      #   适合 CDN / 反向代理场景:CDN 只代理 80/443 即可,无需暴露 :3000。
+      # 显式设置:用于独立 API 子域名(如 https://api.example.com),需在 api.env
+      #   的 ZBOARD_CORS_ORIGINS 里加上前端域名。
       - NEXT_PUBLIC_API_URL=
+      # 服务端反代目标(容器间用 compose 服务名 api 即可访问)
+      - API_INTERNAL_URL=http://api:3000
     ports:
       - "3001:3000"
     depends_on:

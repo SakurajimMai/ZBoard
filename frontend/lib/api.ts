@@ -1,14 +1,13 @@
-// API base URL: use env var at build time, or derive from browser location at runtime.
-// In production, the API runs on the same host at port 3000.
+// API base URL.
+// 默认走同源(空字符串)+ Next.js rewrites 反代到后端,这样:
+//   - 走 CDN 时只需代理 80/443,不必暴露 :3000
+//   - 浏览器无跨域,无需 CORS 预检
+// 如果显式指定 NEXT_PUBLIC_API_URL 则走绝对地址(用于独立 API 子域名场景)。
 function getApiBase(): string {
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL
   }
-  if (typeof window !== 'undefined') {
-    const { protocol, hostname } = window.location
-    return `${protocol}//${hostname}:3000`
-  }
-  return 'http://127.0.0.1:3000'
+  return ''
 }
 
 const API_BASE = getApiBase()
