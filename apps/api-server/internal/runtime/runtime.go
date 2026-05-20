@@ -91,8 +91,8 @@ func xray(node *store.Node, users []store.NodeUser) map[string]any {
 		stream["tlsSettings"] = tls
 	case "reality":
 		reality := map[string]any{
-			"show":        false,
-			"serverNames": []string{node.RealityServerName},
+			"show":       false,
+			"serverName": node.RealityServerName,
 		}
 		if node.RealityDest != "" {
 			reality["dest"] = node.RealityDest
