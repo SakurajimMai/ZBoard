@@ -14,7 +14,7 @@
 当前本地测试环境使用 SQLite3，迁移文件位于：
 
 ```text
-apps/api-server/src/db/migrations/sqlite
+apps/api-server/internal/db/migrations/sqlite
 ```
 
 API Server 启动时会：
@@ -28,7 +28,7 @@ API Server 启动时会：
 PostgreSQL 迁移预留目录位于：
 
 ```text
-apps/api-server/src/db/migrations/postgres
+apps/api-server/internal/db/migrations/postgres
 ```
 
 迁移命名规则：

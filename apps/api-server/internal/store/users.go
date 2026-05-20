@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -23,6 +24,33 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash string) (int
 	return s.InsertReturningID(ctx,
 		`INSERT INTO users(email, password_hash) VALUES (?, ?)`,
 		email, passwordHash,
+	)
+}
+
+type AdminCreateUserInput struct {
+	Email        string
+	PasswordHash string
+	Balance      string
+	PlanID       *int64
+	ExpiredAt    *time.Time
+	TrafficLimit int64
+	TrafficUsed  int64
+	Status       string
+}
+
+func (s *Store) AdminCreateUser(ctx context.Context, in AdminCreateUserInput) (int64, error) {
+	if strings.TrimSpace(in.Balance) == "" {
+		in.Balance = "0.00"
+	}
+	if strings.TrimSpace(in.Status) == "" {
+		in.Status = "active"
+	}
+	return s.InsertReturningID(ctx,
+		`INSERT INTO users(email, password_hash, balance, plan_id, expired_at,
+			traffic_limit, traffic_used, status)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		in.Email, in.PasswordHash, in.Balance, in.PlanID, in.ExpiredAt,
+		in.TrafficLimit, in.TrafficUsed, in.Status,
 	)
 }
 
@@ -72,6 +100,24 @@ func (s *Store) ActivateUserPlan(ctx context.Context, userID int64, plan *Plan) 
 func (s *Store) SetUserStatus(ctx context.Context, userID int64, status string) error {
 	q := s.Rebind(`UPDATE users SET status = ? WHERE id = ?`)
 	_, err := s.DB.ExecContext(ctx, q, status, userID)
+	return err
+}
+
+type AdminUpdateUserInput struct {
+	Email        string
+	Balance      string
+	PlanID       *int64
+	ExpiredAt    *time.Time
+	TrafficLimit int64
+	TrafficUsed  int64
+	Status       string
+}
+
+func (s *Store) AdminUpdateUser(ctx context.Context, userID int64, in AdminUpdateUserInput) error {
+	q := s.Rebind(`UPDATE users SET email = ?, balance = ?, plan_id = ?, expired_at = ?,
+		traffic_limit = ?, traffic_used = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+	_, err := s.DB.ExecContext(ctx, q, in.Email, in.Balance, in.PlanID, in.ExpiredAt,
+		in.TrafficLimit, in.TrafficUsed, in.Status, userID)
 	return err
 }
 

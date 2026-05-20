@@ -1,8 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Bell, Check } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Bell } from "lucide-react"
 import { getNotifications, markNotificationRead, markAllNotificationsRead, getUnreadCount } from "@/lib/api"
 
 export default function NotificationBell() {

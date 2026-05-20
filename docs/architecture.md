@@ -29,8 +29,7 @@ VPS 节点
 ### Control Plane 控制面
 
 - `api-server`：商业主后端，承载用户、订单、支付、套餐、节点、订阅和后台 API。
-- `admin-web`：管理后台。
-- `user-web`：用户前台。
+- `frontend`：Next.js 用户端和管理端，按 `/dashboard`、`/admin` 等路由区分业务入口。
 - `worker-service`：异步任务、到期检查、超额检查、配置生成任务。
 - `agent-gateway`：Agent 注册、心跳、任务拉取、结果上报和流量上报入口。
 - `sub-service`：订阅生成服务。
@@ -52,8 +51,7 @@ VPS 节点
 | --- | --- | --- |
 | `api-server` | 独立服务 | 保持主业务入口 |
 | `worker-service` | 独立服务 | 扩展更多队列和定时任务 |
-| `admin-web` | 独立应用 | 保持独立部署 |
-| `user-web` | 独立应用 | 保持独立部署 |
+| `frontend` | 独立 Next.js 应用 | 后续可按访问量拆分用户端和管理端 |
 | `sub-service` | 先作为 `api-server` 模块 | 高并发后拆出 |
 | `agent-gateway` | 先作为 `api-server` 模块 | Agent 规模扩大后拆出 |
 | `scheduler-service` | 先作为 `worker-service` 模块 | 调度复杂后拆出 |

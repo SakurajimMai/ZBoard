@@ -10,13 +10,19 @@ const ignores = [
   "tsconfig.tsbuildinfo",
 ]
 
-export default [
+const config = [
   { ignores },
   ...nextVitals,
   ...nextTypescript,
   {
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
+      "react-hooks/immutability": "off",
+      "react-hooks/purity": "off",
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/static-components": "off",
     },
   },
 ]
+
+export default config

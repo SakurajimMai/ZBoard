@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Globe, Wifi, Signal } from "lucide-react"
+import { Globe, Wifi } from "lucide-react"
 import { getMe } from "@/lib/api"
 
 export default function Subscription() {
@@ -16,8 +16,6 @@ export default function Subscription() {
   }, [])
 
   if (loading) return <div className="text-muted-foreground p-8">加载中...</div>
-
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? window.location.origin.replace(':3001', ':3000') : '')
 
   return (
     <div className="space-y-6">

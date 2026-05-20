@@ -31,6 +31,18 @@ type CreatePlanInput struct {
 	Sort         int
 }
 
+type UpdatePlanInput struct {
+	Name         string
+	Price        string
+	DurationDays int
+	TrafficLimit int64
+	DeviceLimit  int
+	SpeedLimit   int
+	NodeGroupID  *int64
+	Status       string
+	Sort         int
+}
+
 func (s *Store) CreatePlan(ctx context.Context, in CreatePlanInput) (int64, error) {
 	return s.InsertReturningID(ctx,
 		`INSERT INTO plans(name, price, duration_days, traffic_limit, device_limit,
@@ -38,6 +50,16 @@ func (s *Store) CreatePlan(ctx context.Context, in CreatePlanInput) (int64, erro
 		in.Name, in.Price, in.DurationDays, in.TrafficLimit, in.DeviceLimit,
 		in.SpeedLimit, in.NodeGroupID, in.Sort,
 	)
+}
+
+func (s *Store) UpdatePlan(ctx context.Context, id int64, in UpdatePlanInput) error {
+	q := s.Rebind(`UPDATE plans SET name = ?, price = ?, duration_days = ?,
+		traffic_limit = ?, device_limit = ?, speed_limit = ?, node_group_id = ?,
+		status = ?, sort = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+	_, err := s.DB.ExecContext(ctx, q, in.Name, in.Price, in.DurationDays,
+		in.TrafficLimit, in.DeviceLimit, in.SpeedLimit, in.NodeGroupID,
+		in.Status, in.Sort, id)
+	return err
 }
 
 func (s *Store) ListActivePlans(ctx context.Context) ([]Plan, error) {

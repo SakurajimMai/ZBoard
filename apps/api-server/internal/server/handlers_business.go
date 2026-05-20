@@ -1,10 +1,14 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/zboard/api-server/internal/authx"
 	"github.com/zboard/api-server/internal/httpx"
 	"github.com/zboard/api-server/internal/store"
 )
@@ -34,14 +38,26 @@ func adminListPlans(d Deps) gin.HandlerFunc {
 }
 
 type createPlanBody struct {
-	Name         string  `json:"name" binding:"required"`
-	Price        string  `json:"price" binding:"required"`
-	DurationDays int     `json:"duration_days" binding:"required"`
-	TrafficLimit int64   `json:"traffic_limit"`
-	DeviceLimit  int     `json:"device_limit"`
-	SpeedLimit   int     `json:"speed_limit"`
-	NodeGroupID  *int64  `json:"node_group_id"`
-	Sort         int     `json:"sort"`
+	Name         string `json:"name" binding:"required"`
+	Price        string `json:"price" binding:"required"`
+	DurationDays int    `json:"duration_days" binding:"required"`
+	TrafficLimit int64  `json:"traffic_limit"`
+	DeviceLimit  int    `json:"device_limit"`
+	SpeedLimit   int    `json:"speed_limit"`
+	NodeGroupID  *int64 `json:"node_group_id"`
+	Sort         int    `json:"sort"`
+}
+
+type updatePlanBody struct {
+	Name         string `json:"name" binding:"required"`
+	Price        string `json:"price" binding:"required"`
+	DurationDays int    `json:"duration_days" binding:"required"`
+	TrafficLimit int64  `json:"traffic_limit"`
+	DeviceLimit  int    `json:"device_limit"`
+	SpeedLimit   int    `json:"speed_limit"`
+	NodeGroupID  *int64 `json:"node_group_id"`
+	Status       string `json:"status"`
+	Sort         int    `json:"sort"`
 }
 
 func adminCreatePlan(d Deps) gin.HandlerFunc {
@@ -75,6 +91,53 @@ func adminCreatePlan(d Deps) gin.HandlerFunc {
 			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
 		})
 		httpx.Created(c, gin.H{"plan_id": id})
+	}
+}
+
+func adminUpdatePlan(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "id 不合法"))
+			return
+		}
+		var body updatePlanBody
+		if err := c.ShouldBindJSON(&body); err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
+			return
+		}
+		status := strings.TrimSpace(body.Status)
+		if status == "" {
+			status = "active"
+		}
+		if status != "active" && status != "inactive" {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "套餐状态不合法"))
+			return
+		}
+		if body.DeviceLimit == 0 {
+			body.DeviceLimit = 3
+		}
+		if err := d.Store.UpdatePlan(c.Request.Context(), id, store.UpdatePlanInput{
+			Name:         body.Name,
+			Price:        body.Price,
+			DurationDays: body.DurationDays,
+			TrafficLimit: body.TrafficLimit,
+			DeviceLimit:  body.DeviceLimit,
+			SpeedLimit:   body.SpeedLimit,
+			NodeGroupID:  body.NodeGroupID,
+			Status:       status,
+			Sort:         body.Sort,
+		}); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
+		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
+			ActorType: "admin", ActorID: ptrInt64(a.ID),
+			Action: "plan.update", ResourceType: "plan", ResourceID: strconv.FormatInt(id, 10),
+			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+		})
+		httpx.OK(c, gin.H{"ok": true})
 	}
 }
 
@@ -127,10 +190,10 @@ func payOrder(d Deps) gin.HandlerFunc {
 			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
 		})
 		httpx.OK(c, gin.H{
-			"existing":   res.Existing,
-			"payment":    res.Payment,
-			"order_no":   res.OrderNo,
-			"pay_url":    res.PayURL,
+			"existing": res.Existing,
+			"payment":  res.Payment,
+			"order_no": res.OrderNo,
+			"pay_url":  res.PayURL,
 		})
 	}
 }
@@ -216,6 +279,195 @@ func adminListUsers(d Deps) gin.HandlerFunc {
 		}
 		httpx.OK(c, gin.H{"items": view})
 	}
+}
+
+type adminCreateUserBody struct {
+	Email        string  `json:"email" binding:"required"`
+	Password     string  `json:"password" binding:"required"`
+	Balance      string  `json:"balance"`
+	PlanID       *int64  `json:"plan_id"`
+	ExpiredAt    *string `json:"expired_at"`
+	TrafficLimit int64   `json:"traffic_limit"`
+	TrafficUsed  int64   `json:"traffic_used"`
+	Status       string  `json:"status"`
+}
+
+type adminUpdateUserBody struct {
+	Email        string  `json:"email" binding:"required"`
+	Balance      string  `json:"balance"`
+	PlanID       *int64  `json:"plan_id"`
+	ExpiredAt    *string `json:"expired_at"`
+	TrafficLimit int64   `json:"traffic_limit"`
+	TrafficUsed  int64   `json:"traffic_used"`
+	Status       string  `json:"status"`
+}
+
+func adminCreateUser(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body adminCreateUserBody
+		if err := c.ShouldBindJSON(&body); err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
+			return
+		}
+		email := strings.TrimSpace(strings.ToLower(body.Email))
+		if len(body.Password) < 6 {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "密码至少 6 位"))
+			return
+		}
+		status := normalizeUserStatus(body.Status)
+		if status == "" {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "用户状态不合法"))
+			return
+		}
+		expiredAt, err := parseOptionalTime(body.ExpiredAt)
+		if err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "到期时间格式不合法"))
+			return
+		}
+		hash, err := authx.HashPassword(body.Password)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		id, err := d.Store.AdminCreateUser(c.Request.Context(), store.AdminCreateUserInput{
+			Email:        email,
+			PasswordHash: hash,
+			Balance:      defaultString(body.Balance, "0.00"),
+			PlanID:       body.PlanID,
+			ExpiredAt:    expiredAt,
+			TrafficLimit: body.TrafficLimit,
+			TrafficUsed:  body.TrafficUsed,
+			Status:       status,
+		})
+		if err != nil {
+			if store.IsUniqueViolation(err) {
+				httpx.Fail(c, httpx.NewError(http.StatusConflict, "email_taken", "邮箱已注册"))
+				return
+			}
+			httpx.Fail(c, err)
+			return
+		}
+		if status == "active" {
+			if err := provisionUserOnActiveNodes(c.Request.Context(), d.Store, id); err != nil {
+				httpx.Fail(c, err)
+				return
+			}
+		}
+		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
+		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
+			ActorType: "admin", ActorID: ptrInt64(a.ID),
+			Action: "user.create", ResourceType: "user", ResourceID: strconv.FormatInt(id, 10),
+			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+		})
+		httpx.Created(c, gin.H{"user_id": id})
+	}
+}
+
+func adminUpdateUser(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "id 不合法"))
+			return
+		}
+		var body adminUpdateUserBody
+		if err := c.ShouldBindJSON(&body); err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
+			return
+		}
+		status := normalizeUserStatus(body.Status)
+		if status == "" {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "用户状态不合法"))
+			return
+		}
+		expiredAt, err := parseOptionalTime(body.ExpiredAt)
+		if err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "到期时间格式不合法"))
+			return
+		}
+		if err := d.Store.AdminUpdateUser(c.Request.Context(), id, store.AdminUpdateUserInput{
+			Email:        strings.TrimSpace(strings.ToLower(body.Email)),
+			Balance:      defaultString(body.Balance, "0.00"),
+			PlanID:       body.PlanID,
+			ExpiredAt:    expiredAt,
+			TrafficLimit: body.TrafficLimit,
+			TrafficUsed:  body.TrafficUsed,
+			Status:       status,
+		}); err != nil {
+			if store.IsUniqueViolation(err) {
+				httpx.Fail(c, httpx.NewError(http.StatusConflict, "email_taken", "邮箱已注册"))
+				return
+			}
+			httpx.Fail(c, err)
+			return
+		}
+		if status == "active" {
+			if err := provisionUserOnActiveNodes(c.Request.Context(), d.Store, id); err != nil {
+				httpx.Fail(c, err)
+				return
+			}
+			_ = d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 1)
+		} else {
+			_ = d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 0)
+		}
+		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
+		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
+			ActorType: "admin", ActorID: ptrInt64(a.ID),
+			Action: "user.update", ResourceType: "user", ResourceID: strconv.FormatInt(id, 10),
+			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+		})
+		httpx.OK(c, gin.H{"ok": true})
+	}
+}
+
+func normalizeUserStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case "", "active":
+		return "active"
+	case "disabled", "inactive":
+		return "disabled"
+	default:
+		return ""
+	}
+}
+
+func parseOptionalTime(raw *string) (*time.Time, error) {
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return nil, nil
+	}
+	v := strings.TrimSpace(*raw)
+	layouts := []string{time.RFC3339, "2006-01-02"}
+	for _, layout := range layouts {
+		t, err := time.Parse(layout, v)
+		if err == nil {
+			return &t, nil
+		}
+	}
+	return nil, httpx.NewError(http.StatusBadRequest, "bad_request", "时间格式不合法")
+}
+
+func defaultString(v, fallback string) string {
+	if strings.TrimSpace(v) == "" {
+		return fallback
+	}
+	return v
+}
+
+func provisionUserOnActiveNodes(ctx context.Context, st *store.Store, userID int64) error {
+	nodes, err := st.ListActiveNodes(ctx)
+	if err != nil {
+		return err
+	}
+	clientID, err := newClientIDForServer()
+	if err != nil {
+		return err
+	}
+	for _, n := range nodes {
+		if err := st.EnsureNodeUser(ctx, userID, n.ID, clientID, n.Protocol); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func adminUserDisable(d Deps) gin.HandlerFunc {

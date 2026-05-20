@@ -182,7 +182,7 @@ export default function TicketPage() {
         <div className="flex flex-col items-center py-16 text-center">
           <MessageSquare className="w-12 h-12 text-muted-foreground mb-4" />
           <p className="text-muted-foreground">暂无工单</p>
-          <p className="text-sm text-muted-foreground mt-1">点击"新建工单"提交您的问题</p>
+          <p className="text-sm text-muted-foreground mt-1">点击“新建工单”提交您的问题</p>
         </div>
       ) : (
         <div className="space-y-3">

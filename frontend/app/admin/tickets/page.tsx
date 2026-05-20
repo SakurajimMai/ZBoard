@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { MessageSquare, Send, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { adminGetTickets, adminGetTicketDetail, adminReplyTicket, adminCloseTicket } from "@/lib/api"
@@ -14,15 +14,15 @@ export default function AdminTicketsPage() {
   const [replyContent, setReplyContent] = useState("")
   const [submitting, setSubmitting] = useState(false)
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true)
     adminGetTickets(filter)
       .then((res) => setTickets(res.items || []))
       .catch(console.error)
       .finally(() => setLoading(false))
-  }
+  }, [filter])
 
-  useEffect(() => { load() }, [filter])
+  useEffect(() => { load() }, [load])
 
   const openTicket = async (id: number) => {
     try {

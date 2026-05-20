@@ -30,16 +30,47 @@ type Node struct {
 	RealityShortID    string     `db:"reality_short_id" json:"reality_short_id"`
 	RealityServerName string     `db:"reality_server_name" json:"reality_server_name"`
 	Flow              string     `db:"flow" json:"flow"`
-	ALPN              string     `db:"alpn" json:"alpn"`           // comma-separated, e.g. "h2,http/1.1"
+	ALPN              string     `db:"alpn" json:"alpn"` // comma-separated, e.g. "h2,http/1.1"
 	MuxEnabled        int        `db:"mux_enabled" json:"mux_enabled"`
 	SSMethod          string     `db:"ss_method" json:"ss_method"` // e.g. 2022-blake3-aes-128-gcm
 	RealityPrivateKey string     `db:"reality_private_key" json:"reality_private_key"`
-	RealityDest       string     `db:"reality_dest" json:"reality_dest"` // e.g. www.cloudflare.com:443
+	RealityDest       string     `db:"reality_dest" json:"reality_dest"`             // e.g. www.cloudflare.com:443
 	ObfsPassword      string     `db:"obfs_password" json:"obfs_password"`           // hysteria2 obfs password
 	CongestionControl string     `db:"congestion_control" json:"congestion_control"` // hysteria2 / tuic, e.g. "bbr"
 	UpMbps            int        `db:"up_mbps" json:"up_mbps"`                       // hysteria2 advertised upload bandwidth
 	DownMbps          int        `db:"down_mbps" json:"down_mbps"`                   // hysteria2 advertised download bandwidth
 	PortRange         string     `db:"port_range" json:"port_range"`                 // hysteria2 port hopping, e.g. "20000-40000"
+}
+
+type UpdateNodeInput struct {
+	Name              string
+	Region            string
+	Host              string
+	Port              int
+	Protocol          string
+	Transport         string
+	Security          string
+	RuntimeType       string
+	Status            string
+	WSPath            string
+	WSHost            string
+	GRPCServiceName   string
+	SNI               string
+	Fingerprint       string
+	RealityPublicKey  string
+	RealityShortID    string
+	RealityServerName string
+	Flow              string
+	ALPN              string
+	MuxEnabled        int
+	SSMethod          string
+	RealityPrivateKey string
+	RealityDest       string
+	ObfsPassword      string
+	CongestionControl string
+	UpMbps            int
+	DownMbps          int
+	PortRange         string
 }
 
 const nodeColumns = `id, node_code, name, region, host, port, protocol, transport, security,
@@ -74,4 +105,25 @@ func (s *Store) FindNodeByID(ctx context.Context, id int64) (*Node, error) {
 		return nil, err
 	}
 	return &n, nil
+}
+
+func (s *Store) UpdateNode(ctx context.Context, id int64, in UpdateNodeInput) error {
+	q := s.Rebind(`UPDATE nodes SET name = ?, region = ?, host = ?, port = ?,
+		protocol = ?, transport = ?, security = ?, runtime_type = ?, status = ?,
+		ws_path = ?, ws_host = ?, grpc_service_name = ?, sni = ?, fingerprint = ?,
+		reality_public_key = ?, reality_short_id = ?, reality_server_name = ?,
+		flow = ?, alpn = ?, mux_enabled = ?, ss_method = ?, reality_private_key = ?, reality_dest = ?,
+		obfs_password = ?, congestion_control = ?, up_mbps = ?, down_mbps = ?, port_range = ?,
+		updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+	region := in.Region
+	_, err := s.DB.ExecContext(ctx, q,
+		in.Name, region, in.Host, in.Port,
+		in.Protocol, in.Transport, in.Security, in.RuntimeType, in.Status,
+		in.WSPath, in.WSHost, in.GRPCServiceName, in.SNI, in.Fingerprint,
+		in.RealityPublicKey, in.RealityShortID, in.RealityServerName,
+		in.Flow, in.ALPN, in.MuxEnabled, in.SSMethod, in.RealityPrivateKey, in.RealityDest,
+		in.ObfsPassword, in.CongestionControl, in.UpMbps, in.DownMbps, in.PortRange,
+		id,
+	)
+	return err
 }

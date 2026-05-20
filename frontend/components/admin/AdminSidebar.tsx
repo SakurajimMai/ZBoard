@@ -67,6 +67,7 @@ export default function AdminSidebar() {
         {navItems.map((item) => {
           const Icon = item.icon
           const active = pathname === item.href
+          const badge = ("badge" in item ? item.badge : undefined) ?? 0
           return (
             <Link
               key={item.href}
@@ -81,12 +82,12 @@ export default function AdminSidebar() {
             >
               <Icon className="w-5 h-5 flex-shrink-0" />
               <span className="flex-1">{item.label}</span>
-              {"badge" in item && item.badge > 0 && (
+              {badge > 0 && (
                 <span className="w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center font-medium">
-                  {item.badge}
+                  {badge}
                 </span>
               )}
-              {active && !("badge" in item && item.badge > 0) && (
+              {active && badge === 0 && (
                 <ChevronRight className="w-4 h-4 opacity-60" />
               )}
             </Link>

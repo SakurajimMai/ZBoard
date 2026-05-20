@@ -187,6 +187,20 @@ export async function adminGetUsers() {
   return adminRequest<{ items: any[] }>('/api/admin/v1/users')
 }
 
+export async function adminCreateUser(data: any) {
+  return adminRequest<{ user_id: number }>('/api/admin/v1/users', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function adminUpdateUser(id: number, data: any) {
+  return adminRequest<{ ok: boolean }>(`/api/admin/v1/users/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
 export async function adminGetOrders() {
   return adminRequest<{ items: any[] }>('/api/admin/v1/orders')
 }
@@ -202,6 +216,13 @@ export async function adminCreateNode(data: any) {
   })
 }
 
+export async function adminUpdateNode(id: number, data: any) {
+  return adminRequest<{ ok: boolean }>(`/api/admin/v1/nodes/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
 export async function adminGetPlans() {
   return adminRequest<{ items: any[] }>('/api/admin/v1/plans')
 }
@@ -209,6 +230,13 @@ export async function adminGetPlans() {
 export async function adminCreatePlan(data: any) {
   return adminRequest<{ plan_id: number }>('/api/admin/v1/plans', {
     method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function adminUpdatePlan(id: number, data: any) {
+  return adminRequest<{ ok: boolean }>(`/api/admin/v1/plans/${id}`, {
+    method: 'PUT',
     body: JSON.stringify(data),
   })
 }
