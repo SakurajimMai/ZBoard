@@ -1,5 +1,6 @@
 # Zboard 控制面 Docker Compose
-# 使用 DockerHub 预构建镜像，无需本地编译
+# 部署目录: /root/docker/zboard/
+# 数据存放: ./data/
 # 用法: docker compose up -d
 
 services:
@@ -9,6 +10,8 @@ services:
     env_file: ./api.env
     ports:
       - "3000:3000"
+    volumes:
+      - ./data/api:/data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
       interval: 30s
