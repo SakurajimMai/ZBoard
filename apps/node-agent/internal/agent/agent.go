@@ -24,6 +24,7 @@ type Agent struct {
 	Client     *apiclient.Client
 	Supervisor *runtime.Supervisor
 	Stats      *stats.Client // nil when StatsAPIAddr is empty
+	lastConfig []byte        // last applied runtime config (for port hopping teardown)
 }
 
 func New(cfg *config.Config) *Agent {
@@ -58,6 +59,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	wg.Wait()
 
 	_ = a.Supervisor.Stop()
+	// Teardown port hopping iptables rules on shutdown.
+	if a.lastConfig != nil {
+		teardownPortHopping(a.lastConfig)
+	}
 	if a.Stats != nil {
 		_ = a.Stats.Close()
 	}
@@ -140,6 +145,10 @@ func (a *Agent) pullAndApply(ctx context.Context) error {
 				a.reportResult(ctx, t.TaskID, "failed", "missing runtime_config in task payload")
 				continue
 			}
+			// Teardown old port hopping rules before applying new config.
+			if a.lastConfig != nil {
+				teardownPortHopping(a.lastConfig)
+			}
 			if changed, err := a.Supervisor.Apply(ctx, t.RuntimeConfig); err != nil {
 				log.Printf("task %s sync_config FAILED: %v", t.TaskID, err)
 				a.reportResult(ctx, t.TaskID, "failed", err.Error())
@@ -147,6 +156,9 @@ func (a *Agent) pullAndApply(ctx context.Context) error {
 			} else {
 				log.Printf("task %s sync_config applied (changed=%t)", t.TaskID, changed)
 			}
+			// Apply port hopping iptables rules if present in the config.
+			applyPortHopping(t.RuntimeConfig)
+			a.lastConfig = t.RuntimeConfig
 			a.reportResult(ctx, t.TaskID, "success", "")
 		case "disable_user":
 			log.Printf("task %s disable_user acknowledged", t.TaskID)

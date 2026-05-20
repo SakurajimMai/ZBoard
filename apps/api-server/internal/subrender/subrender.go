@@ -43,6 +43,7 @@ type Item struct {
 	CongestionControl string   // tuic / hysteria2 congestion control
 	UpMbps            int      // hysteria2 client-advertised upload bandwidth
 	DownMbps          int      // hysteria2 client-advertised download bandwidth
+	PortRange         string   // hysteria2 port hopping range, e.g. "20000-40000"
 }
 
 // Build merges nodes + node_users into a deduplicated, ordered Item slice.
@@ -106,6 +107,7 @@ func Build(nodes []store.Node, nodeUsers []store.NodeUser) []Item {
 			CongestionControl: n.CongestionControl,
 			UpMbps:            n.UpMbps,
 			DownMbps:          n.DownMbps,
+			PortRange:         n.PortRange,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].NodeID < out[j].NodeID })
@@ -218,7 +220,12 @@ func uriFor(it Item) string {
 		return fmt.Sprintf("ss://%s@%s#%s", userInfo, host, url.QueryEscape(it.Name))
 	case "hysteria2":
 		// hy2://password@host:port?...#name
-		host := net.JoinHostPort(it.Host, strconv.Itoa(it.Port))
+		// Port hopping: use port_range in the host:port part if set.
+		portStr := strconv.Itoa(it.Port)
+		if it.PortRange != "" {
+			portStr = it.PortRange
+		}
+		host := net.JoinHostPort(it.Host, portStr)
 		q := url.Values{}
 		sni := it.SNI
 		if sni == "" {
@@ -242,6 +249,11 @@ func uriFor(it Item) string {
 		}
 		if it.Fingerprint != "" {
 			q.Set("fp", it.Fingerprint)
+		}
+		// mport param for clients that support it (redundant with host:port-range
+		// but some clients read mport explicitly).
+		if it.PortRange != "" {
+			q.Set("mport", it.PortRange)
 		}
 		return fmt.Sprintf("hy2://%s@%s?%s#%s", url.QueryEscape(it.Password), host, q.Encode(), url.QueryEscape(it.Name))
 	case "tuic":
@@ -347,6 +359,9 @@ func ClashMeta(items []Item) string {
 			}
 			if it.DownMbps > 0 {
 				fmt.Fprintf(&b, "    down: %d\n", it.DownMbps)
+			}
+			if it.PortRange != "" {
+				fmt.Fprintf(&b, "    ports: %s\n", it.PortRange)
 			}
 		case "tuic":
 			fmt.Fprintf(&b, "    uuid: %s\n", it.UUID)

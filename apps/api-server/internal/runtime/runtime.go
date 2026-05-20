@@ -356,7 +356,8 @@ func singBoxHysteria2(node *store.Node, users []store.NodeUser) map[string]any {
 			"password": node.ObfsPassword,
 		}
 	}
-	return map[string]any{
+
+	doc := map[string]any{
 		"log":      map[string]any{"level": "warn"},
 		"inbounds": []any{inbound},
 		"outbounds": []any{
@@ -370,6 +371,27 @@ func singBoxHysteria2(node *store.Node, users []store.NodeUser) map[string]any {
 			},
 		},
 	}
+
+	// Port hopping: include iptables setup commands in a metadata block so the
+	// agent can apply them after writing the config. The runtime itself only
+	// listens on node.Port; iptables DNAT redirects the port range to it.
+	if node.PortRange != "" {
+		doc["_zboard_port_hopping"] = map[string]any{
+			"enabled":     true,
+			"listen_port": node.Port,
+			"port_range":  node.PortRange,
+			"setup_cmds": []string{
+				fmt.Sprintf("iptables -t nat -A PREROUTING -p udp --dport %s -j DNAT --to-destination :%d", node.PortRange, node.Port),
+				fmt.Sprintf("ip6tables -t nat -A PREROUTING -p udp --dport %s -j DNAT --to-destination :%d", node.PortRange, node.Port),
+			},
+			"teardown_cmds": []string{
+				fmt.Sprintf("iptables -t nat -D PREROUTING -p udp --dport %s -j DNAT --to-destination :%d", node.PortRange, node.Port),
+				fmt.Sprintf("ip6tables -t nat -D PREROUTING -p udp --dport %s -j DNAT --to-destination :%d", node.PortRange, node.Port),
+			},
+		}
+	}
+
+	return doc
 }
 
 func singBoxTUIC(node *store.Node, users []store.NodeUser) map[string]any {

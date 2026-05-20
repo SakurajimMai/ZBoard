@@ -39,6 +39,7 @@ type Node struct {
 	CongestionControl string     `db:"congestion_control" json:"congestion_control"` // hysteria2 / tuic, e.g. "bbr"
 	UpMbps            int        `db:"up_mbps" json:"up_mbps"`                       // hysteria2 advertised upload bandwidth
 	DownMbps          int        `db:"down_mbps" json:"down_mbps"`                   // hysteria2 advertised download bandwidth
+	PortRange         string     `db:"port_range" json:"port_range"`                 // hysteria2 port hopping, e.g. "20000-40000"
 }
 
 const nodeColumns = `id, node_code, name, region, host, port, protocol, transport, security,
@@ -46,7 +47,7 @@ const nodeColumns = `id, node_code, name, region, host, port, protocol, transpor
 	ws_path, ws_host, grpc_service_name, sni, fingerprint,
 	reality_public_key, reality_short_id, reality_server_name,
 	flow, alpn, mux_enabled, ss_method, reality_private_key, reality_dest,
-	obfs_password, congestion_control, up_mbps, down_mbps`
+	obfs_password, congestion_control, up_mbps, down_mbps, port_range`
 
 func (s *Store) ListActiveNodes(ctx context.Context) ([]Node, error) {
 	q := `SELECT ` + nodeColumns + ` FROM nodes WHERE status = 'active' ORDER BY id ASC`

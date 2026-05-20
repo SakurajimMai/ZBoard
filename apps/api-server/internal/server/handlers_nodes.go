@@ -36,6 +36,7 @@ type createNodeBody struct {
 	CongestionControl string `json:"congestion_control"`
 	UpMbps            int    `json:"up_mbps"`
 	DownMbps          int    `json:"down_mbps"`
+	PortRange         string `json:"port_range"`
 }
 
 func adminCreateNode(d Deps) gin.HandlerFunc {
@@ -72,6 +73,7 @@ func adminCreateNode(d Deps) gin.HandlerFunc {
 			CongestionControl: body.CongestionControl,
 			UpMbps:            body.UpMbps,
 			DownMbps:          body.DownMbps,
+			PortRange:         body.PortRange,
 		})
 		if err != nil {
 			httpx.Fail(c, err)

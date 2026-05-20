@@ -35,6 +35,7 @@ type CreateNodeInput struct {
 	CongestionControl string
 	UpMbps            int
 	DownMbps          int
+	PortRange         string // hysteria2 port hopping range, e.g. "20000-40000"
 }
 
 // CreateNode inserts a node and its node_agents shell row with a generated
@@ -110,15 +111,15 @@ func (s *Store) CreateNode(ctx context.Context, in CreateNodeInput) (int64, stri
 	insertNode := `INSERT INTO nodes(node_code, name, region, host, port, protocol, transport, security, runtime_type,
 		ws_path, ws_host, grpc_service_name, sni, fingerprint, reality_public_key, reality_short_id, reality_server_name,
 		flow, alpn, mux_enabled, ss_method, reality_private_key, reality_dest,
-		obfs_password, congestion_control, up_mbps, down_mbps)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		obfs_password, congestion_control, up_mbps, down_mbps, port_range)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	region := strings.TrimSpace(in.Region)
 	args := []any{
 		code, in.Name, region, in.Host, in.Port, in.Protocol, in.Transport, in.Security, in.RuntimeType,
 		in.WSPath, in.WSHost, in.GRPCServiceName, in.SNI, in.Fingerprint,
 		in.RealityPublicKey, in.RealityShortID, in.RealityServerName,
 		in.Flow, in.ALPN, in.MuxEnabled, in.SSMethod, in.RealityPrivateKey, in.RealityDest,
-		in.ObfsPassword, in.CongestionControl, in.UpMbps, in.DownMbps,
+		in.ObfsPassword, in.CongestionControl, in.UpMbps, in.DownMbps, in.PortRange,
 	}
 	var nodeID int64
 	if s.Dialect == config.DialectPostgres {
