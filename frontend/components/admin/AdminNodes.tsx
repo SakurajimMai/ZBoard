@@ -85,7 +85,7 @@ function caps(protocol: string, transport: string, security: string) {
     showSecurity: !isQUIC,
     showWS: transport === "ws" && !isQUIC,
     showGRPC: transport === "grpc" && !isQUIC,
-    showTLS: (security === "tls" || isQUIC) && !isSS,
+    showTLS: (security === "tls" || security === "reality" || isQUIC) && !isSS,
     showReality: security === "reality" && isVless,
     showFlow: isVless,
     showALPN: !isSS,
@@ -197,6 +197,15 @@ export default function AdminNodes() {
     setForm(next)
   }
 
+  const onSecurityChange = (security: string) => {
+    const next = { ...form, security }
+    if (form.protocol === "vless" && security === "reality") {
+      next.runtime_type = "xray"
+      if (!next.flow) next.flow = "xtls-rprx-vision"
+    }
+    setForm(next)
+  }
+
   const payload = () => ({
     ...form,
     port: Number(form.port || 0),
@@ -209,6 +218,12 @@ export default function AdminNodes() {
     if (!form.name.trim() || !form.host.trim() || Number(form.port) <= 0) {
       alert("请填写节点名称、地址和端口")
       return
+    }
+    if (form.protocol === "vless" && form.security === "reality") {
+      if (!form.reality_server_name.trim() || !form.reality_public_key.trim() || !form.reality_private_key.trim()) {
+        alert("Reality 节点必须填写服务器名、Public Key 和 Private Key")
+        return
+      }
     }
     setSaving(true)
     try {
@@ -432,7 +447,7 @@ export default function AdminNodes() {
                       </Field>
                       {cap.showSecurity && (
                         <Field label="加密层">
-                          <Select value={form.security} onValueChange={(security) => setForm({ ...form, security })}>
+                          <Select value={form.security} onValueChange={onSecurityChange}>
                             <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="tls">TLS</SelectItem>

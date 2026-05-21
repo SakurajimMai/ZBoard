@@ -8,6 +8,8 @@ services:
     image: sakurajiamai/zboard-api:latest
     container_name: zboard-api
     env_file: ./api.env
+    environment:
+      - TZ=Asia/Shanghai
     ports:
       - "3000:3000"
     volumes:
@@ -29,6 +31,7 @@ services:
     image: sakurajiamai/zboard-frontend:latest
     container_name: zboard-frontend
     environment:
+      - TZ=Asia/Shanghai
       # 浏览器端 API 基址。
       # 留空(推荐):前端走同源 /api/*,由 Next.js rewrites 反代到 API_INTERNAL_URL。
       #   适合 CDN / 反向代理场景:CDN 只代理 80/443 即可,无需暴露 :3000。

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/zboard/api-server/internal/httpx"
+	"github.com/zboard/api-server/internal/runtime"
 	"github.com/zboard/api-server/internal/store"
 )
 
@@ -49,6 +50,16 @@ func adminCreateNode(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body createNodeBody
 		if err := c.ShouldBindJSON(&body); err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
+			return
+		}
+		if err := validateNodeRuntimeFields(
+			defaultNodeString(body.Protocol, "vless"),
+			defaultNodeString(body.Security, "tls"),
+			body.RealityServerName,
+			body.RealityPublicKey,
+			body.RealityPrivateKey,
+		); err != nil {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
 			return
 		}
@@ -141,6 +152,16 @@ func adminUpdateNode(d Deps) gin.HandlerFunc {
 		}
 		in := normalizeNodeUpdate(body)
 		in.Status = status
+		if err := validateNodeRuntimeFields(
+			in.Protocol,
+			in.Security,
+			in.RealityServerName,
+			in.RealityPublicKey,
+			in.RealityPrivateKey,
+		); err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
+			return
+		}
 		if err := d.Store.UpdateNode(c.Request.Context(), id, in); err != nil {
 			httpx.Fail(c, err)
 			return
@@ -153,6 +174,16 @@ func adminUpdateNode(d Deps) gin.HandlerFunc {
 		})
 		httpx.OK(c, gin.H{"ok": true})
 	}
+}
+
+func validateNodeRuntimeFields(protocol, security, realityServerName, realityPublicKey, realityPrivateKey string) error {
+	return runtime.ValidateNode(&store.Node{
+		Protocol:          protocol,
+		Security:          security,
+		RealityServerName: realityServerName,
+		RealityPublicKey:  realityPublicKey,
+		RealityPrivateKey: realityPrivateKey,
+	})
 }
 
 func normalizeNodeUpdate(body updateNodeBody) store.UpdateNodeInput {

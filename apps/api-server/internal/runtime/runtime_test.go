@@ -16,6 +16,7 @@ func TestBuildXrayWithReality(t *testing.T) {
 		RuntimeType:       "xray",
 		Fingerprint:       "chrome",
 		RealityPublicKey:  "PBK",
+		RealityPrivateKey: "PRIVATE-KEY-HEX",
 		RealityShortID:    "sid",
 		RealityServerName: "www.cloudflare.com",
 	}
@@ -35,6 +36,12 @@ func TestBuildXrayWithReality(t *testing.T) {
 	}
 	if strings.Contains(body, "uuid-2") {
 		t.Errorf("disabled user should not appear")
+	}
+	if !strings.Contains(body, `"serverNames"`) {
+		t.Errorf("xray reality inbound must include serverNames, got body:\n%s", body)
+	}
+	if strings.Contains(body, `"serverName"`) {
+		t.Errorf("xray reality inbound must not use outbound-only serverName, got body:\n%s", body)
 	}
 	// Hash is content-addressed, so two builds of same input produce same hash.
 	body2, hash2, _ := runtime.Build(node, users, "v1")
@@ -250,6 +257,97 @@ func TestXrayRealityPrivateKeyAndDest(t *testing.T) {
 	}
 	if r["dest"] != "www.cloudflare.com:443" {
 		t.Errorf("realitySettings.dest = %v, want www.cloudflare.com:443", r["dest"])
+	}
+	serverNames, _ := r["serverNames"].([]any)
+	if len(serverNames) != 1 || serverNames[0] != "www.cloudflare.com" {
+		t.Errorf("realitySettings.serverNames = %#v, want [www.cloudflare.com]", r["serverNames"])
+	}
+	if _, leak := r["serverName"]; leak {
+		t.Errorf("xray reality inbound must not emit outbound-only serverName: %#v", r)
+	}
+	shortIDs, _ := r["shortIds"].([]any)
+	if len(shortIDs) != 1 || shortIDs[0] != "sid" {
+		t.Errorf("realitySettings.shortIds = %#v, want [sid]", r["shortIds"])
+	}
+}
+
+func TestXrayRealityEmptyShortIDStillEmitsShortIds(t *testing.T) {
+	node := &store.Node{
+		ID: 1, Name: "JP-R", Host: "jp.example.com", Port: 443,
+		Protocol: "vless", Transport: "tcp", Security: "reality",
+		RuntimeType:       "xray",
+		RealityPublicKey:  "PBK",
+		RealityPrivateKey: "PRIVATE-KEY-HEX",
+		RealityServerName: "www.cloudflare.com",
+		RealityDest:       "www.cloudflare.com:443",
+	}
+	users := []store.NodeUser{{UserID: 1, ClientID: "uuid-1", Enabled: 1}}
+	body, _, err := runtime.Build(node, users, "v1")
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	main := doc["inbounds"].([]any)[0].(map[string]any)
+	stream := main["streamSettings"].(map[string]any)
+	r := stream["realitySettings"].(map[string]any)
+	shortIDs, _ := r["shortIds"].([]any)
+	if len(shortIDs) != 1 || shortIDs[0] != "" {
+		t.Fatalf("empty short id must still be emitted as shortIds=[\"\"], got %#v", r["shortIds"])
+	}
+}
+
+func TestBuildRejectsIncompleteRealityNode(t *testing.T) {
+	base := store.Node{
+		ID: 1, Name: "JP-R", Host: "jp.example.com", Port: 443,
+		Protocol: "vless", Transport: "tcp", Security: "reality",
+		RuntimeType:       "xray",
+		RealityPublicKey:  "PBK",
+		RealityPrivateKey: "PRIVATE-KEY-HEX",
+		RealityServerName: "www.cloudflare.com",
+	}
+	users := []store.NodeUser{{UserID: 1, ClientID: "uuid-1", Enabled: 1}}
+	cases := []struct {
+		name    string
+		mutate  func(*store.Node)
+		wantErr string
+	}{
+		{
+			name: "missing server name",
+			mutate: func(n *store.Node) {
+				n.RealityServerName = ""
+			},
+			wantErr: "reality_server_name",
+		},
+		{
+			name: "missing public key",
+			mutate: func(n *store.Node) {
+				n.RealityPublicKey = ""
+			},
+			wantErr: "reality_public_key",
+		},
+		{
+			name: "missing private key",
+			mutate: func(n *store.Node) {
+				n.RealityPrivateKey = ""
+			},
+			wantErr: "reality_private_key",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			node := base
+			tc.mutate(&node)
+			_, _, err := runtime.Build(&node, users, "v1")
+			if err == nil {
+				t.Fatalf("expected Build to reject incomplete reality node")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error = %q, want it to mention %q", err.Error(), tc.wantErr)
+			}
+		})
 	}
 }
 

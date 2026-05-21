@@ -25,6 +25,7 @@ func sampleNodes() []store.Node {
 			Host: "jp.example.com", Port: 443,
 			Protocol: "vless", Transport: "tcp", Security: "reality",
 			Fingerprint: "chrome", RealityPublicKey: "PBK", RealityShortID: "sid01",
+			RealityPrivateKey: "PRIVATE-KEY-MUST-NOT-LEAK",
 			RealityServerName: "www.cloudflare.com", Status: "active",
 		},
 		{
@@ -117,6 +118,44 @@ func TestBase64URIRoundTrip(t *testing.T) {
 		if !strings.Contains(uri, want) {
 			t.Errorf("base64 URIs missing %q\n%s", want, uri)
 		}
+	}
+}
+
+func TestBuildSkipsIncompleteRealityNodes(t *testing.T) {
+	nodes := []store.Node{
+		{
+			ID: 1, NodeCode: "bad-reality", Name: "Bad Reality",
+			Host: "bad.example.com", Port: 443,
+			Protocol: "vless", Transport: "tcp", Security: "reality",
+			RealityServerName: "www.cloudflare.com",
+			RealityPublicKey:  "",
+			RealityPrivateKey: "PRIVATE-KEY-HEX",
+			Status:            "active",
+		},
+		{
+			ID: 2, NodeCode: "ok-tls", Name: "OK TLS",
+			Host: "ok.example.com", Port: 443,
+			Protocol: "vless", Transport: "tcp", Security: "tls",
+			Status: "active",
+		},
+	}
+	users := []store.NodeUser{
+		{NodeID: 1, UserID: 1, ClientID: "uuid-1", Protocol: "vless", Enabled: 1},
+		{NodeID: 2, UserID: 1, ClientID: "uuid-2", Protocol: "vless", Enabled: 1},
+	}
+	items := subrender.Build(nodes, users)
+	if len(items) != 1 {
+		t.Fatalf("expected invalid reality node to be skipped, got %d items: %#v", len(items), items)
+	}
+	if items[0].NodeID != 2 {
+		t.Fatalf("unexpected item after skipping invalid reality node: %#v", items[0])
+	}
+	raw, err := base64.StdEncoding.DecodeString(subrender.Base64(items))
+	if err != nil {
+		t.Fatalf("base64 decode: %v", err)
+	}
+	if strings.Contains(string(raw), "bad.example.com") {
+		t.Fatalf("invalid reality node leaked into subscription:\n%s", raw)
 	}
 }
 

@@ -14,6 +14,8 @@ RUN pnpm build
 FROM node:22-alpine AS runtime
 WORKDIR /app
 
+RUN apk add --no-cache tzdata
+
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
@@ -21,6 +23,7 @@ COPY --from=build /app/public ./public
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+ENV TZ=Asia/Shanghai
 
 EXPOSE 3000
 

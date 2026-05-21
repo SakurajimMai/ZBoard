@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/zboard/api-server/internal/runtime"
 	"github.com/zboard/api-server/internal/store"
 )
 
@@ -56,6 +57,9 @@ func Build(nodes []store.Node, nodeUsers []store.NodeUser) []Item {
 	for _, n := range nodes {
 		nu, ok := byNode[n.ID]
 		if !ok || nu.Enabled == 0 {
+			continue
+		}
+		if runtime.ValidateNode(&n) != nil {
 			continue
 		}
 		region := ""

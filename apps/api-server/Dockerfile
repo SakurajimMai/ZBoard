@@ -20,7 +20,8 @@ COPY --from=build /out/zboard-api /usr/local/bin/zboard-api
 ENV ZBOARD_HOST=0.0.0.0 \
     ZBOARD_PORT=3000 \
     ZBOARD_DB_DIALECT=sqlite \
-    ZBOARD_DB_PATH=/data/zboard.sqlite
+    ZBOARD_DB_PATH=/data/zboard.sqlite \
+    TZ=Asia/Shanghai
 
 VOLUME ["/data"]
 EXPOSE 3000

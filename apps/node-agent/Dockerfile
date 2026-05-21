@@ -41,6 +41,7 @@ COPY --from=runtime-dl /tmp/sing-box /usr/local/bin/sing-box
 ENV ZBOARD_AGENT_CONFIG_FILE=/etc/zboard-agent/runtime.json
 ENV ZBOARD_AGENT_WORK_DIR=/var/lib/zboard-agent
 ENV ZBOARD_AGENT_RUNTIME_BINARY=/usr/local/bin/xray
+ENV TZ=Asia/Shanghai
 
 VOLUME ["/etc/zboard-agent", "/var/lib/zboard-agent"]
 

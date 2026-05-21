@@ -13,6 +13,8 @@ services:
     container_name: zboard-agent
     network_mode: host
     env_file: ./agent.env
+    environment:
+      - TZ=Asia/Shanghai
     volumes:
       # 挂目录而非文件,避免 Docker 把不存在的 runtime.json 创建成目录的陷阱
       - ./data/etc:/etc/zboard-agent

@@ -198,3 +198,62 @@ func TestAdminCanUpdatePlanAndNode(t *testing.T) {
 		t.Fatalf("unexpected node after update: %+v", node)
 	}
 }
+
+func TestAdminRejectsIncompleteRealityNode(t *testing.T) {
+	r, _, token := setupAdminCRUDRouter(t)
+
+	create := adminJSON(t, r, token, http.MethodPost, "/api/admin/v1/nodes", map[string]any{
+		"name":                "美国 01",
+		"host":                "us.example.com",
+		"port":                443,
+		"protocol":            "vless",
+		"transport":           "tcp",
+		"security":            "reality",
+		"runtime_type":        "xray",
+		"reality_server_name": "www.cloudflare.com",
+		"reality_public_key":  "PBK",
+		"reality_private_key": "",
+		"reality_dest":        "www.cloudflare.com:443",
+		"flow":                "xtls-rprx-vision",
+	})
+	if create.Code != http.StatusBadRequest {
+		t.Fatalf("create incomplete reality node status=%d body=%s", create.Code, create.Body.String())
+	}
+	if !bytes.Contains(create.Body.Bytes(), []byte("reality_private_key")) {
+		t.Fatalf("create error should mention missing private key, body=%s", create.Body.String())
+	}
+
+	okCreate := adminJSON(t, r, token, http.MethodPost, "/api/admin/v1/nodes", map[string]any{
+		"name":         "美国 01",
+		"host":         "us.example.com",
+		"port":         443,
+		"protocol":     "vless",
+		"transport":    "tcp",
+		"security":     "tls",
+		"runtime_type": "xray",
+	})
+	if okCreate.Code != http.StatusCreated {
+		t.Fatalf("create base node status=%d body=%s", okCreate.Code, okCreate.Body.String())
+	}
+
+	update := adminJSON(t, r, token, http.MethodPut, "/api/admin/v1/nodes/1", map[string]any{
+		"name":                "美国 01",
+		"host":                "us.example.com",
+		"port":                443,
+		"protocol":            "vless",
+		"transport":           "tcp",
+		"security":            "reality",
+		"runtime_type":        "xray",
+		"reality_server_name": "www.cloudflare.com",
+		"reality_public_key":  "",
+		"reality_private_key": "PRIVATE-KEY-HEX",
+		"reality_dest":        "www.cloudflare.com:443",
+		"status":              "active",
+	})
+	if update.Code != http.StatusBadRequest {
+		t.Fatalf("update incomplete reality node status=%d body=%s", update.Code, update.Body.String())
+	}
+	if !bytes.Contains(update.Body.Bytes(), []byte("reality_public_key")) {
+		t.Fatalf("update error should mention missing public key, body=%s", update.Body.String())
+	}
+}

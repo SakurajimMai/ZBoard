@@ -22,6 +22,9 @@ const StatsAPIPort = 10085
 
 // Build returns (configJSON, sha256, version) for the given runtime type.
 func Build(node *store.Node, users []store.NodeUser, version string) (string, string, error) {
+	if err := ValidateNode(node); err != nil {
+		return "", "", err
+	}
 	var doc any
 	switch node.Protocol {
 	case "hysteria2":
@@ -42,6 +45,40 @@ func Build(node *store.Node, users []store.NodeUser, version string) (string, st
 	}
 	sum := sha256.Sum256(body)
 	return string(body), hex.EncodeToString(sum[:]), nil
+}
+
+// ValidateNode blocks incomplete runtime inputs before the agent writes a
+// config file that Xray/sing-box cannot start.
+func ValidateNode(node *store.Node) error {
+	if node == nil {
+		return fmt.Errorf("node is nil")
+	}
+	protocol := strings.ToLower(strings.TrimSpace(node.Protocol))
+	if protocol == "" {
+		protocol = "vless"
+	}
+	security := strings.ToLower(strings.TrimSpace(node.Security))
+	if security != "reality" {
+		return nil
+	}
+	if protocol != "vless" {
+		return fmt.Errorf("reality security only supports vless nodes")
+	}
+
+	missing := make([]string, 0, 3)
+	if strings.TrimSpace(node.RealityServerName) == "" {
+		missing = append(missing, "reality_server_name")
+	}
+	if strings.TrimSpace(node.RealityPublicKey) == "" {
+		missing = append(missing, "reality_public_key")
+	}
+	if strings.TrimSpace(node.RealityPrivateKey) == "" {
+		missing = append(missing, "reality_private_key")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("reality node requires %s", strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 // xrayUserEmail is the canonical "email" tag we set on every Xray client and
@@ -90,8 +127,8 @@ func xray(node *store.Node, users []store.NodeUser) map[string]any {
 		}
 		stream["tlsSettings"] = tls
 	case "reality":
-		// Xray Reality inbound = 服务端模式,必须有 dest + serverNames(复数) + privateKey。
-		// 如果缺 dest,Xray 会走客户端解析分支,报 empty "password"。
+		// Xray Reality inbound runs in server mode when dest/privateKey are set;
+		// that branch expects serverNames and shortIds lists.
 		dest := node.RealityDest
 		if dest == "" {
 			dest = defaultStr(node.RealityServerName, node.Host) + ":443"
@@ -100,13 +137,9 @@ func xray(node *store.Node, users []store.NodeUser) map[string]any {
 			"show":        false,
 			"dest":        dest,
 			"serverNames": []string{node.RealityServerName},
+			"shortIds":    []string{node.RealityShortID},
 		}
-		if node.RealityPrivateKey != "" {
-			reality["privateKey"] = node.RealityPrivateKey
-		}
-		if node.RealityShortID != "" {
-			reality["shortIds"] = []string{node.RealityShortID}
-		}
+		reality["privateKey"] = node.RealityPrivateKey
 		if node.Fingerprint != "" {
 			reality["fingerprint"] = node.Fingerprint
 		}
