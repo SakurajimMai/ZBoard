@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Users, Server, DollarSign, TrendingUp, CheckCircle2 } from "lucide-react"
-import { adminGetUsers, adminGetNodes, adminGetOrders } from "@/lib/api"
+import { adminGetOverview, adminGetUsers } from "@/lib/api"
 
 export default function AdminOverview() {
   const [stats, setStats] = useState({ users: 0, nodes: 0, orders: 0, revenue: "0" })
@@ -10,20 +10,18 @@ export default function AdminOverview() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    Promise.all([adminGetUsers(), adminGetNodes(), adminGetOrders()])
-      .then(([usersRes, nodesRes, ordersRes]) => {
+    Promise.all([
+      adminGetUsers({ page: 1, pageSize: 5 }),
+      adminGetOverview(),
+    ])
+      .then(([usersRes, overview]) => {
         const allUsers = usersRes.items || []
-        const allNodes = nodesRes.items || []
-        const allOrders = ordersRes.items || []
-        const paidOrders = allOrders.filter((o: any) => o.status === "paid")
-        const totalRevenue = paidOrders.reduce((sum: number, o: any) => sum + parseFloat(o.amount || "0"), 0)
-        const activeNodes = allNodes.filter((n: any) => n.status === "active")
 
         setStats({
-          users: allUsers.length,
-          nodes: activeNodes.length,
-          orders: paidOrders.length,
-          revenue: totalRevenue.toFixed(2),
+          users: overview.users,
+          nodes: overview.active_nodes,
+          orders: overview.paid_orders,
+          revenue: overview.revenue,
         })
         setUsers(allUsers.slice(0, 5))
       })

@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zboard/api-server/internal/authsvc"
@@ -63,6 +65,8 @@ func adminJSON(t *testing.T, r http.Handler, token, method, path string, body an
 	r.ServeHTTP(rr, req)
 	return rr
 }
+
+func ptrTime(t time.Time) *time.Time { return &t }
 
 func TestAdminCanCreateAndUpdateUser(t *testing.T) {
 	r, st, token := setupAdminCRUDRouter(t)
@@ -123,6 +127,378 @@ func TestAdminCanCreateAndUpdateUser(t *testing.T) {
 	}
 }
 
+func TestAdminUserPlanDeviceLimitSyncToNodeUsers(t *testing.T) {
+	r, st, token := setupAdminCRUDRouter(t)
+	nodeID, _, err := st.CreateNode(context.Background(), store.CreateNodeInput{
+		Name:     "预置节点",
+		Host:     "seed.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+	planID, err := st.CreatePlan(context.Background(), store.CreatePlanInput{
+		Name:         "设备套餐",
+		Price:        "9.90",
+		DurationDays: 30,
+		TrafficLimit: int64(100 * 1024 * 1024 * 1024),
+		DeviceLimit:  2,
+	})
+	if err != nil {
+		t.Fatalf("create plan: %v", err)
+	}
+
+	create := adminJSON(t, r, token, http.MethodPost, "/api/admin/v1/users", map[string]any{
+		"email":         "limited@example.com",
+		"password":      "secret123",
+		"plan_id":       planID,
+		"traffic_limit": int64(100 * 1024 * 1024 * 1024),
+		"status":        "active",
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create user status=%d body=%s", create.Code, create.Body.String())
+	}
+	var created struct {
+		UserID int64 `json:"user_id"`
+	}
+	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	nu, err := st.FindNodeUser(context.Background(), created.UserID, nodeID)
+	if err != nil {
+		t.Fatalf("find node user: %v", err)
+	}
+	if nu.DeviceLimit != 2 {
+		t.Fatalf("node user device limit = %d, want 2", nu.DeviceLimit)
+	}
+
+	update := adminJSON(t, r, token, http.MethodPut, "/api/admin/v1/plans/"+strconv.FormatInt(planID, 10), map[string]any{
+		"name":          "设备套餐",
+		"price":         "19.90",
+		"duration_days": 30,
+		"traffic_limit": int64(100 * 1024 * 1024 * 1024),
+		"device_limit":  4,
+		"status":        "active",
+	})
+	if update.Code != http.StatusOK {
+		t.Fatalf("update plan status=%d body=%s", update.Code, update.Body.String())
+	}
+	nu, err = st.FindNodeUser(context.Background(), created.UserID, nodeID)
+	if err != nil {
+		t.Fatalf("find node user after plan update: %v", err)
+	}
+	if nu.DeviceLimit != 4 {
+		t.Fatalf("node user device limit after plan update = %d, want 4", nu.DeviceLimit)
+	}
+}
+
+func TestSubscriptionRejectsExpiredAndTrafficExceededUsers(t *testing.T) {
+	r, st, _ := setupAdminCRUDRouter(t)
+	userID, err := st.AdminCreateUser(context.Background(), store.AdminCreateUserInput{
+		Email:        "expired@example.com",
+		PasswordHash: "hash",
+		TrafficLimit: 100,
+		TrafficUsed:  0,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	expired := time.Now().UTC().Add(-time.Hour)
+	if err := st.AdminUpdateUser(context.Background(), userID, store.AdminUpdateUserInput{
+		Email:        "expired@example.com",
+		Balance:      "0.00",
+		ExpiredAt:    &expired,
+		TrafficLimit: 100,
+		TrafficUsed:  0,
+		Status:       "active",
+	}); err != nil {
+		t.Fatalf("expire user: %v", err)
+	}
+	token := "sub-expired"
+	if _, err := st.CreateSubToken(context.Background(), userID, token, hashSubToken(token)); err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/sub/"+token, nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expired subscription status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	activeExpiry := time.Now().UTC().Add(time.Hour)
+	if err := st.AdminUpdateUser(context.Background(), userID, store.AdminUpdateUserInput{
+		Email:        "expired@example.com",
+		Balance:      "0.00",
+		ExpiredAt:    &activeExpiry,
+		TrafficLimit: 100,
+		TrafficUsed:  100,
+		Status:       "active",
+	}); err != nil {
+		t.Fatalf("mark over quota: %v", err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/sub/"+token, nil)
+	rr = httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("traffic exceeded subscription status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestSubscriptionUserinfoUsesUploadDownloadSnapshot(t *testing.T) {
+	r, st, _ := setupAdminCRUDRouter(t)
+	userID, err := st.AdminCreateUser(context.Background(), store.AdminCreateUserInput{
+		Email:        "traffic-sub@example.com",
+		PasswordHash: "hash",
+		TrafficLimit: 10_000,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	nodeID, _, err := st.CreateNode(context.Background(), store.CreateNodeInput{
+		Name:     "流量节点",
+		Host:     "traffic.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := st.EnsureNodeUser(context.Background(), userID, nodeID, "11111111-1111-4111-8111-111111111111", "vless"); err != nil {
+		t.Fatalf("ensure node user: %v", err)
+	}
+	if err := st.RecordTraffic(context.Background(), []store.TrafficDelta{{
+		UserID:        userID,
+		NodeID:        nodeID,
+		UploadDelta:   123,
+		DownloadDelta: 456,
+	}}); err != nil {
+		t.Fatalf("record traffic: %v", err)
+	}
+	token := "sub-traffic"
+	if _, err := st.CreateSubToken(context.Background(), userID, token, hashSubToken(token)); err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sub/"+token, nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("subscription status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	got := rr.Header().Get("Subscription-Userinfo")
+	for _, want := range []string{"upload=123", "download=456", "total=10000"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("Subscription-Userinfo missing %q: %s", want, got)
+		}
+	}
+}
+
+func TestSettingsPersistAndControlRegistration(t *testing.T) {
+	r, _, token := setupAdminCRUDRouter(t)
+
+	body := `{"settings":{"allow_register":"0","site_name":"9Cloud","require_email_verify":"1"}}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/v1/settings", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update settings code=%d body=%s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/admin/v1/settings", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get settings code=%d body=%s", w.Code, w.Body.String())
+	}
+	var got struct {
+		Settings map[string]string `json:"settings"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode settings: %v", err)
+	}
+	if got.Settings["site_name"] != "9Cloud" || got.Settings["allow_register"] != "0" {
+		t.Fatalf("settings not persisted: %#v", got.Settings)
+	}
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(`{"email":"blocked@example.com","password":"secret123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("register code=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestSubscriptionEnforcesDeviceLimit(t *testing.T) {
+	r, st, _ := setupAdminCRUDRouter(t)
+	userID, err := st.AdminCreateUser(context.Background(), store.AdminCreateUserInput{
+		Email:        "devices@example.com",
+		PasswordHash: "hash",
+		TrafficLimit: 1000,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	nodeID, _, err := st.CreateNode(context.Background(), store.CreateNodeInput{
+		Name:     "设备节点",
+		Host:     "device.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := st.EnsureNodeUserWithLimits(context.Background(), userID, nodeID, "11111111-1111-4111-8111-111111111111", "vless", 0, 1); err != nil {
+		t.Fatalf("ensure node user: %v", err)
+	}
+	token := "sub-devices"
+	if _, err := st.CreateSubToken(context.Background(), userID, token, hashSubToken(token)); err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sub/"+token, nil)
+	req.Header.Set("User-Agent", "Client-A")
+	req.RemoteAddr = "127.0.0.1:10000"
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("first device status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/sub/"+token, nil)
+	req.Header.Set("User-Agent", "Client-B")
+	req.RemoteAddr = "127.0.0.2:10000"
+	rr = httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden || !bytes.Contains(rr.Body.Bytes(), []byte("device_limit_exceeded")) {
+		t.Fatalf("second device should be rejected, status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestSubscriptionRejectsUnknownTarget(t *testing.T) {
+	r, st, _ := setupAdminCRUDRouter(t)
+	userID, err := st.AdminCreateUser(context.Background(), store.AdminCreateUserInput{
+		Email:        "unknown-target@example.com",
+		PasswordHash: "hash",
+		TrafficLimit: 1000,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	nodeID, _, err := st.CreateNode(context.Background(), store.CreateNodeInput{
+		Name:     "订阅节点",
+		Host:     "sub.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := st.EnsureNodeUserWithLimits(context.Background(), userID, nodeID, "11111111-1111-4111-8111-111111111111", "vless", 0, 1); err != nil {
+		t.Fatalf("ensure node user: %v", err)
+	}
+	token := "sub-unknown-target"
+	if _, err := st.CreateSubToken(context.Background(), userID, token, hashSubToken(token)); err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sub/"+token+"?target=anything", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden || !bytes.Contains(rr.Body.Bytes(), []byte("subscription_target_disabled")) {
+		t.Fatalf("unknown target should be rejected, status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestSubscriptionFormatsDoNotConsumeExtraDeviceSlots(t *testing.T) {
+	r, st, _ := setupAdminCRUDRouter(t)
+	userID, err := st.AdminCreateUser(context.Background(), store.AdminCreateUserInput{
+		Email:        "format-device@example.com",
+		PasswordHash: "hash",
+		TrafficLimit: 1000,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	nodeID, _, err := st.CreateNode(context.Background(), store.CreateNodeInput{
+		Name:     "格式节点",
+		Host:     "format.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := st.EnsureNodeUserWithLimits(context.Background(), userID, nodeID, "11111111-1111-4111-8111-111111111111", "vless", 0, 1); err != nil {
+		t.Fatalf("ensure node user: %v", err)
+	}
+	token := "sub-format-device"
+	if _, err := st.CreateSubToken(context.Background(), userID, token, hashSubToken(token)); err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	for _, target := range []string{"base64", "clash"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/sub/"+token+"?target="+target, nil)
+		req.Header.Set("User-Agent", "Same-Client")
+		req.RemoteAddr = "127.0.0.10:10000"
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("same device target %s status=%d body=%s", target, rr.Code, rr.Body.String())
+		}
+	}
+
+	count, err := st.CountUserDevices(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("count devices: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("same device across subscription formats counted as %d devices, want 1", count)
+	}
+}
+
+func TestEmailVerifySettingDoesNotAffectLogin(t *testing.T) {
+	r, st, token := setupAdminCRUDRouter(t)
+	auth := authsvc.New(st, "setup-token", nil)
+	if _, err := auth.RegisterUser(context.Background(), "login@example.com", "secret123"); err != nil {
+		t.Fatalf("register seed user: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/v1/settings", bytes.NewBufferString(`{"settings":{"allow_register":"1","require_email_verify":"1"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update settings code=%d body=%s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(`{"email":"need-code@example.com","password":"secret123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden || !bytes.Contains(w.Body.Bytes(), []byte("email_verify_required")) {
+		t.Fatalf("register should require code, code=%d body=%s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"login@example.com","password":"secret123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("login should not require email code, code=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestAdminCanUpdatePlanAndNode(t *testing.T) {
 	r, st, token := setupAdminCRUDRouter(t)
 
@@ -132,6 +508,7 @@ func TestAdminCanUpdatePlanAndNode(t *testing.T) {
 		"duration_days": 30,
 		"traffic_limit": int64(100 * 1024 * 1024 * 1024),
 		"device_limit":  2,
+		"features":      []string{"100 GB 流量", "2 台设备同时在线"},
 	})
 	if planCreate.Code != http.StatusCreated {
 		t.Fatalf("create plan status=%d body=%s", planCreate.Code, planCreate.Body.String())
@@ -148,7 +525,7 @@ func TestAdminCanUpdatePlanAndNode(t *testing.T) {
 		"duration_days": 60,
 		"traffic_limit": int64(200 * 1024 * 1024 * 1024),
 		"device_limit":  5,
-		"speed_limit":   100,
+		"features":      []string{"200 GB 流量", "5 台设备同时在线", "支持 HY2"},
 		"status":        "inactive",
 		"sort":          9,
 	})
@@ -161,6 +538,9 @@ func TestAdminCanUpdatePlanAndNode(t *testing.T) {
 	}
 	if plan.Name != "专业套餐" || plan.Price != "19.90" || plan.DurationDays != 60 || plan.Status != "inactive" {
 		t.Fatalf("unexpected plan after update: %+v", plan)
+	}
+	if len(plan.Features) != 3 || plan.Features[2] != "支持 HY2" {
+		t.Fatalf("plan features not persisted: %#v", plan.Features)
 	}
 
 	nodeCreate := adminJSON(t, r, token, http.MethodPost, "/api/admin/v1/nodes", map[string]any{
@@ -198,6 +578,226 @@ func TestAdminCanUpdatePlanAndNode(t *testing.T) {
 	}
 	if node.Name != "日本 01" || node.Host != "jp.example.com" || node.Port != 8443 || node.Protocol != "hysteria2" || node.PortRange != "20000-40000" || node.Status != "inactive" {
 		t.Fatalf("unexpected node after update: %+v", node)
+	}
+}
+
+func TestAdminNodeListReturnsHealthIndicators(t *testing.T) {
+	r, st, token := setupAdminCRUDRouter(t)
+	ctx := context.Background()
+
+	greenID, _, err := st.CreateNode(ctx, store.CreateNodeInput{
+		Name:     "使用中节点",
+		Host:     "green.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create green node: %v", err)
+	}
+	yellowID, _, err := st.CreateNode(ctx, store.CreateNodeInput{
+		Name:     "空闲节点",
+		Host:     "yellow.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create yellow node: %v", err)
+	}
+	redID, _, err := st.CreateNode(ctx, store.CreateNodeInput{
+		Name:     "异常节点",
+		Host:     "red.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create red node: %v", err)
+	}
+	userID, err := st.AdminCreateUser(ctx, store.AdminCreateUserInput{
+		Email:        "node-health@example.com",
+		PasswordHash: "hash",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if err := st.EnsureNodeUserWithLimits(ctx, userID, greenID, "11111111-1111-4111-8111-111111111111", "vless", 0, 1); err != nil {
+		t.Fatalf("ensure node user: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, id := range []int64{greenID, yellowID} {
+		if err := st.RecordHeartbeat(ctx, store.HeartbeatInput{
+			NodeID:        id,
+			AgentVersion:  "test",
+			RuntimeStatus: "running",
+			ReportedAt:    now,
+		}); err != nil {
+			t.Fatalf("record running heartbeat %d: %v", id, err)
+		}
+	}
+	if err := st.RecordHeartbeat(ctx, store.HeartbeatInput{
+		NodeID:        redID,
+		AgentVersion:  "test",
+		RuntimeStatus: "stopped",
+		ReportedAt:    now,
+	}); err != nil {
+		t.Fatalf("record stopped heartbeat: %v", err)
+	}
+
+	resp := adminJSON(t, r, token, http.MethodGet, "/api/admin/v1/nodes?page=1&page_size=10", nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("list nodes status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var got struct {
+		Items []struct {
+			ID              int64  `json:"id"`
+			HealthStatus    string `json:"health_status"`
+			HealthLabel     string `json:"health_label"`
+			ActiveUserCount int64  `json:"active_user_count"`
+			RuntimeStatus   string `json:"runtime_status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode nodes: %v", err)
+	}
+	byID := map[int64]struct {
+		HealthStatus    string
+		HealthLabel     string
+		ActiveUserCount int64
+		RuntimeStatus   string
+	}{}
+	for _, n := range got.Items {
+		byID[n.ID] = struct {
+			HealthStatus    string
+			HealthLabel     string
+			ActiveUserCount int64
+			RuntimeStatus   string
+		}{n.HealthStatus, n.HealthLabel, n.ActiveUserCount, n.RuntimeStatus}
+	}
+	if got := byID[greenID]; got.HealthStatus != "green" || got.HealthLabel != "使用中" || got.ActiveUserCount != 1 || got.RuntimeStatus != "running" {
+		t.Fatalf("green node health mismatch: %+v", got)
+	}
+	if got := byID[yellowID]; got.HealthStatus != "yellow" || got.HealthLabel != "空闲" || got.ActiveUserCount != 0 || got.RuntimeStatus != "running" {
+		t.Fatalf("yellow node health mismatch: %+v", got)
+	}
+	if got := byID[redID]; got.HealthStatus != "red" || got.HealthLabel != "异常" || got.RuntimeStatus != "stopped" {
+		t.Fatalf("red node health mismatch: %+v", got)
+	}
+}
+
+func TestAdminPlanPagination(t *testing.T) {
+	r, _, token := setupAdminCRUDRouter(t)
+	for i := 0; i < 15; i++ {
+		resp := adminJSON(t, r, token, http.MethodPost, "/api/admin/v1/plans", map[string]any{
+			"name":          "套餐" + strconv.Itoa(i),
+			"price":         "9.90",
+			"duration_days": 30,
+			"traffic_limit": int64(10 * 1024 * 1024 * 1024),
+			"device_limit":  3,
+			"sort":          i,
+		})
+		if resp.Code != http.StatusCreated {
+			t.Fatalf("create plan %d status=%d body=%s", i, resp.Code, resp.Body.String())
+		}
+	}
+	list := adminJSON(t, r, token, http.MethodGet, "/api/admin/v1/plans?page=2&page_size=5", nil)
+	if list.Code != http.StatusOK {
+		t.Fatalf("list plans status=%d body=%s", list.Code, list.Body.String())
+	}
+	var got struct {
+		Items []any `json:"items"`
+		Page  int   `json:"page"`
+		Total int64 `json:"total"`
+	}
+	if err := json.Unmarshal(list.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if got.Page != 2 || len(got.Items) != 5 || got.Total != 15 {
+		t.Fatalf("unexpected pagination response: page=%d len=%d total=%d", got.Page, len(got.Items), got.Total)
+	}
+}
+
+func TestAdminOverviewUsesAggregateTotals(t *testing.T) {
+	r, st, token := setupAdminCRUDRouter(t)
+	ctx := context.Background()
+
+	planID, err := st.CreatePlan(ctx, store.CreatePlanInput{
+		Name:         "统计套餐",
+		Price:        "1.00",
+		DurationDays: 30,
+		TrafficLimit: 1024,
+		DeviceLimit:  1,
+	})
+	if err != nil {
+		t.Fatalf("create plan: %v", err)
+	}
+	userID, err := st.AdminCreateUser(ctx, store.AdminCreateUserInput{
+		Email:        "overview@example.com",
+		PasswordHash: "hash",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	for i := 0; i < 105; i++ {
+		status := "paid"
+		if i == 0 {
+			status = "pending"
+		}
+		if _, err := st.CreateOrder(ctx, &store.Order{
+			OrderNo:   "OV-" + strconv.Itoa(i),
+			UserID:    userID,
+			PlanID:    planID,
+			Amount:    "1.50",
+			Currency:  "CNY",
+			Status:    status,
+			ExpiredAt: ptrTime(time.Now().UTC().Add(time.Hour)),
+		}); err != nil {
+			t.Fatalf("create order %d: %v", i, err)
+		}
+	}
+	for i := 0; i < 105; i++ {
+		nodeID, _, err := st.CreateNode(ctx, store.CreateNodeInput{
+			Name:     "概览节点" + strconv.Itoa(i),
+			Host:     "overview-" + strconv.Itoa(i) + ".example.com",
+			Port:     443,
+			Protocol: "vless",
+		})
+		if err != nil {
+			t.Fatalf("create node %d: %v", i, err)
+		}
+		if i == 0 {
+			if err := st.UpdateNode(ctx, nodeID, store.UpdateNodeInput{
+				Name:        "停用节点",
+				Host:        "overview-0.example.com",
+				Port:        443,
+				Protocol:    "vless",
+				Transport:   "tcp",
+				Security:    "tls",
+				RuntimeType: "xray",
+				Status:      "inactive",
+				WSPath:      "/",
+				SNI:         "overview-0.example.com",
+			}); err != nil {
+				t.Fatalf("disable node: %v", err)
+			}
+		}
+	}
+
+	resp := adminJSON(t, r, token, http.MethodGet, "/api/admin/v1/overview", nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("overview status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var got struct {
+		Users       int64  `json:"users"`
+		ActiveNodes int64  `json:"active_nodes"`
+		PaidOrders  int64  `json:"paid_orders"`
+		Revenue     string `json:"revenue"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode overview: %v", err)
+	}
+	if got.Users != 1 || got.ActiveNodes != 104 || got.PaidOrders != 104 || got.Revenue != "156.00" {
+		t.Fatalf("unexpected overview: %+v", got)
 	}
 }
 
@@ -257,6 +857,70 @@ func TestAdminRejectsIncompleteRealityNode(t *testing.T) {
 	}
 	if !bytes.Contains(update.Body.Bytes(), []byte("reality_public_key")) {
 		t.Fatalf("update error should mention missing public key, body=%s", update.Body.String())
+	}
+}
+
+func TestAdminRealityNodeDoesNotDefaultFlow(t *testing.T) {
+	r, st, token := setupAdminCRUDRouter(t)
+
+	create := adminJSON(t, r, token, http.MethodPost, "/api/admin/v1/nodes", map[string]any{
+		"name":                "美国 02",
+		"host":                "us2.example.com",
+		"port":                443,
+		"protocol":            "vless",
+		"transport":           "tcp",
+		"security":            "reality",
+		"runtime_type":        "xray",
+		"reality_server_name": "www.cloudflare.com",
+		"reality_public_key":  "PBK",
+		"reality_private_key": "PRIVATE-KEY-HEX",
+		"reality_dest":        "www.cloudflare.com:443",
+		"flow":                "",
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create reality node status=%d body=%s", create.Code, create.Body.String())
+	}
+	var created struct {
+		NodeID int64 `json:"node_id"`
+	}
+	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	node, err := st.FindNodeByID(context.Background(), created.NodeID)
+	if err != nil {
+		t.Fatalf("find node: %v", err)
+	}
+	if node.Flow != "" {
+		t.Fatalf("create should preserve empty flow, got %q", node.Flow)
+	}
+
+	update := adminJSON(t, r, token, http.MethodPut, "/api/admin/v1/nodes/"+strconv.FormatInt(created.NodeID, 10), map[string]any{
+		"name":                "美国 02",
+		"host":                "us2.example.com",
+		"port":                443,
+		"protocol":            "vless",
+		"transport":           "xhttp",
+		"security":            "reality",
+		"runtime_type":        "xray",
+		"reality_server_name": "www.cloudflare.com",
+		"reality_public_key":  "PBK",
+		"reality_private_key": "PRIVATE-KEY-HEX",
+		"reality_dest":        "www.cloudflare.com:443",
+		"status":              "active",
+		"flow":                "",
+	})
+	if update.Code != http.StatusOK {
+		t.Fatalf("update reality node status=%d body=%s", update.Code, update.Body.String())
+	}
+	node, err = st.FindNodeByID(context.Background(), created.NodeID)
+	if err != nil {
+		t.Fatalf("find node after update: %v", err)
+	}
+	if node.Flow != "" {
+		t.Fatalf("update should preserve empty flow, got %q", node.Flow)
+	}
+	if node.Transport != "xhttp" {
+		t.Fatalf("update should preserve xhttp transport, got %q", node.Transport)
 	}
 }
 

@@ -83,13 +83,29 @@ func (s *Store) ListTrafficSnapshots(ctx context.Context, limit int) ([]UserTraf
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	q := s.Rebind(`SELECT user_id, upload_total, download_total, total_used, traffic_limit, updated_at
-		FROM user_traffic_snapshots ORDER BY total_used DESC LIMIT ?`)
+	q := s.Rebind(`SELECT s.user_id, s.upload_total, s.download_total, u.traffic_used AS total_used,
+			u.traffic_limit, s.updated_at
+		FROM user_traffic_snapshots s
+		JOIN users u ON u.id = s.user_id
+		ORDER BY u.traffic_used DESC LIMIT ?`)
 	var rows []UserTrafficSnapshot
 	if err := s.DB.SelectContext(ctx, &rows, q, limit); err != nil {
 		return nil, err
 	}
 	return rows, nil
+}
+
+func (s *Store) FindTrafficSnapshotByUser(ctx context.Context, userID int64) (*UserTrafficSnapshot, error) {
+	q := s.Rebind(`SELECT s.user_id, s.upload_total, s.download_total, u.traffic_used AS total_used,
+			u.traffic_limit, s.updated_at
+		FROM user_traffic_snapshots s
+		JOIN users u ON u.id = s.user_id
+		WHERE s.user_id = ?`)
+	var row UserTrafficSnapshot
+	if err := s.DB.GetContext(ctx, &row, q, userID); err != nil {
+		return nil, err
+	}
+	return &row, nil
 }
 
 type TrafficLog struct {

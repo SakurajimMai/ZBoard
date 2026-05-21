@@ -77,10 +77,6 @@ func (s *Store) CreateNode(ctx context.Context, in CreateNodeInput) (int64, stri
 			in.SSMethod = "2022-blake3-aes-128-gcm"
 		}
 	}
-	// vless+vision is the GFW-resilient default when Reality is on.
-	if in.Protocol == "vless" && in.Security == "reality" && in.Flow == "" {
-		in.Flow = "xtls-rprx-vision"
-	}
 	// QUIC-based protocols: hysteria2 / tuic only run on sing-box. Force sane
 	// defaults so admins don't have to know these wire details by heart.
 	if in.Protocol == "hysteria2" || in.Protocol == "tuic" {

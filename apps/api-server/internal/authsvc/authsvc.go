@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -77,10 +79,49 @@ func (s *Service) SendEmailCode(ctx context.Context, email, purpose string) erro
 	if err := s.Store.CreateEmailCode(ctx, email, code, purpose, EmailCodeTTL); err != nil {
 		return err
 	}
-	if s.Mailer != nil {
-		_ = s.Mailer.SendCode(email, code, purpose)
+	if m, err := s.mailerForRequest(ctx); err == nil && m != nil {
+		_ = m.SendCode(email, code, purpose)
+	} else if err != nil {
+		return err
 	}
 	return nil
+}
+
+func (s *Service) mailerForRequest(ctx context.Context) (*mailer.Mailer, error) {
+	host, err := s.Store.GetSetting(ctx, "smtp_host", "")
+	if err != nil {
+		return nil, err
+	}
+	from, err := s.Store.GetSetting(ctx, "smtp_from_email", "")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(host) == "" || strings.TrimSpace(from) == "" {
+		return s.Mailer, nil
+	}
+	portRaw, err := s.Store.GetSetting(ctx, "smtp_port", "587")
+	if err != nil {
+		return nil, err
+	}
+	user, err := s.Store.GetSetting(ctx, "smtp_user", "")
+	if err != nil {
+		return nil, err
+	}
+	pass, err := s.Store.GetSetting(ctx, "smtp_pass", "")
+	if err != nil {
+		return nil, err
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(portRaw))
+	if err != nil || port <= 0 {
+		port = 587
+	}
+	return mailer.New(mailer.Config{
+		Host: strings.TrimSpace(host),
+		Port: port,
+		User: strings.TrimSpace(user),
+		Pass: pass,
+		From: strings.TrimSpace(from),
+	}), nil
 }
 
 // RegisterUserWithCode validates the verification code, then creates the user.
@@ -108,6 +149,9 @@ func (s *Service) RegisterUserWithCode(ctx context.Context, email, password, cod
 		if store.IsUniqueViolation(err) {
 			return 0, httpx.NewError(http.StatusConflict, "email_taken", "邮箱已注册")
 		}
+		return 0, err
+	}
+	if err := s.applyTrialSettings(ctx, id); err != nil {
 		return 0, err
 	}
 	return id, nil
@@ -174,7 +218,94 @@ func (s *Service) RegisterUser(ctx context.Context, email, password string) (int
 		}
 		return 0, err
 	}
+	if err := s.applyTrialSettings(ctx, id); err != nil {
+		return 0, err
+	}
 	return id, nil
+}
+
+func (s *Service) applyTrialSettings(ctx context.Context, userID int64) error {
+	trafficGB, err := s.intSetting(ctx, "trial_traffic_gb", 0)
+	if err != nil {
+		return err
+	}
+	trialDays, err := s.intSetting(ctx, "trial_days", 0)
+	if err != nil {
+		return err
+	}
+	deviceLimit, err := s.intSetting(ctx, "user_default_device_limit", 3)
+	if err != nil {
+		return err
+	}
+	if trafficGB <= 0 && trialDays <= 0 {
+		return nil
+	}
+	var expiredAt *time.Time
+	if trialDays > 0 {
+		t := time.Now().UTC().AddDate(0, 0, trialDays)
+		expiredAt = &t
+	}
+	trafficLimit := int64(trafficGB) * 1073741824
+	u, err := s.Store.FindUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if err := s.Store.AdminUpdateUser(ctx, userID, store.AdminUpdateUserInput{
+		Email:        u.Email,
+		Balance:      u.Balance,
+		PlanID:       u.PlanID,
+		ExpiredAt:    expiredAt,
+		TrafficLimit: trafficLimit,
+		TrafficUsed:  u.TrafficUsed,
+		Status:       u.Status,
+	}); err != nil {
+		return err
+	}
+	if deviceLimit <= 0 {
+		deviceLimit = 3
+	}
+	nodes, err := s.Store.ListActiveNodes(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range nodes {
+		clientID, err := newClientID()
+		if err != nil {
+			return err
+		}
+		if err := s.Store.EnsureNodeUserWithLimits(ctx, userID, n.ID, clientID, n.Protocol, 0, deviceLimit); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) intSetting(ctx context.Context, key string, fallback int) (int, error) {
+	raw, err := s.Store.GetSetting(ctx, key, strconv.Itoa(fallback))
+	if err != nil {
+		return fallback, err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return fallback, nil
+	}
+	return n, nil
+}
+
+func newClientID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%s-%s-%s-%s-%s",
+		hex.EncodeToString(b[0:4]),
+		hex.EncodeToString(b[4:6]),
+		hex.EncodeToString(b[6:8]),
+		hex.EncodeToString(b[8:10]),
+		hex.EncodeToString(b[10:16]),
+	), nil
 }
 
 func (s *Service) LoginUser(ctx context.Context, email, password string) (string, *store.User, error) {

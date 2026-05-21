@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { AdminPager } from "@/components/admin/AdminPager"
 import { adminCreateNode, adminGenerateRealityConfig, adminGetNodes, adminSyncNodeConfig, adminUpdateNode } from "@/lib/api"
 
 type NodeForm = {
@@ -72,10 +73,75 @@ const emptyForm: NodeForm = {
   port_range: "",
 }
 
+const XRAY_TRANSPORTS = [
+  { value: "tcp", label: "TCP (RAW)" },
+  { value: "mkcp", label: "mKCP" },
+  { value: "ws", label: "WebSocket" },
+  { value: "grpc", label: "gRPC" },
+  { value: "httpupgrade", label: "HTTPUpgrade" },
+  { value: "xhttp", label: "XHTTP" },
+]
+
+const REALITY_TRANSPORTS = [
+  { value: "tcp", label: "TCP (RAW)" },
+  { value: "xhttp", label: "XHTTP" },
+  { value: "grpc", label: "gRPC" },
+]
+
+const SING_BOX_TRANSPORTS = [
+  { value: "tcp", label: "TCP (RAW)" },
+  { value: "ws", label: "WebSocket" },
+  { value: "grpc", label: "gRPC" },
+]
+
+function isQUICProtocol(protocol: string) {
+  return protocol === "hysteria2" || protocol === "tuic"
+}
+
+function isShadowsocksProtocol(protocol: string) {
+  return protocol === "ss" || protocol === "shadowsocks"
+}
+
+function transportOptions(protocol: string, security: string, runtimeType: string) {
+  if (isQUICProtocol(protocol) || isShadowsocksProtocol(protocol)) return []
+  if (runtimeType === "sing-box" || runtimeType === "singbox") return SING_BOX_TRANSPORTS
+  if (protocol === "vless" && security === "reality") return REALITY_TRANSPORTS
+  return XRAY_TRANSPORTS
+}
+
+function normalizeTransport(protocol: string, security: string, runtimeType: string, transport: string) {
+  if (isQUICProtocol(protocol)) return "udp"
+  if (isShadowsocksProtocol(protocol)) return "tcp"
+  const allowed = transportOptions(protocol, security, runtimeType).map((it) => it.value)
+  return allowed.includes(transport) ? transport : "tcp"
+}
+
+function isPathHostTransport(transport: string) {
+  return transport === "ws" || transport === "httpupgrade" || transport === "xhttp"
+}
+
+function transportSectionTitle(transport: string) {
+  if (transport === "httpupgrade") return "HTTPUpgrade 参数"
+  if (transport === "xhttp") return "XHTTP 参数"
+  return "WebSocket 参数"
+}
+
+function transportPathLabel(transport: string) {
+  if (transport === "httpupgrade") return "HTTPUpgrade Path"
+  if (transport === "xhttp") return "XHTTP Path"
+  return "WS Path"
+}
+
+function transportHostLabel(transport: string) {
+  if (transport === "httpupgrade") return "HTTPUpgrade Host"
+  if (transport === "xhttp") return "XHTTP Host"
+  return "WS Host"
+}
+
 // Protocol-specific UI capabilities
 function caps(protocol: string, transport: string, security: string) {
-  const isQUIC = protocol === "hysteria2" || protocol === "tuic"
-  const isSS = protocol === "ss" || protocol === "shadowsocks"
+  const isQUIC = isQUICProtocol(protocol)
+  const isSS = isShadowsocksProtocol(protocol)
   const isVless = protocol === "vless"
   return {
     isQUIC,
@@ -83,7 +149,7 @@ function caps(protocol: string, transport: string, security: string) {
     isVless,
     showTransport: !isQUIC && !isSS,
     showSecurity: !isQUIC,
-    showWS: transport === "ws" && !isQUIC,
+    showPathHost: isPathHostTransport(transport) && !isQUIC,
     showGRPC: transport === "grpc" && !isQUIC,
     showTLS: (security === "tls" || security === "reality" || isQUIC) && !isSS,
     showReality: security === "reality" && isVless,
@@ -103,6 +169,9 @@ export default function AdminNodes() {
   const [nodes, setNodes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [total, setTotal] = useState(0)
   const [generatingReality, setGeneratingReality] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
@@ -111,16 +180,23 @@ export default function AdminNodes() {
   const [form, setForm] = useState<NodeForm>(emptyForm)
 
   const cap = useMemo(() => caps(form.protocol, form.transport, form.security), [form.protocol, form.transport, form.security])
+  const currentTransportOptions = useMemo(
+    () => transportOptions(form.protocol, form.security, form.runtime_type),
+    [form.protocol, form.security, form.runtime_type],
+  )
 
   const load = () => {
     setLoading(true)
-    adminGetNodes()
-      .then((res) => setNodes(res.items || []))
+    adminGetNodes({ page, pageSize })
+      .then((res) => {
+        setNodes(res.items || [])
+        setTotal(res.total ?? (res.items || []).length)
+      })
       .catch((err) => alert(err.message || "加载节点失败"))
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [page, pageSize])
 
   const openCreate = () => {
     setEditing(null)
@@ -176,15 +252,15 @@ export default function AdminNodes() {
     setForm(emptyForm)
   }
 
-  // Auto-pick sensible defaults when protocol changes
+  // Auto-pick protocol-safe defaults when protocol changes.
   const onProtocolChange = (protocol: string) => {
     const next = { ...form, protocol }
-    if (protocol === "hysteria2" || protocol === "tuic") {
+    if (isQUICProtocol(protocol)) {
       next.runtime_type = "sing-box"
       next.transport = "udp"
       next.security = "tls"
       if (!next.congestion_control) next.congestion_control = "bbr"
-    } else if (protocol === "ss" || protocol === "shadowsocks") {
+    } else if (isShadowsocksProtocol(protocol)) {
       next.security = "none"
       next.transport = "tcp"
       if (!next.ss_method) next.ss_method = "2022-blake3-aes-128-gcm"
@@ -192,9 +268,7 @@ export default function AdminNodes() {
       if (next.transport === "udp") next.transport = "tcp"
       if (next.security === "none") next.security = "tls"
     }
-    if (protocol === "vless" && next.security === "reality" && !next.flow) {
-      next.flow = "xtls-rprx-vision"
-    }
+    next.transport = normalizeTransport(next.protocol, next.security, next.runtime_type, next.transport)
     setForm(next)
   }
 
@@ -202,9 +276,26 @@ export default function AdminNodes() {
     const next = { ...form, security }
     if (form.protocol === "vless" && security === "reality") {
       next.runtime_type = "xray"
-      if (!next.flow) next.flow = "xtls-rprx-vision"
     }
+    next.transport = normalizeTransport(next.protocol, next.security, next.runtime_type, next.transport)
     setForm(next)
+  }
+
+  const onRuntimeChange = (runtimeType: string) => {
+    setForm((current) => ({
+      ...current,
+      runtime_type: runtimeType,
+      transport: normalizeTransport(current.protocol, current.security, runtimeType, current.transport),
+    }))
+  }
+
+  const onTransportChange = (transport: string) => {
+    setForm((current) => ({
+      ...current,
+      transport,
+      runtime_type: ["mkcp", "httpupgrade", "xhttp"].includes(transport) ? "xray" : current.runtime_type,
+      ws_path: isPathHostTransport(transport) ? current.ws_path || "/" : current.ws_path,
+    }))
   }
 
   const generateReality = async () => {
@@ -222,8 +313,7 @@ export default function AdminNodes() {
         security: "reality",
         protocol: "vless",
         runtime_type: "xray",
-        transport: current.transport === "udp" ? "tcp" : current.transport,
-        flow: current.flow || "xtls-rprx-vision",
+        transport: normalizeTransport("vless", "reality", "xray", current.transport),
       }))
     } catch (err: any) {
       alert(err.message || "生成 Reality 配置失败")
@@ -259,6 +349,7 @@ export default function AdminNodes() {
       } else {
         const res = await adminCreateNode(payload())
         setLastSecret(res.node_secret)
+        setPage(1)
       }
       load()
     } catch (err: any) {
@@ -289,7 +380,7 @@ export default function AdminNodes() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">节点管理</h1>
-          <p className="text-sm text-muted-foreground mt-1">共 {nodes.length} 个节点</p>
+          <p className="text-sm text-muted-foreground mt-1">共 {total} 个节点</p>
         </div>
         <div className="flex gap-2">
           <Button size="sm" onClick={load} variant="outline">
@@ -317,10 +408,11 @@ export default function AdminNodes() {
                 <tr className="bg-muted/50 border-b">
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">ID</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">名称</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">健康</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">地区</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">协议</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">地址</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">状态</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden xl:table-cell">使用</th>
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground">操作</th>
                 </tr>
               </thead>
@@ -329,17 +421,16 @@ export default function AdminNodes() {
                   <tr key={n.id} className="border-b hover:bg-accent/50">
                     <td className="px-4 py-3">{n.id}</td>
                     <td className="px-4 py-3 font-medium">{n.name}</td>
+                    <td className="px-4 py-3">
+                      <NodeHealth node={n} />
+                    </td>
                     <td className="px-4 py-3 hidden md:table-cell">{n.region || "-"}</td>
                     <td className="px-4 py-3 hidden lg:table-cell">
                       <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">{n.protocol}</span>
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell text-muted-foreground">{n.host}:{n.port}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs rounded-full px-2 py-1 ${
-                        n.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"
-                      }`}>
-                        {n.status === "active" ? "启用" : "停用"}
-                      </span>
+                    <td className="px-4 py-3 hidden xl:table-cell text-muted-foreground">
+                      {n.active_user_count || 0} 人
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1">
@@ -358,6 +449,16 @@ export default function AdminNodes() {
           </div>
         </div>
       )}
+      <AdminPager
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size)
+          setPage(1)
+        }}
+      />
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); else setDialogOpen(true) }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0 gap-0">
@@ -450,7 +551,7 @@ export default function AdminNodes() {
                       </Select>
                     </Field>
                     <Field label="运行时" hint={cap.isQUIC ? "QUIC 协议仅 sing-box 支持" : ""}>
-                      <Select value={form.runtime_type} onValueChange={(runtime_type) => setForm({ ...form, runtime_type })} disabled={cap.isQUIC}>
+                      <Select value={form.runtime_type} onValueChange={onRuntimeChange} disabled={cap.isQUIC}>
                         <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="xray">Xray</SelectItem>
@@ -462,12 +563,12 @@ export default function AdminNodes() {
                   {cap.showTransport && (
                     <Row cols={2}>
                       <Field label="传输方式">
-                        <Select value={form.transport} onValueChange={(transport) => setForm({ ...form, transport })}>
+                        <Select value={form.transport} onValueChange={onTransportChange}>
                           <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="tcp">TCP</SelectItem>
-                            <SelectItem value="ws">WebSocket</SelectItem>
-                            <SelectItem value="grpc">gRPC</SelectItem>
+                            {currentTransportOptions.map((it) => (
+                              <SelectItem key={it.value} value={it.value}>{it.label}</SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </Field>
@@ -555,14 +656,14 @@ export default function AdminNodes() {
                   </Section>
                 )}
 
-                {/* Section: WebSocket */}
-                {cap.showWS && (
-                  <Section title="WebSocket 参数" icon={<Network className="w-4 h-4" />}>
+                {/* Section: path/host transports */}
+                {cap.showPathHost && (
+                  <Section title={transportSectionTitle(form.transport)} icon={<Network className="w-4 h-4" />}>
                     <Row cols={2}>
-                      <Field label="WS Path">
+                      <Field label={transportPathLabel(form.transport)}>
                         <Input value={form.ws_path} onChange={(e) => setForm({ ...form, ws_path: e.target.value })} placeholder="/" className="h-10" />
                       </Field>
-                      <Field label="WS Host" hint="留空则使用 SNI">
+                      <Field label={transportHostLabel(form.transport)} hint="留空则使用 SNI">
                         <Input value={form.ws_host} onChange={(e) => setForm({ ...form, ws_host: e.target.value })} placeholder="cdn.example.com" className="h-10" />
                       </Field>
                     </Row>
@@ -647,7 +748,7 @@ export default function AdminNodes() {
                 {(cap.showFlow || cap.showALPN || cap.showMux) && (
                   <Section title="高级选项" icon={<Sliders className="w-4 h-4" />} collapsible>
                     {cap.showFlow && cap.isVless && (
-                      <Field label="VLESS Flow" hint="Reality 推荐 xtls-rprx-vision">
+                      <Field label="VLESS Flow" hint="未选择则不下发 flow">
                         <Select value={form.flow || "none"} onValueChange={(v) => setForm({ ...form, flow: v === "none" ? "" : v })}>
                           <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                           <SelectContent>
@@ -710,6 +811,31 @@ function Section({ title, icon, children, collapsible = false }: { title: string
       </button>
       {open && <div className="px-4 pb-4 space-y-3 border-t pt-3">{children}</div>}
     </section>
+  )
+}
+
+function NodeHealth({ node }: { node: any }) {
+  const status = node.health_status || (node.status === "active" ? "yellow" : "red")
+  const palette: Record<string, string> = {
+    green: "bg-green-500 text-green-700",
+    yellow: "bg-yellow-400 text-yellow-700",
+    red: "bg-red-500 text-red-700",
+  }
+  const color = palette[status] || palette.red
+  const lastSeen = node.last_heartbeat_at ? new Date(node.last_heartbeat_at).toLocaleString("zh-CN") : "无心跳"
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`h-2.5 w-2.5 rounded-full ${color.split(" ")[0]}`} aria-hidden="true" />
+      <div className="leading-tight">
+        <div className={`text-xs font-medium ${color.split(" ")[1]}`}>
+          {node.health_label || "异常"}
+        </div>
+        <div className="text-[11px] text-muted-foreground">
+          {node.runtime_status || "-"} · {lastSeen}
+        </div>
+      </div>
+    </div>
   )
 }
 

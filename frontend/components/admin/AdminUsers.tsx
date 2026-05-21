@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { AdminPager } from "@/components/admin/AdminPager"
 import { adminCreateUser, adminGetPlans, adminGetUsers, adminUpdateUser } from "@/lib/api"
 
 type UserForm = {
@@ -37,6 +38,9 @@ export default function AdminUsers() {
   const [plans, setPlans] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [total, setTotal] = useState(0)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
   const [form, setForm] = useState<UserForm>(emptyForm)
@@ -50,16 +54,17 @@ export default function AdminUsers() {
 
   const load = () => {
     setLoading(true)
-    Promise.all([adminGetUsers(), adminGetPlans()])
+    Promise.all([adminGetUsers({ page, pageSize }), adminGetPlans({ page: 1, pageSize: 100 })])
       .then(([u, p]) => {
         setUsers(u.items || [])
+        setTotal(u.total ?? (u.items || []).length)
         setPlans(p.items || [])
       })
       .catch((err) => alert(err.message || "加载失败"))
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [page, pageSize])
 
   const openCreate = () => {
     setEditing(null)
@@ -115,6 +120,7 @@ export default function AdminUsers() {
         await adminUpdateUser(editing.id, payload())
       } else {
         await adminCreateUser(payload())
+        setPage(1)
       }
       closeDialog()
       load()
@@ -150,7 +156,7 @@ export default function AdminUsers() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">用户管理</h1>
-          <p className="text-sm text-muted-foreground mt-1">共 {users.length} 个用户</p>
+          <p className="text-sm text-muted-foreground mt-1">共 {total} 个用户</p>
         </div>
         <Button size="sm" onClick={openCreate}>
           <Plus className="w-4 h-4 mr-1" /> 新建用户
@@ -214,6 +220,16 @@ export default function AdminUsers() {
           </div>
         </div>
       )}
+      <AdminPager
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size)
+          setPage(1)
+        }}
+      />
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); else setDialogOpen(true) }}>
         <DialogContent>

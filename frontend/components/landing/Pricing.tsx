@@ -62,22 +62,12 @@ export default function Pricing() {
               </div>
 
               <ul className="mt-6 space-y-3 flex-1">
-                <li className="flex items-center gap-2 text-sm">
-                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  {(plan.traffic_limit / 1073741824).toFixed(0)} GB 流量
-                </li>
-                <li className="flex items-center gap-2 text-sm">
-                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  {plan.device_limit} 台设备同时在线
-                </li>
-                <li className="flex items-center gap-2 text-sm">
-                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  全部节点可用
-                </li>
-                <li className="flex items-center gap-2 text-sm">
-                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  支持 Clash / sing-box / V2rayN
-                </li>
+                {featureList(plan).map((feature) => (
+                  <li key={feature} className="flex items-center gap-2 text-sm">
+                    <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    {feature}
+                  </li>
+                ))}
               </ul>
 
               <Link href="/login" className="mt-6">
@@ -91,4 +81,15 @@ export default function Pricing() {
       </div>
     </section>
   )
+}
+
+function featureList(plan: any): string[] {
+  const explicit = Array.isArray(plan.features) ? plan.features.filter(Boolean) : []
+  if (explicit.length > 0) return explicit
+  const features = [
+    `${(plan.traffic_limit / 1073741824).toFixed(0)} GB 流量`,
+    `${plan.device_limit} 台设备同时在线`,
+  ]
+  features.push("全部节点可用", "支持 Clash / sing-box / V2rayN")
+  return features
 }

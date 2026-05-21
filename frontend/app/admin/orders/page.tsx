@@ -1,30 +1,38 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { AdminPager } from "@/components/admin/AdminPager"
 import { adminGetOrders } from "@/lib/api"
 
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [total, setTotal] = useState(0)
 
   useEffect(() => {
-    adminGetOrders()
-      .then((res) => setOrders(res.items || []))
+    setLoading(true)
+    adminGetOrders({ page, pageSize })
+      .then((res) => {
+        setOrders(res.items || [])
+        setTotal(res.total ?? (res.items || []).length)
+      })
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [])
+  }, [page, pageSize])
 
   if (loading) return <div className="text-muted-foreground p-8">加载中...</div>
 
   const paidOrders = orders.filter((o) => o.status === "paid")
-  const total = paidOrders.reduce((s, o) => s + parseFloat(o.amount || "0"), 0)
+  const revenue = paidOrders.reduce((s, o) => s + parseFloat(o.amount || "0"), 0)
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">订单管理</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          共 {orders.length} 笔订单，已付 {paidOrders.length} 笔，总收入 ¥{total.toFixed(2)}
+          共 {total} 笔订单，当前页已付 {paidOrders.length} 笔，当前页收入 ¥{revenue.toFixed(2)}
         </p>
       </div>
 
@@ -68,6 +76,16 @@ export default function AdminOrdersPage() {
           </div>
         </div>
       )}
+      <AdminPager
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size)
+          setPage(1)
+        }}
+      />
     </div>
   )
 }

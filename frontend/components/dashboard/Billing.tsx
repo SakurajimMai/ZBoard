@@ -73,18 +73,12 @@ export default function Billing() {
                 <span className="text-sm text-muted-foreground">/ {plan.duration_days}天</span>
               </div>
               <ul className="mt-4 space-y-2 text-sm text-muted-foreground flex-1">
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-green-500" />
-                  流量 {(plan.traffic_limit / 1073741824).toFixed(0)} GB
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-green-500" />
-                  {plan.device_limit} 台设备同时在线
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-green-500" />
-                  全部节点可用
-                </li>
+                {featureList(plan).map((feature) => (
+                  <li key={feature} className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-green-500" />
+                    {feature}
+                  </li>
+                ))}
               </ul>
               <Button
                 className="mt-4 w-full"
@@ -100,4 +94,15 @@ export default function Billing() {
       )}
     </div>
   )
+}
+
+function featureList(plan: any): string[] {
+  const explicit = Array.isArray(plan.features) ? plan.features.filter(Boolean) : []
+  if (explicit.length > 0) return explicit
+  const features = [
+    `流量 ${(plan.traffic_limit / 1073741824).toFixed(0)} GB`,
+    `${plan.device_limit} 台设备同时在线`,
+  ]
+  features.push("全部节点可用")
+  return features
 }

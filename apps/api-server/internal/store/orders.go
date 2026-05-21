@@ -63,12 +63,22 @@ func (s *Store) ListAllOrders(ctx context.Context, limit int) ([]Order, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
+	rows, _, err := s.ListAllOrdersPage(ctx, PageParams{Page: 1, PageSize: limit})
+	return rows, err
+}
+
+func (s *Store) ListAllOrdersPage(ctx context.Context, p PageParams) ([]Order, int64, error) {
+	p = NormalizePage(p)
+	var total int64
+	if err := s.DB.GetContext(ctx, &total, `SELECT COUNT(*) FROM orders`); err != nil {
+		return nil, 0, err
+	}
 	q := s.Rebind(`SELECT id, order_no, user_id, plan_id, amount, currency, status,
 		paid_at, cancelled_at, expired_at, created_at, updated_at
-		FROM orders ORDER BY id DESC LIMIT ?`)
+		FROM orders ORDER BY id DESC LIMIT ? OFFSET ?`)
 	var rows []Order
-	if err := s.DB.SelectContext(ctx, &rows, q, limit); err != nil {
-		return nil, err
+	if err := s.DB.SelectContext(ctx, &rows, q, p.PageSize, p.Offset()); err != nil {
+		return nil, 0, err
 	}
-	return rows, nil
+	return rows, total, nil
 }

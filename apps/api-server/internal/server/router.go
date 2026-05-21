@@ -43,7 +43,11 @@ func New(d Deps) *gin.Engine {
 	api := r.Group("/api/v1")
 	{
 		api.POST("/auth/register", registerUser(d))
+		api.POST("/auth/send-email-code", sendEmailCode(d))
+		api.POST("/auth/register-with-code", registerUserWithCode(d))
+		api.POST("/auth/reset-password", resetPassword(d))
 		api.POST("/auth/login", loginUser(d))
+		api.GET("/settings", publicSettings(d))
 		api.GET("/plans", listPlans(d))
 		api.POST("/payments/mock-callback", mockPaymentCallback(d))
 		api.POST("/payments/:provider/callback", paymentCallback(d))
@@ -81,6 +85,7 @@ func New(d Deps) *gin.Engine {
 		{
 			authed.GET("/auth/me", adminMe(d))
 			authed.POST("/auth/logout", adminLogout(d))
+			authed.GET("/overview", adminOverview(d))
 			authed.GET("/audit-logs", adminAuditLogs(d))
 			authed.GET("/users", adminListUsers(d))
 			authed.POST("/users", adminCreateUser(d))
@@ -90,6 +95,8 @@ func New(d Deps) *gin.Engine {
 			authed.GET("/plans", adminListPlans(d))
 			authed.POST("/plans", adminCreatePlan(d))
 			authed.PUT("/plans/:id", adminUpdatePlan(d))
+			authed.GET("/settings", adminGetSettings(d))
+			authed.PUT("/settings", adminUpdateSettings(d))
 			authed.GET("/orders", adminListOrders(d))
 			authed.GET("/payments", adminListPayments(d))
 			authed.GET("/payment-callbacks", adminListPaymentCallbacks(d))

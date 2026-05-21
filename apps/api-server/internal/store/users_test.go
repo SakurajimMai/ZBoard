@@ -72,3 +72,57 @@ func TestActivateUserPlanExtendsExpiry(t *testing.T) {
 		t.Fatalf("status should be active, got %s", u.Status)
 	}
 }
+
+func TestRecordTrafficKeepsUserAndSnapshotInSync(t *testing.T) {
+	s := testsupport.NewStore(t)
+	ctx := context.Background()
+
+	uid, err := s.AdminCreateUser(ctx, store.AdminCreateUserInput{
+		Email:        "traffic@example.com",
+		PasswordHash: "hash",
+		TrafficLimit: 10_000,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("AdminCreateUser: %v", err)
+	}
+	nodeID, _, err := s.CreateNode(ctx, store.CreateNodeInput{
+		Name:     "节点",
+		Host:     "node.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+	if err := s.EnsureNodeUser(ctx, uid, nodeID, "client-id", "vless"); err != nil {
+		t.Fatalf("EnsureNodeUser: %v", err)
+	}
+
+	if err := s.RecordTraffic(ctx, []store.TrafficDelta{{
+		UserID:        uid,
+		NodeID:        nodeID,
+		UploadDelta:   100,
+		DownloadDelta: 900,
+	}}); err != nil {
+		t.Fatalf("RecordTraffic: %v", err)
+	}
+
+	u, err := s.FindUserByID(ctx, uid)
+	if err != nil {
+		t.Fatalf("FindUserByID: %v", err)
+	}
+	if u.TrafficUsed != 1000 {
+		t.Fatalf("traffic_used = %d, want 1000", u.TrafficUsed)
+	}
+	snaps, err := s.ListTrafficSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListTrafficSnapshots: %v", err)
+	}
+	if len(snaps) != 1 {
+		t.Fatalf("snapshots len=%d, want 1", len(snaps))
+	}
+	if snaps[0].TotalUsed != u.TrafficUsed || snaps[0].TrafficLimit != u.TrafficLimit {
+		t.Fatalf("snapshot not in sync with user: snap=%+v user=%+v", snaps[0], u)
+	}
+}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/zboard/api-server/internal/authsvc"
 	"github.com/zboard/api-server/internal/httpx"
+	"github.com/zboard/api-server/internal/store"
 	"github.com/zboard/api-server/internal/testsupport"
 )
 
@@ -38,6 +39,73 @@ func TestUserRegisterLoginResolve(t *testing.T) {
 	}
 	if resolved != id {
 		t.Fatalf("resolve mismatch: %d vs %d", resolved, id)
+	}
+}
+
+func TestRegisterAppliesTrialSettings(t *testing.T) {
+	s := testsupport.NewStore(t)
+	svc := authsvc.New(s, "setup", nil)
+	ctx := context.Background()
+
+	nodeID, _, err := s.CreateNode(ctx, store.CreateNodeInput{
+		Name: "US-01", Host: "us.example.com", Port: 443, Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := s.SetSettings(ctx, map[string]string{
+		"trial_traffic_gb":          "5",
+		"trial_days":                "7",
+		"user_default_device_limit": "2",
+	}); err != nil {
+		t.Fatalf("set settings: %v", err)
+	}
+
+	id, err := svc.RegisterUser(ctx, "trial@example.com", "secret123")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	u, err := s.FindUserByID(ctx, id)
+	if err != nil {
+		t.Fatalf("find user: %v", err)
+	}
+	if u.TrafficLimit != int64(5*1073741824) || u.ExpiredAt == nil {
+		t.Fatalf("trial not applied: %+v", u)
+	}
+	nu, err := s.FindNodeUser(ctx, id, nodeID)
+	if err != nil {
+		t.Fatalf("find node user: %v", err)
+	}
+	if nu.DeviceLimit != 2 {
+		t.Fatalf("device limit = %d, want 2", nu.DeviceLimit)
+	}
+}
+
+func TestRegisterWithoutTrialDoesNotProvisionNodeAccess(t *testing.T) {
+	s := testsupport.NewStore(t)
+	svc := authsvc.New(s, "setup", nil)
+	ctx := context.Background()
+
+	nodeID, _, err := s.CreateNode(ctx, store.CreateNodeInput{
+		Name: "US-01", Host: "us.example.com", Port: 443, Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+
+	id, err := svc.RegisterUser(ctx, "no-trial@example.com", "secret123")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if _, err := s.FindNodeUser(ctx, id, nodeID); !store.IsNoRows(err) {
+		t.Fatalf("default registration should not provision node user, err=%v", err)
+	}
+	u, err := s.FindUserByID(ctx, id)
+	if err != nil {
+		t.Fatalf("find user: %v", err)
+	}
+	if u.TrafficLimit != 0 || u.ExpiredAt != nil {
+		t.Fatalf("default registration should not apply trial quota: %+v", u)
 	}
 }
 

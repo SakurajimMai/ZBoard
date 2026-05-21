@@ -53,12 +53,16 @@ func adminCreateNode(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
 			return
 		}
+		protocol, transport, security, runtimeType := normalizeNodeCreateRuntimeFields(body)
 		if err := validateNodeRuntimeFields(
-			defaultNodeString(body.Protocol, "vless"),
-			defaultNodeString(body.Security, "tls"),
+			protocol,
+			transport,
+			security,
+			runtimeType,
 			body.RealityServerName,
 			body.RealityPublicKey,
 			body.RealityPrivateKey,
+			body.PortRange,
 		); err != nil {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
 			return
@@ -68,10 +72,10 @@ func adminCreateNode(d Deps) gin.HandlerFunc {
 			Region:            body.Region,
 			Host:              body.Host,
 			Port:              body.Port,
-			Protocol:          body.Protocol,
-			Transport:         body.Transport,
-			Security:          body.Security,
-			RuntimeType:       body.RuntimeType,
+			Protocol:          protocol,
+			Transport:         transport,
+			Security:          security,
+			RuntimeType:       runtimeType,
 			WSPath:            body.WSPath,
 			WSHost:            body.WSHost,
 			GRPCServiceName:   body.GRPCServiceName,
@@ -102,7 +106,13 @@ func adminCreateNode(d Deps) gin.HandlerFunc {
 		if err == nil {
 			for _, uid := range ids {
 				cid, _ := newClientIDForServer()
-				_ = d.Store.EnsureNodeUser(c.Request.Context(), uid, nodeID, cid, body.Protocol)
+				deviceLimit := 0
+				if u, err := d.Store.FindUserByID(c.Request.Context(), uid); err == nil && u.PlanID != nil {
+					if plan, err := d.Store.FindPlanByID(c.Request.Context(), *u.PlanID); err == nil {
+						deviceLimit = plan.DeviceLimit
+					}
+				}
+				_ = d.Store.EnsureNodeUserWithLimits(c.Request.Context(), uid, nodeID, cid, protocol, 0, deviceLimit)
 			}
 		}
 
@@ -121,12 +131,18 @@ func adminCreateNode(d Deps) gin.HandlerFunc {
 
 func adminListNodes(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		rows, err := d.Store.ListAllNodes(c.Request.Context())
+		params := paginationFromQuery(c)
+		threshold, err := d.Store.IntSetting(c.Request.Context(), "node_offline_threshold", 120)
 		if err != nil {
 			httpx.Fail(c, err)
 			return
 		}
-		httpx.OK(c, gin.H{"items": rows})
+		rows, total, err := d.Store.ListAllNodeViewsPage(c.Request.Context(), params, threshold)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		httpx.OK(c, gin.H{"items": rows, "page": params.Page, "page_size": params.PageSize, "total": total})
 	}
 }
 
@@ -154,10 +170,13 @@ func adminUpdateNode(d Deps) gin.HandlerFunc {
 		in.Status = status
 		if err := validateNodeRuntimeFields(
 			in.Protocol,
+			in.Transport,
 			in.Security,
+			in.RuntimeType,
 			in.RealityServerName,
 			in.RealityPublicKey,
 			in.RealityPrivateKey,
+			in.PortRange,
 		); err != nil {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
 			return
@@ -176,14 +195,30 @@ func adminUpdateNode(d Deps) gin.HandlerFunc {
 	}
 }
 
-func validateNodeRuntimeFields(protocol, security, realityServerName, realityPublicKey, realityPrivateKey string) error {
+func validateNodeRuntimeFields(protocol, transport, security, runtimeType, realityServerName, realityPublicKey, realityPrivateKey, portRange string) error {
 	return runtime.ValidateNode(&store.Node{
 		Protocol:          protocol,
+		Transport:         transport,
 		Security:          security,
+		RuntimeType:       runtimeType,
 		RealityServerName: realityServerName,
 		RealityPublicKey:  realityPublicKey,
 		RealityPrivateKey: realityPrivateKey,
+		PortRange:         portRange,
 	})
+}
+
+func normalizeNodeCreateRuntimeFields(body createNodeBody) (protocol, transport, security, runtimeType string) {
+	protocol = defaultNodeString(body.Protocol, "vless")
+	transport = defaultNodeString(body.Transport, "tcp")
+	security = defaultNodeString(body.Security, "tls")
+	runtimeType = defaultNodeString(body.RuntimeType, "xray")
+	if protocol == "hysteria2" || protocol == "tuic" {
+		transport = "udp"
+		security = "tls"
+		runtimeType = "sing-box"
+	}
+	return protocol, transport, security, runtimeType
 }
 
 func normalizeNodeUpdate(body updateNodeBody) store.UpdateNodeInput {
@@ -232,9 +267,6 @@ func normalizeNodeUpdate(body updateNodeBody) store.UpdateNodeInput {
 		if in.SSMethod == "" {
 			in.SSMethod = "2022-blake3-aes-128-gcm"
 		}
-	}
-	if in.Protocol == "vless" && in.Security == "reality" && in.Flow == "" {
-		in.Flow = "xtls-rprx-vision"
 	}
 	if in.Protocol == "hysteria2" || in.Protocol == "tuic" {
 		in.RuntimeType = "sing-box"

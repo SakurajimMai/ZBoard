@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/zboard/api-server/internal/store"
@@ -57,12 +58,51 @@ func ValidateNode(node *store.Node) error {
 	if protocol == "" {
 		protocol = "vless"
 	}
+	transport := strings.ToLower(strings.TrimSpace(node.Transport))
+	if transport == "" {
+		transport = "tcp"
+	}
+	runtimeType := strings.ToLower(strings.TrimSpace(node.RuntimeType))
+	if runtimeType == "" {
+		runtimeType = "xray"
+	}
 	security := strings.ToLower(strings.TrimSpace(node.Security))
+	if protocol == "hysteria2" || protocol == "tuic" {
+		if transport != "udp" {
+			return fmt.Errorf("%s nodes require udp transport", protocol)
+		}
+		if protocol == "hysteria2" {
+			if _, _, err := parsePortRange(node.PortRange); err != nil {
+				return err
+			}
+		}
+	} else if runtimeType == "sing-box" || runtimeType == "singbox" {
+		switch transport {
+		case "tcp", "ws", "grpc":
+		default:
+			return fmt.Errorf("sing-box runtime does not support %s transport for %s nodes", transport, protocol)
+		}
+	} else {
+		switch transport {
+		case "tcp", "kcp", "mkcp", "ws", "grpc", "httpupgrade", "xhttp":
+		default:
+			return fmt.Errorf("xray runtime does not support %s transport for %s nodes", transport, protocol)
+		}
+	}
 	if security != "reality" {
 		return nil
 	}
 	if protocol != "vless" {
 		return fmt.Errorf("reality security only supports vless nodes")
+	}
+	// Xray Reality server mode is accepted only on RAW TCP, XHTTP and gRPC.
+	// Keeping this guard here avoids generating configs the agent cannot start.
+	if runtimeType != "sing-box" && runtimeType != "singbox" {
+		switch transport {
+		case "tcp", "xhttp", "grpc":
+		default:
+			return fmt.Errorf("xray reality nodes only support tcp, xhttp or grpc transport")
+		}
 	}
 
 	missing := make([]string, 0, 3)
@@ -96,9 +136,9 @@ func xray(node *store.Node, users []store.NodeUser) map[string]any {
 		switch node.Protocol {
 		case "vless":
 			entry["id"] = u.ClientID
-			// Per-client flow only set when caller picked one. xtls-rprx-vision
-			// is the GFW-resilient default Reality nodes get on create.
-			entry["flow"] = node.Flow
+			if node.Flow != "" {
+				entry["flow"] = node.Flow
+			}
 		case "vmess":
 			entry["id"] = u.ClientID
 		case "trojan", "ss", "shadowsocks":
@@ -109,8 +149,9 @@ func xray(node *store.Node, users []store.NodeUser) map[string]any {
 		clients = append(clients, entry)
 	}
 
+	transport := xrayTransportNetwork(node.Transport)
 	stream := map[string]any{
-		"network":  node.Transport,
+		"network":  transport,
 		"security": node.Security,
 	}
 	switch node.Security {
@@ -145,7 +186,9 @@ func xray(node *store.Node, users []store.NodeUser) map[string]any {
 		}
 		stream["realitySettings"] = reality
 	}
-	switch node.Transport {
+	switch transport {
+	case "mkcp":
+		stream["kcpSettings"] = map[string]any{}
 	case "ws":
 		ws := map[string]any{"path": defaultStr(node.WSPath, "/")}
 		if node.WSHost != "" {
@@ -154,6 +197,12 @@ func xray(node *store.Node, users []store.NodeUser) map[string]any {
 		stream["wsSettings"] = ws
 	case "grpc":
 		stream["grpcSettings"] = map[string]any{"serviceName": node.GRPCServiceName}
+	case "httpupgrade":
+		stream["httpupgradeSettings"] = httpTransportSettings(node)
+	case "xhttp":
+		settings := httpTransportSettings(node)
+		settings["mode"] = "auto"
+		stream["xhttpSettings"] = settings
 	}
 
 	settings := map[string]any{
@@ -226,6 +275,25 @@ func xray(node *store.Node, users []store.NodeUser) map[string]any {
 			},
 		},
 	}
+}
+
+func xrayTransportNetwork(transport string) string {
+	switch strings.ToLower(strings.TrimSpace(transport)) {
+	case "kcp", "mkcp":
+		return "mkcp"
+	case "":
+		return "tcp"
+	default:
+		return transport
+	}
+}
+
+func httpTransportSettings(node *store.Node) map[string]any {
+	settings := map[string]any{"path": defaultStr(node.WSPath, "/")}
+	if node.WSHost != "" {
+		settings["host"] = node.WSHost
+	}
+	return settings
 }
 
 // singBoxUserName is the canonical user name we set on every sing-box user.
@@ -420,8 +488,12 @@ func PortHoppingMeta(node *store.Node) map[string]any {
 	if node.PortRange == "" || node.Protocol != "hysteria2" {
 		return nil
 	}
+	start, end, err := parsePortRange(node.PortRange)
+	if err != nil {
+		return nil
+	}
 	// iptables --dport uses colon syntax for ranges: 20000:40000
-	iptablesRange := strings.ReplaceAll(node.PortRange, "-", ":")
+	iptablesRange := fmt.Sprintf("%d:%d", start, end)
 	return map[string]any{
 		"enabled":     true,
 		"listen_port": node.Port,
@@ -435,6 +507,29 @@ func PortHoppingMeta(node *store.Node) map[string]any {
 			fmt.Sprintf("ip6tables -t nat -D PREROUTING -p udp --dport %s -j DNAT --to-destination :%d", iptablesRange, node.Port),
 		},
 	}
+}
+
+func parsePortRange(raw string) (int, int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, 0, nil
+	}
+	parts := strings.Split(raw, "-")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("hysteria2 port_range must use start-end format")
+	}
+	start, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil {
+		return 0, 0, fmt.Errorf("hysteria2 port_range start is invalid")
+	}
+	end, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return 0, 0, fmt.Errorf("hysteria2 port_range end is invalid")
+	}
+	if start < 1 || start > 65535 || end < 1 || end > 65535 || start > end {
+		return 0, 0, fmt.Errorf("hysteria2 port_range must be within 1-65535 and start <= end")
+	}
+	return start, end, nil
 }
 
 func singBoxTUIC(node *store.Node, users []store.NodeUser) map[string]any {

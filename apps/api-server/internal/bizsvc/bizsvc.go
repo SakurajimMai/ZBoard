@@ -147,10 +147,10 @@ func hashRequest(payload map[string]any) string {
 // ===== Payments =====
 
 type PayResult struct {
-	Existing  bool           `json:"existing"`
-	Payment   *store.Payment `json:"payment"`
-	OrderNo   string         `json:"order_no"`
-	PayURL    string         `json:"pay_url"`
+	Existing bool           `json:"existing"`
+	Payment  *store.Payment `json:"payment"`
+	OrderNo  string         `json:"order_no"`
+	PayURL   string         `json:"pay_url"`
 }
 
 // StartPayment creates a `pending` payment and returns a mock pay URL. Idempotent on (Idempotency-Key, scope).
@@ -267,7 +267,7 @@ func (s *Service) HandleMockCallback(ctx context.Context, eventID, orderNo, paym
 		return err
 	}
 	for _, n := range nodes {
-		if err := s.Store.EnsureNodeUser(ctx, o.UserID, n.ID, clientID, n.Protocol); err != nil {
+		if err := s.Store.EnsureNodeUserWithLimits(ctx, o.UserID, n.ID, clientID, n.Protocol, 0, plan.DeviceLimit); err != nil {
 			return err
 		}
 	}
@@ -307,7 +307,7 @@ func (s *Service) ActivateByCallback(ctx context.Context, orderNo, provider, pro
 		return err
 	}
 	for _, n := range nodes {
-		if err := s.Store.EnsureNodeUser(ctx, o.UserID, n.ID, clientID, n.Protocol); err != nil {
+		if err := s.Store.EnsureNodeUserWithLimits(ctx, o.UserID, n.ID, clientID, n.Protocol, 0, plan.DeviceLimit); err != nil {
 			return err
 		}
 	}

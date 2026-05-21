@@ -28,36 +28,42 @@ func listPlans(d Deps) gin.HandlerFunc {
 
 func adminListPlans(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		plans, err := d.Biz.ListAllPlans(c.Request.Context())
+		params := paginationFromQuery(c)
+		plans, total, err := d.Store.ListAllPlansPage(c.Request.Context(), params)
 		if err != nil {
 			httpx.Fail(c, err)
 			return
 		}
-		httpx.OK(c, gin.H{"items": plans})
+		httpx.OK(c, gin.H{
+			"items":     plans,
+			"page":      params.Page,
+			"page_size": params.PageSize,
+			"total":     total,
+		})
 	}
 }
 
 type createPlanBody struct {
-	Name         string `json:"name" binding:"required"`
-	Price        string `json:"price" binding:"required"`
-	DurationDays int    `json:"duration_days" binding:"required"`
-	TrafficLimit int64  `json:"traffic_limit"`
-	DeviceLimit  int    `json:"device_limit"`
-	SpeedLimit   int    `json:"speed_limit"`
-	NodeGroupID  *int64 `json:"node_group_id"`
-	Sort         int    `json:"sort"`
+	Name         string   `json:"name" binding:"required"`
+	Price        string   `json:"price" binding:"required"`
+	DurationDays int      `json:"duration_days" binding:"required"`
+	TrafficLimit int64    `json:"traffic_limit"`
+	DeviceLimit  int      `json:"device_limit"`
+	Features     []string `json:"features"`
+	NodeGroupID  *int64   `json:"node_group_id"`
+	Sort         int      `json:"sort"`
 }
 
 type updatePlanBody struct {
-	Name         string `json:"name" binding:"required"`
-	Price        string `json:"price" binding:"required"`
-	DurationDays int    `json:"duration_days" binding:"required"`
-	TrafficLimit int64  `json:"traffic_limit"`
-	DeviceLimit  int    `json:"device_limit"`
-	SpeedLimit   int    `json:"speed_limit"`
-	NodeGroupID  *int64 `json:"node_group_id"`
-	Status       string `json:"status"`
-	Sort         int    `json:"sort"`
+	Name         string   `json:"name" binding:"required"`
+	Price        string   `json:"price" binding:"required"`
+	DurationDays int      `json:"duration_days" binding:"required"`
+	TrafficLimit int64    `json:"traffic_limit"`
+	DeviceLimit  int      `json:"device_limit"`
+	Features     []string `json:"features"`
+	NodeGroupID  *int64   `json:"node_group_id"`
+	Status       string   `json:"status"`
+	Sort         int      `json:"sort"`
 }
 
 func adminCreatePlan(d Deps) gin.HandlerFunc {
@@ -76,7 +82,7 @@ func adminCreatePlan(d Deps) gin.HandlerFunc {
 			DurationDays: body.DurationDays,
 			TrafficLimit: body.TrafficLimit,
 			DeviceLimit:  body.DeviceLimit,
-			SpeedLimit:   body.SpeedLimit,
+			Features:     normalizeFeatureList(body.Features),
 			NodeGroupID:  body.NodeGroupID,
 			Sort:         body.Sort,
 		})
@@ -123,7 +129,7 @@ func adminUpdatePlan(d Deps) gin.HandlerFunc {
 			DurationDays: body.DurationDays,
 			TrafficLimit: body.TrafficLimit,
 			DeviceLimit:  body.DeviceLimit,
-			SpeedLimit:   body.SpeedLimit,
+			Features:     normalizeFeatureList(body.Features),
 			NodeGroupID:  body.NodeGroupID,
 			Status:       status,
 			Sort:         body.Sort,
@@ -139,6 +145,18 @@ func adminUpdatePlan(d Deps) gin.HandlerFunc {
 		})
 		httpx.OK(c, gin.H{"ok": true})
 	}
+}
+
+func normalizeFeatureList(items []string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 // ===== Orders =====
@@ -226,12 +244,13 @@ func mockPaymentCallback(d Deps) gin.HandlerFunc {
 
 func adminListOrders(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		rows, err := d.Store.ListAllOrders(c.Request.Context(), 200)
+		params := paginationFromQuery(c)
+		rows, total, err := d.Store.ListAllOrdersPage(c.Request.Context(), params)
 		if err != nil {
 			httpx.Fail(c, err)
 			return
 		}
-		httpx.OK(c, gin.H{"items": rows})
+		httpx.OK(c, gin.H{"items": rows, "page": params.Page, "page_size": params.PageSize, "total": total})
 	}
 }
 
@@ -259,7 +278,8 @@ func adminListPaymentCallbacks(d Deps) gin.HandlerFunc {
 
 func adminListUsers(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		rows, err := d.Store.ListUsers(c.Request.Context(), 200)
+		params := paginationFromQuery(c)
+		rows, total, err := d.Store.ListUsersPage(c.Request.Context(), params)
 		if err != nil {
 			httpx.Fail(c, err)
 			return
@@ -277,7 +297,7 @@ func adminListUsers(d Deps) gin.HandlerFunc {
 				"created_at":    u.CreatedAt,
 			})
 		}
-		httpx.OK(c, gin.H{"items": view})
+		httpx.OK(c, gin.H{"items": view, "page": params.Page, "page_size": params.PageSize, "total": total})
 	}
 }
 
@@ -324,6 +344,11 @@ func adminCreateUser(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "到期时间格式不合法"))
 			return
 		}
+		plan, err := planForUserInput(c.Request.Context(), d.Store, body.PlanID)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
 		hash, err := authx.HashPassword(body.Password)
 		if err != nil {
 			httpx.Fail(c, err)
@@ -348,7 +373,7 @@ func adminCreateUser(d Deps) gin.HandlerFunc {
 			return
 		}
 		if status == "active" {
-			if err := provisionUserOnActiveNodes(c.Request.Context(), d.Store, id); err != nil {
+			if err := provisionUserOnActiveNodes(c.Request.Context(), d.Store, id, plan); err != nil {
 				httpx.Fail(c, err)
 				return
 			}
@@ -385,6 +410,11 @@ func adminUpdateUser(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "到期时间格式不合法"))
 			return
 		}
+		plan, err := planForUserInput(c.Request.Context(), d.Store, body.PlanID)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
 		if err := d.Store.AdminUpdateUser(c.Request.Context(), id, store.AdminUpdateUserInput{
 			Email:        strings.TrimSpace(strings.ToLower(body.Email)),
 			Balance:      defaultString(body.Balance, "0.00"),
@@ -402,7 +432,7 @@ func adminUpdateUser(d Deps) gin.HandlerFunc {
 			return
 		}
 		if status == "active" {
-			if err := provisionUserOnActiveNodes(c.Request.Context(), d.Store, id); err != nil {
+			if err := provisionUserOnActiveNodes(c.Request.Context(), d.Store, id, plan); err != nil {
 				httpx.Fail(c, err)
 				return
 			}
@@ -453,7 +483,21 @@ func defaultString(v, fallback string) string {
 	return v
 }
 
-func provisionUserOnActiveNodes(ctx context.Context, st *store.Store, userID int64) error {
+func planForUserInput(ctx context.Context, st *store.Store, planID *int64) (*store.Plan, error) {
+	if planID == nil {
+		return nil, nil
+	}
+	plan, err := st.FindPlanByID(ctx, *planID)
+	if err != nil {
+		if store.IsNoRows(err) {
+			return nil, httpx.NewError(http.StatusBadRequest, "plan_not_found", "套餐不存在")
+		}
+		return nil, err
+	}
+	return plan, nil
+}
+
+func provisionUserOnActiveNodes(ctx context.Context, st *store.Store, userID int64, plan *store.Plan) error {
 	nodes, err := st.ListActiveNodes(ctx)
 	if err != nil {
 		return err
@@ -462,8 +506,12 @@ func provisionUserOnActiveNodes(ctx context.Context, st *store.Store, userID int
 	if err != nil {
 		return err
 	}
+	deviceLimit := 0
+	if plan != nil {
+		deviceLimit = plan.DeviceLimit
+	}
 	for _, n := range nodes {
-		if err := st.EnsureNodeUser(ctx, userID, n.ID, clientID, n.Protocol); err != nil {
+		if err := st.EnsureNodeUserWithLimits(ctx, userID, n.ID, clientID, n.Protocol, 0, deviceLimit); err != nil {
 			return err
 		}
 	}

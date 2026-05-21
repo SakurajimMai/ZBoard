@@ -121,6 +121,39 @@ func TestBase64URIRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBase64URIIncludesModernTransportOptions(t *testing.T) {
+	const cid = "00000000-0000-4000-8000-000000000001"
+	nodes := []store.Node{
+		{
+			ID: 1, NodeCode: "xhttp", Name: "XHTTP", Host: "xhttp.example.com", Port: 443,
+			Protocol: "vless", Transport: "xhttp", Security: "tls",
+			WSPath: "/edge", WSHost: "cdn.example.com", Status: "active",
+		},
+		{
+			ID: 2, NodeCode: "hup", Name: "HTTPUpgrade", Host: "hup.example.com", Port: 443,
+			Protocol: "vless", Transport: "httpupgrade", Security: "tls",
+			WSPath: "/upgrade", WSHost: "cdn2.example.com", Status: "active",
+		},
+	}
+	users := []store.NodeUser{
+		{NodeID: 1, UserID: 1, ClientID: cid, Protocol: "vless", Enabled: 1},
+		{NodeID: 2, UserID: 1, ClientID: cid, Protocol: "vless", Enabled: 1},
+	}
+	raw, err := base64.StdEncoding.DecodeString(subrender.Base64(subrender.Build(nodes, users)))
+	if err != nil {
+		t.Fatalf("base64 decode: %v", err)
+	}
+	uri := string(raw)
+	for _, want := range []string{
+		"type=xhttp", "path=%2Fedge", "host=cdn.example.com",
+		"type=httpupgrade", "path=%2Fupgrade", "host=cdn2.example.com",
+	} {
+		if !strings.Contains(uri, want) {
+			t.Errorf("URI list missing %q\n%s", want, uri)
+		}
+	}
+}
+
 func TestBuildSkipsIncompleteRealityNodes(t *testing.T) {
 	nodes := []store.Node{
 		{

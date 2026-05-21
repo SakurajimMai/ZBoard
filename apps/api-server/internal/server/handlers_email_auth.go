@@ -19,6 +19,17 @@ func sendEmailCode(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
 			return
 		}
+		if body.Purpose == "register" {
+			allowRegister, err := d.Store.BoolSetting(c.Request.Context(), "allow_register", true)
+			if err != nil {
+				httpx.Fail(c, err)
+				return
+			}
+			if !allowRegister {
+				httpx.Fail(c, httpx.NewError(http.StatusForbidden, "register_disabled", "当前站点已关闭用户注册"))
+				return
+			}
+		}
 		if err := d.Auth.SendEmailCode(c.Request.Context(), body.Email, body.Purpose); err != nil {
 			httpx.Fail(c, err)
 			return
@@ -35,6 +46,15 @@ type registerWithCodeBody struct {
 
 func registerUserWithCode(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		allowRegister, err := d.Store.BoolSetting(c.Request.Context(), "allow_register", true)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		if !allowRegister {
+			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "register_disabled", "当前站点已关闭用户注册"))
+			return
+		}
 		var body registerWithCodeBody
 		if err := c.ShouldBindJSON(&body); err != nil {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))

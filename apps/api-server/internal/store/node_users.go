@@ -23,14 +23,32 @@ type NodeUser struct {
 
 // EnsureNodeUser inserts a node_users row if missing. Idempotent on (user_id, node_id).
 func (s *Store) EnsureNodeUser(ctx context.Context, userID, nodeID int64, clientID, protocol string) error {
+	return s.EnsureNodeUserWithLimits(ctx, userID, nodeID, clientID, protocol, 0, 0)
+}
+
+func (s *Store) EnsureNodeUserWithLimits(ctx context.Context, userID, nodeID int64, clientID, protocol string, speedLimit, deviceLimit int) error {
+	speedLimit = 0
 	_, err := s.DB.ExecContext(ctx,
-		s.Rebind(`INSERT INTO node_users(user_id, node_id, client_id, protocol, enabled)
-			VALUES (?, ?, ?, ?, 1)`),
-		userID, nodeID, clientID, protocol,
+		s.Rebind(`INSERT INTO node_users(user_id, node_id, client_id, protocol, enabled, speed_limit, device_limit)
+			VALUES (?, ?, ?, ?, 1, ?, ?)`),
+		userID, nodeID, clientID, protocol, speedLimit, deviceLimit,
 	)
 	if err != nil && IsUniqueViolation(err) {
+		q := s.Rebind(`UPDATE node_users SET protocol = ?, enabled = 1,
+			speed_limit = ?, device_limit = ?, updated_at = CURRENT_TIMESTAMP
+			WHERE user_id = ? AND node_id = ?`)
+		_, err = s.DB.ExecContext(ctx, q, protocol, speedLimit, deviceLimit, userID, nodeID)
+	}
+	return err
+}
+
+func (s *Store) ApplyPlanLimitsToNodeUsers(ctx context.Context, userID int64, plan *Plan) error {
+	if plan == nil {
 		return nil
 	}
+	q := s.Rebind(`UPDATE node_users SET speed_limit = ?, device_limit = ?,
+		updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`)
+	_, err := s.DB.ExecContext(ctx, q, 0, plan.DeviceLimit, userID)
 	return err
 }
 

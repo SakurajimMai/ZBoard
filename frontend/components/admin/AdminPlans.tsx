@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react"
 import type { ReactNode } from "react"
-import { Edit3, Plus } from "lucide-react"
+import { Check, Edit3, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+import { AdminPager } from "@/components/admin/AdminPager"
 import { adminCreatePlan, adminGetPlans, adminUpdatePlan } from "@/lib/api"
 
 type PlanForm = {
@@ -16,7 +18,7 @@ type PlanForm = {
   duration_days: string
   traffic_limit_gb: string
   device_limit: string
-  speed_limit: string
+  features_text: string
   status: "active" | "inactive"
   sort: string
 }
@@ -27,7 +29,7 @@ const emptyForm: PlanForm = {
   duration_days: "30",
   traffic_limit_gb: "100",
   device_limit: "3",
-  speed_limit: "0",
+  features_text: "",
   status: "active",
   sort: "0",
 }
@@ -36,19 +38,25 @@ export default function AdminPlans() {
   const [plans, setPlans] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(12)
+  const [total, setTotal] = useState(0)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
   const [form, setForm] = useState<PlanForm>(emptyForm)
 
   const load = () => {
     setLoading(true)
-    adminGetPlans()
-      .then((res) => setPlans(res.items || []))
+    adminGetPlans({ page, pageSize })
+      .then((res) => {
+        setPlans(res.items || [])
+        setTotal(res.total ?? (res.items || []).length)
+      })
       .catch((err) => alert(err.message || "加载套餐失败"))
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [page, pageSize])
 
   const openCreate = () => {
     setEditing(null)
@@ -64,7 +72,7 @@ export default function AdminPlans() {
       duration_days: String(p.duration_days || 30),
       traffic_limit_gb: bytesToGB(p.traffic_limit),
       device_limit: String(p.device_limit || 3),
-      speed_limit: String(p.speed_limit || 0),
+      features_text: featureList(p).join("\n"),
       status: p.status === "inactive" ? "inactive" : "active",
       sort: String(p.sort || 0),
     })
@@ -84,7 +92,7 @@ export default function AdminPlans() {
     duration_days: Number(form.duration_days || 0),
     traffic_limit: gbToBytes(form.traffic_limit_gb),
     device_limit: Number(form.device_limit || 0),
-    speed_limit: Number(form.speed_limit || 0),
+    features: form.features_text.split("\n").map((it) => it.trim()).filter(Boolean),
     status: form.status,
     sort: Number(form.sort || 0),
   })
@@ -100,6 +108,7 @@ export default function AdminPlans() {
         await adminUpdatePlan(editing.id, payload())
       } else {
         await adminCreatePlan(payload())
+        setPage(1)
       }
       closeDialog()
       load()
@@ -117,7 +126,7 @@ export default function AdminPlans() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">套餐管理</h1>
-          <p className="text-sm text-muted-foreground mt-1">共 {plans.length} 个套餐</p>
+          <p className="text-sm text-muted-foreground mt-1">共 {total} 个套餐</p>
         </div>
         <Button size="sm" onClick={openCreate}>
           <Plus className="w-4 h-4 mr-1" /> 新建套餐
@@ -151,6 +160,14 @@ export default function AdminPlans() {
                 <p>设备: {p.device_limit} 台</p>
                 <p>排序: {p.sort}</p>
               </div>
+              <ul className="mt-4 space-y-2 text-sm">
+                {featureList(p).map((feature) => (
+                  <li key={feature} className="flex items-start gap-2 text-muted-foreground">
+                    <Check className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                    <span>{feature}</span>
+                  </li>
+                ))}
+              </ul>
               <div className="mt-4 flex justify-end">
                 <Button size="sm" variant="outline" onClick={() => openEdit(p)}>
                   <Edit3 className="w-4 h-4 mr-1" /> 编辑
@@ -160,6 +177,16 @@ export default function AdminPlans() {
           ))}
         </div>
       )}
+      <AdminPager
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size)
+          setPage(1)
+        }}
+      />
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); else setDialogOpen(true) }}>
         <DialogContent>
@@ -192,17 +219,22 @@ export default function AdminPlans() {
                 <Input type="number" min="0" value={form.traffic_limit_gb} onChange={(e) => setForm({ ...form, traffic_limit_gb: e.target.value })} />
               </Field>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <Field label="设备数">
                 <Input type="number" min="1" value={form.device_limit} onChange={(e) => setForm({ ...form, device_limit: e.target.value })} />
-              </Field>
-              <Field label="限速 Mbps">
-                <Input type="number" min="0" value={form.speed_limit} onChange={(e) => setForm({ ...form, speed_limit: e.target.value })} />
               </Field>
               <Field label="排序">
                 <Input type="number" value={form.sort} onChange={(e) => setForm({ ...form, sort: e.target.value })} />
               </Field>
             </div>
+            <Field label="自定义卖点">
+              <Textarea
+                value={form.features_text}
+                onChange={(e) => setForm({ ...form, features_text: e.target.value })}
+                placeholder="每行一条，例如：&#10;100 GB 流量&#10;3 台设备同时在线&#10;全部节点可用&#10;支持 Clash / sing-box / V2rayN"
+                className="min-h-28"
+              />
+            </Field>
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={closeDialog} disabled={saving}>取消</Button>
@@ -229,4 +261,15 @@ function bytesToGB(value: number | null | undefined) {
 
 function gbToBytes(value: string) {
   return Math.max(0, Math.round(Number(value || 0) * 1073741824))
+}
+
+function featureList(plan: any): string[] {
+  const explicit = Array.isArray(plan.features) ? plan.features.filter(Boolean) : []
+  if (explicit.length > 0) return explicit
+  const list = [
+    `${bytesToGB(plan.traffic_limit)} GB 流量`,
+    `${plan.device_limit || 3} 台设备同时在线`,
+  ]
+  list.push("全部节点可用", "支持 Clash / sing-box / V2rayN")
+  return list
 }

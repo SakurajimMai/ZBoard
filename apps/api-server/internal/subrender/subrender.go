@@ -146,7 +146,7 @@ func uriFor(it Item) string {
 	case "vless":
 		q := url.Values{}
 		q.Set("encryption", "none")
-		q.Set("type", it.Transport)
+		q.Set("type", uriTransportType(it.Transport))
 		if it.Security != "" {
 			q.Set("security", it.Security)
 		}
@@ -174,10 +174,13 @@ func uriFor(it Item) string {
 			}
 		}
 		switch it.Transport {
-		case "ws":
+		case "ws", "httpupgrade", "xhttp":
 			q.Set("path", it.Path)
 			if it.WSHost != "" {
 				q.Set("host", it.WSHost)
+			}
+			if it.Transport == "xhttp" {
+				q.Set("mode", "auto")
 			}
 		case "grpc":
 			if it.Service != "" {
@@ -295,6 +298,13 @@ func defaultStr(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func uriTransportType(transport string) string {
+	if transport == "kcp" {
+		return "mkcp"
+	}
+	return transport
 }
 
 // splitALPN turns a comma-separated string into a trimmed slice; mirrors the
@@ -430,6 +440,8 @@ func ClashMeta(items []Item) string {
 			b.WriteString("    network: grpc\n    grpc-opts:\n      grpc-service-name: ")
 			b.WriteString(yamlQuote(it.Service))
 			b.WriteByte('\n')
+		} else if it.Transport == "httpupgrade" || it.Transport == "xhttp" {
+			fmt.Fprintf(&b, "    network: %s\n", it.Transport)
 		}
 	}
 	b.WriteString("proxy-groups:\n")

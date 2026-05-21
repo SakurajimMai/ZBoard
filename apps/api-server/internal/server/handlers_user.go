@@ -15,6 +15,24 @@ type credentialsBody struct {
 
 func registerUser(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		allowRegister, err := d.Store.BoolSetting(c.Request.Context(), "allow_register", true)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		if !allowRegister {
+			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "register_disabled", "当前站点已关闭用户注册"))
+			return
+		}
+		requireEmailVerify, err := d.Store.BoolSetting(c.Request.Context(), "require_email_verify", false)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		if requireEmailVerify {
+			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "email_verify_required", "当前站点要求邮箱验证码注册"))
+			return
+		}
 		var body credentialsBody
 		if err := c.ShouldBindJSON(&body); err != nil {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))

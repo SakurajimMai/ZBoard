@@ -92,8 +92,10 @@ func (s *Store) ActivateUserPlan(ctx context.Context, userID int64, plan *Plan) 
 
 	q := s.Rebind(`UPDATE users SET plan_id = ?, expired_at = ?, traffic_limit = ?,
 		traffic_used = 0, status = 'active' WHERE id = ?`)
-	_, err = s.DB.ExecContext(ctx, q, plan.ID, newExpiry, plan.TrafficLimit, userID)
-	return err
+	if _, err = s.DB.ExecContext(ctx, q, plan.ID, newExpiry, plan.TrafficLimit, userID); err != nil {
+		return err
+	}
+	return s.ApplyPlanLimitsToNodeUsers(ctx, userID, plan)
 }
 
 // SetUserStatus changes the status field (e.g. 'disabled', 'active').
@@ -125,12 +127,22 @@ func (s *Store) ListUsers(ctx context.Context, limit int) ([]User, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
+	rows, _, err := s.ListUsersPage(ctx, PageParams{Page: 1, PageSize: limit})
+	return rows, err
+}
+
+func (s *Store) ListUsersPage(ctx context.Context, p PageParams) ([]User, int64, error) {
+	p = NormalizePage(p)
+	var total int64
+	if err := s.DB.GetContext(ctx, &total, `SELECT COUNT(*) FROM users`); err != nil {
+		return nil, 0, err
+	}
 	q := s.Rebind(`SELECT id, email, password_hash, balance, plan_id, expired_at,
 		traffic_limit, traffic_used, status, created_at, updated_at
-		FROM users ORDER BY id DESC LIMIT ?`)
+		FROM users ORDER BY id DESC LIMIT ? OFFSET ?`)
 	var rows []User
-	if err := s.DB.SelectContext(ctx, &rows, q, limit); err != nil {
-		return nil, err
+	if err := s.DB.SelectContext(ctx, &rows, q, p.PageSize, p.Offset()); err != nil {
+		return nil, 0, err
 	}
-	return rows, nil
+	return rows, total, nil
 }

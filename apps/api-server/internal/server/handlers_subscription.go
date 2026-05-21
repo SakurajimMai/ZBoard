@@ -1,9 +1,12 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zboard/api-server/internal/authx"
@@ -62,6 +65,11 @@ func subRender(d Deps) gin.HandlerFunc {
 		token := c.Param("token")
 		hash := hashSubToken(token)
 		target := c.DefaultQuery("target", "base64")
+		if !subscriptionTargetEnabled(c.Request.Context(), d.Store, target) {
+			_ = d.Store.LogSubAccess(c.Request.Context(), nil, hash, target, c.ClientIP(), c.Request.UserAgent(), "deny", "target_disabled")
+			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "subscription_target_disabled", "该订阅格式已关闭"))
+			return
+		}
 
 		t, err := d.Store.FindActiveSubTokenByHash(c.Request.Context(), hash)
 		if err != nil {
@@ -79,12 +87,27 @@ func subRender(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "user_disabled", "账号已禁用"))
 			return
 		}
-		nodes, err := d.Store.ListActiveNodes(c.Request.Context())
+		if u.ExpiredAt != nil && !u.ExpiredAt.After(time.Now().UTC()) {
+			_ = d.Store.LogSubAccess(c.Request.Context(), &t.UserID, hash, target, c.ClientIP(), c.Request.UserAgent(), "deny", "plan_expired")
+			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "plan_expired", "套餐已到期"))
+			return
+		}
+		if u.TrafficLimit > 0 && u.TrafficUsed >= u.TrafficLimit {
+			_ = d.Store.LogSubAccess(c.Request.Context(), &t.UserID, hash, target, c.ClientIP(), c.Request.UserAgent(), "deny", "traffic_exceeded")
+			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "traffic_exceeded", "流量已用尽"))
+			return
+		}
+		nodeUsers, err := d.Store.ListNodeUsersByUser(c.Request.Context(), t.UserID)
 		if err != nil {
 			httpx.Fail(c, err)
 			return
 		}
-		nodeUsers, err := d.Store.ListNodeUsersByUser(c.Request.Context(), t.UserID)
+		if err := checkSubscriptionDeviceLimit(c.Request.Context(), d.Store, t.UserID, nodeUsers, c.ClientIP(), c.Request.UserAgent()); err != nil {
+			_ = d.Store.LogSubAccess(c.Request.Context(), &t.UserID, hash, target, c.ClientIP(), c.Request.UserAgent(), "deny", "device_limit_exceeded")
+			httpx.Fail(c, err)
+			return
+		}
+		nodes, err := d.Store.ListActiveNodes(c.Request.Context())
 		if err != nil {
 			httpx.Fail(c, err)
 			return
@@ -106,9 +129,65 @@ func subRender(d Deps) gin.HandlerFunc {
 
 		_ = d.Store.TouchSubTokenAccess(c.Request.Context(), t.ID, c.ClientIP(), c.Request.UserAgent())
 		_ = d.Store.LogSubAccess(c.Request.Context(), &t.UserID, hash, target, c.ClientIP(), c.Request.UserAgent(), "allow", "")
-		c.Header("Subscription-Userinfo", subUserInfo(u))
+		c.Header("Subscription-Userinfo", subUserInfo(c.Request.Context(), d.Store, u))
 		c.Data(http.StatusOK, contentType, []byte(body))
 	}
+}
+
+func subscriptionTargetEnabled(ctx context.Context, st *store.Store, target string) bool {
+	key := ""
+	switch target {
+	case "clash", "clash-meta":
+		key = "clash_enabled"
+	case "sing-box", "singbox":
+		key = "singbox_enabled"
+	case "base64", "v2rayn", "":
+		key = "v2rayn_enabled"
+	default:
+		return false
+	}
+	enabled, err := st.BoolSetting(ctx, key, true)
+	return err == nil && enabled
+}
+
+func checkSubscriptionDeviceLimit(ctx context.Context, st *store.Store, userID int64, nodeUsers []store.NodeUser, ip, ua string) error {
+	limit := subscriptionDeviceLimit(nodeUsers)
+	if limit <= 0 {
+		return st.TouchUserDevice(ctx, userID, subscriptionDeviceFingerprint(ip, ua), ip, ua)
+	}
+	fp := subscriptionDeviceFingerprint(ip, ua)
+	exists, err := st.HasUserDevice(ctx, userID, fp)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		count, err := st.CountUserDevices(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if count >= limit {
+			return httpx.NewError(http.StatusForbidden, "device_limit_exceeded", fmt.Sprintf("套餐最多允许 %d 台设备使用订阅", limit))
+		}
+	}
+	return st.TouchUserDevice(ctx, userID, fp, ip, ua)
+}
+
+func subscriptionDeviceLimit(nodeUsers []store.NodeUser) int {
+	limit := 0
+	for _, nu := range nodeUsers {
+		if nu.Enabled == 0 || nu.DeviceLimit <= 0 {
+			continue
+		}
+		if limit == 0 || nu.DeviceLimit < limit {
+			limit = nu.DeviceLimit
+		}
+	}
+	return limit
+}
+
+func subscriptionDeviceFingerprint(ip, ua string) string {
+	sum := sha256.Sum256([]byte(ip + "\n" + ua))
+	return hex.EncodeToString(sum[:])
 }
 
 func newSubToken() (string, error) { return authx.NewToken(24) }
@@ -118,14 +197,19 @@ func hashSubToken(t string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func subUserInfo(u *store.User) string {
+func subUserInfo(ctx context.Context, st *store.Store, u *store.User) string {
 	expire := int64(0)
 	if u.ExpiredAt != nil {
 		expire = u.ExpiredAt.Unix()
 	}
-	used := u.TrafficUsed
+	upload := int64(0)
+	download := u.TrafficUsed
+	if snap, err := st.FindTrafficSnapshotByUser(ctx, u.ID); err == nil && snap != nil {
+		upload = snap.UploadTotal
+		download = snap.DownloadTotal
+	}
 	total := u.TrafficLimit
-	return "upload=0; download=" + i64(used) + "; total=" + i64(total) + "; expire=" + i64(expire)
+	return "upload=" + i64(upload) + "; download=" + i64(download) + "; total=" + i64(total) + "; expire=" + i64(expire)
 }
 
 func i64(n int64) string {

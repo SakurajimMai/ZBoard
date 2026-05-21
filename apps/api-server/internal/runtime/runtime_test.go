@@ -224,6 +224,80 @@ func TestXrayVisionAndALPN(t *testing.T) {
 	}
 }
 
+func TestXrayOmitsEmptyVlessFlow(t *testing.T) {
+	node := &store.Node{
+		ID: 1, Name: "NO-FLOW", Host: "noflow.example.com", Port: 443,
+		Protocol: "vless", Transport: "tcp", Security: "tls",
+		RuntimeType: "xray",
+	}
+	users := []store.NodeUser{{UserID: 1, ClientID: "uuid-1", Enabled: 1}}
+	body, _, err := runtime.Build(node, users, "v1")
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	main := doc["inbounds"].([]any)[0].(map[string]any)
+	clients := main["settings"].(map[string]any)["clients"].([]any)
+	if _, ok := clients[0].(map[string]any)["flow"]; ok {
+		t.Fatalf("empty flow must not be emitted into xray clients: %#v", clients[0])
+	}
+}
+
+func TestXrayModernTransportSettings(t *testing.T) {
+	cases := []struct {
+		name        string
+		transport   string
+		wantNetwork string
+		wantBlock   string
+	}{
+		{name: "mkcp", transport: "kcp", wantNetwork: "mkcp", wantBlock: "kcpSettings"},
+		{name: "httpupgrade", transport: "httpupgrade", wantNetwork: "httpupgrade", wantBlock: "httpupgradeSettings"},
+		{name: "xhttp", transport: "xhttp", wantNetwork: "xhttp", wantBlock: "xhttpSettings"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			node := &store.Node{
+				ID: 1, Name: "MODERN", Host: "modern.example.com", Port: 443,
+				Protocol: "vless", Transport: tc.transport, Security: "tls",
+				RuntimeType: "xray",
+				WSPath:      "/edge",
+				WSHost:      "cdn.example.com",
+			}
+			users := []store.NodeUser{{UserID: 1, ClientID: "uuid-1", Enabled: 1}}
+			body, _, err := runtime.Build(node, users, "v1")
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			var doc map[string]any
+			if err := json.Unmarshal([]byte(body), &doc); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			main := doc["inbounds"].([]any)[0].(map[string]any)
+			stream := main["streamSettings"].(map[string]any)
+			if stream["network"] != tc.wantNetwork {
+				t.Fatalf("network = %v, want %s", stream["network"], tc.wantNetwork)
+			}
+			block, ok := stream[tc.wantBlock].(map[string]any)
+			if !ok {
+				t.Fatalf("missing %s in stream settings: %#v", tc.wantBlock, stream)
+			}
+			switch tc.transport {
+			case "httpupgrade", "xhttp":
+				if block["path"] != "/edge" || block["host"] != "cdn.example.com" {
+					t.Fatalf("%s = %#v, want path/host", tc.wantBlock, block)
+				}
+			case "kcp":
+				if len(block) != 0 {
+					t.Fatalf("kcpSettings = %#v, want empty modern settings", block)
+				}
+			}
+		})
+	}
+}
+
 // Stage 13: Reality must include the *server's* private key + dest in the
 // generated runtime config (it must NOT leak through subscription, but it MUST
 // be present in runtime config the agent applies).
@@ -428,6 +502,21 @@ func TestHysteria2Inbound(t *testing.T) {
 	alpn := tls["alpn"].([]any)
 	if len(alpn) != 1 || alpn[0] != "h3" {
 		t.Errorf("expected default alpn=[h3], got %#v", alpn)
+	}
+}
+
+func TestHysteria2RejectsInvalidPortRange(t *testing.T) {
+	node := &store.Node{
+		ID: 1, Name: "HY2", Host: "hy.example.com", Port: 443,
+		Protocol: "hysteria2", Transport: "udp", Security: "tls",
+		RuntimeType: "sing-box", PortRange: "40000-20000",
+	}
+	_, _, err := runtime.Build(node, []store.NodeUser{{UserID: 7, ClientID: "secret-7", Enabled: 1}}, "v1")
+	if err == nil {
+		t.Fatalf("expected invalid port_range to be rejected")
+	}
+	if !strings.Contains(err.Error(), "port_range") {
+		t.Fatalf("error = %q, want port_range", err.Error())
 	}
 }
 

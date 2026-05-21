@@ -42,6 +42,14 @@ type Node struct {
 	PortRange         string     `db:"port_range" json:"port_range"`                 // hysteria2 port hopping, e.g. "20000-40000"
 }
 
+type NodeView struct {
+	Node
+	ActiveUserCount int64  `db:"active_user_count" json:"active_user_count"`
+	RuntimeStatus   string `db:"runtime_status" json:"runtime_status"`
+	HealthStatus    string `db:"-" json:"health_status"`
+	HealthLabel     string `db:"-" json:"health_label"`
+}
+
 type UpdateNodeInput struct {
 	Name              string
 	Region            string
@@ -90,12 +98,99 @@ func (s *Store) ListActiveNodes(ctx context.Context) ([]Node, error) {
 }
 
 func (s *Store) ListAllNodes(ctx context.Context) ([]Node, error) {
-	q := `SELECT ` + nodeColumns + ` FROM nodes ORDER BY id ASC`
-	var rows []Node
-	if err := s.DB.SelectContext(ctx, &rows, q); err != nil {
-		return nil, err
+	rows, _, err := s.ListAllNodesPage(ctx, PageParams{Page: 1, PageSize: 500})
+	return rows, err
+}
+
+func (s *Store) ListAllNodesPage(ctx context.Context, p PageParams) ([]Node, int64, error) {
+	p = NormalizePage(p)
+	var total int64
+	if err := s.DB.GetContext(ctx, &total, `SELECT COUNT(*) FROM nodes`); err != nil {
+		return nil, 0, err
 	}
-	return rows, nil
+	q := `SELECT ` + nodeColumns + ` FROM nodes ORDER BY id ASC`
+	q = s.Rebind(q + ` LIMIT ? OFFSET ?`)
+	var rows []Node
+	if err := s.DB.SelectContext(ctx, &rows, q, p.PageSize, p.Offset()); err != nil {
+		return nil, 0, err
+	}
+	return rows, total, nil
+}
+
+func (s *Store) ListAllNodeViewsPage(ctx context.Context, p PageParams, offlineThresholdSeconds int) ([]NodeView, int64, error) {
+	p = NormalizePage(p)
+	if offlineThresholdSeconds <= 0 {
+		offlineThresholdSeconds = 120
+	}
+	var total int64
+	if err := s.DB.GetContext(ctx, &total, `SELECT COUNT(*) FROM nodes`); err != nil {
+		return nil, 0, err
+	}
+	q := `SELECT ` + prefixedNodeColumns("n") + `,
+		COALESCE(nu.active_user_count, 0) AS active_user_count,
+		COALESCE(ah.runtime_status, '') AS runtime_status
+		FROM nodes n
+		LEFT JOIN (
+			SELECT node_id, COUNT(*) AS active_user_count
+			FROM node_users
+			WHERE enabled = 1
+			GROUP BY node_id
+		) nu ON nu.node_id = n.id
+		LEFT JOIN (
+			SELECT h.node_id, h.runtime_status
+			FROM agent_heartbeats h
+			INNER JOIN (
+				SELECT node_id, MAX(reported_at) AS reported_at
+				FROM agent_heartbeats
+				GROUP BY node_id
+			) latest ON latest.node_id = h.node_id AND latest.reported_at = h.reported_at
+		) ah ON ah.node_id = n.id
+		ORDER BY n.id ASC`
+	q = s.Rebind(q + ` LIMIT ? OFFSET ?`)
+	var rows []NodeView
+	if err := s.DB.SelectContext(ctx, &rows, q, p.PageSize, p.Offset()); err != nil {
+		return nil, 0, err
+	}
+	now := Now()
+	for i := range rows {
+		rows[i].HealthStatus, rows[i].HealthLabel = nodeHealth(rows[i], now, offlineThresholdSeconds)
+	}
+	return rows, total, nil
+}
+
+func prefixedNodeColumns(alias string) string {
+	cols := []string{
+		"id", "node_code", "name", "region", "host", "port", "protocol", "transport", "security",
+		"runtime_type", "agent_version", "status", "last_heartbeat_at", "created_at", "updated_at",
+		"ws_path", "ws_host", "grpc_service_name", "sni", "fingerprint",
+		"reality_public_key", "reality_short_id", "reality_server_name",
+		"flow", "alpn", "mux_enabled", "ss_method", "reality_private_key", "reality_dest",
+		"obfs_password", "congestion_control", "up_mbps", "down_mbps", "port_range",
+	}
+	out := ""
+	for i, col := range cols {
+		if i > 0 {
+			out += ", "
+		}
+		out += alias + "." + col + " AS " + col
+	}
+	return out
+}
+
+func nodeHealth(n NodeView, now time.Time, offlineThresholdSeconds int) (string, string) {
+	if n.Status != "active" {
+		return "red", "异常"
+	}
+	if n.LastHeartbeatAt == nil || now.Sub(*n.LastHeartbeatAt) > time.Duration(offlineThresholdSeconds)*time.Second {
+		return "red", "异常"
+	}
+	if n.RuntimeStatus != "" && n.RuntimeStatus != "running" {
+		return "red", "异常"
+	}
+	if n.ActiveUserCount > 0 {
+		return "green", "使用中"
+	}
+	return "yellow", "空闲"
 }
 
 func (s *Store) FindNodeByID(ctx context.Context, id int64) (*Node, error) {

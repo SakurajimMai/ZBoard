@@ -182,8 +182,29 @@ export async function adminGetMe() {
   return adminRequest<{ admin: any }>('/api/admin/v1/auth/me')
 }
 
-export async function adminGetUsers() {
-  return adminRequest<{ items: any[] }>('/api/admin/v1/users')
+type PageQuery = { page?: number; pageSize?: number }
+type PageResponse<T = any> = { items: T[]; page?: number; page_size?: number; total?: number }
+
+function pageQuery(params?: PageQuery) {
+  if (!params?.page && !params?.pageSize) return ''
+  const q = new URLSearchParams()
+  if (params.page) q.set('page', String(params.page))
+  if (params.pageSize) q.set('page_size', String(params.pageSize))
+  const s = q.toString()
+  return s ? `?${s}` : ''
+}
+
+export async function adminGetUsers(params?: PageQuery) {
+  return adminRequest<PageResponse>(`/api/admin/v1/users${pageQuery(params)}`)
+}
+
+export async function adminGetOverview() {
+  return adminRequest<{
+    users: number
+    active_nodes: number
+    paid_orders: number
+    revenue: string
+  }>('/api/admin/v1/overview')
 }
 
 export async function adminCreateUser(data: any) {
@@ -200,12 +221,12 @@ export async function adminUpdateUser(id: number, data: any) {
   })
 }
 
-export async function adminGetOrders() {
-  return adminRequest<{ items: any[] }>('/api/admin/v1/orders')
+export async function adminGetOrders(params?: PageQuery) {
+  return adminRequest<PageResponse>(`/api/admin/v1/orders${pageQuery(params)}`)
 }
 
-export async function adminGetNodes() {
-  return adminRequest<{ items: any[] }>('/api/admin/v1/nodes')
+export async function adminGetNodes(params?: PageQuery) {
+  return adminRequest<PageResponse>(`/api/admin/v1/nodes${pageQuery(params)}`)
 }
 
 export async function adminCreateNode(data: any) {
@@ -235,8 +256,8 @@ export async function adminGenerateRealityConfig(serverName?: string) {
   })
 }
 
-export async function adminGetPlans() {
-  return adminRequest<{ items: any[] }>('/api/admin/v1/plans')
+export async function adminGetPlans(params?: PageQuery) {
+  return adminRequest<PageResponse>(`/api/admin/v1/plans${pageQuery(params)}`)
 }
 
 export async function adminCreatePlan(data: any) {
@@ -293,6 +314,21 @@ export async function adminGetAuditLogs() {
 
 export async function adminGetTrafficUsers() {
   return adminRequest<{ items: any[] }>('/api/admin/v1/traffic/users')
+}
+
+export async function getPublicSettings() {
+  return request<{ settings: Record<string, string> }>('/api/v1/settings')
+}
+
+export async function adminGetSettings() {
+  return adminRequest<{ settings: Record<string, string> }>('/api/admin/v1/settings')
+}
+
+export async function adminUpdateSettings(settings: Record<string, string>) {
+  return adminRequest<{ ok: boolean }>('/api/admin/v1/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ settings }),
+  })
 }
 
 // ===== Tickets (User) =====
