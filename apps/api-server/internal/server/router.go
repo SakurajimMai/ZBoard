@@ -94,6 +94,7 @@ func New(d Deps) *gin.Engine {
 			authed.GET("/payments", adminListPayments(d))
 			authed.GET("/payment-callbacks", adminListPaymentCallbacks(d))
 			authed.GET("/nodes", adminListNodes(d))
+			authed.POST("/reality/generate", adminGenerateRealityConfig())
 			authed.POST("/nodes", adminCreateNode(d))
 			authed.PUT("/nodes/:id", adminUpdateNode(d))
 			authed.POST("/nodes/:id/sync-config", adminSyncNodeConfig(d))

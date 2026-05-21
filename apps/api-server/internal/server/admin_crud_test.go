@@ -3,6 +3,8 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -255,5 +257,51 @@ func TestAdminRejectsIncompleteRealityNode(t *testing.T) {
 	}
 	if !bytes.Contains(update.Body.Bytes(), []byte("reality_public_key")) {
 		t.Fatalf("update error should mention missing public key, body=%s", update.Body.String())
+	}
+}
+
+func TestAdminCanGenerateRealityConfig(t *testing.T) {
+	r, _, token := setupAdminCRUDRouter(t)
+
+	resp := adminJSON(t, r, token, http.MethodPost, "/api/admin/v1/reality/generate", map[string]any{
+		"server_name": "www.cloudflare.com",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("generate reality config status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var got struct {
+		RealityPublicKey  string `json:"reality_public_key"`
+		RealityPrivateKey string `json:"reality_private_key"`
+		RealityShortID    string `json:"reality_short_id"`
+		RealityServerName string `json:"reality_server_name"`
+		RealityDest       string `json:"reality_dest"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.RealityServerName != "www.cloudflare.com" || got.RealityDest != "www.cloudflare.com:443" {
+		t.Fatalf("unexpected server/dest: %+v", got)
+	}
+	for name, value := range map[string]string{
+		"public":  got.RealityPublicKey,
+		"private": got.RealityPrivateKey,
+	} {
+		raw, err := base64.RawURLEncoding.DecodeString(value)
+		if err != nil {
+			t.Fatalf("%s key is not raw-url-base64: %q: %v", name, value, err)
+		}
+		if len(raw) != 32 {
+			t.Fatalf("%s key length = %d, want 32", name, len(raw))
+		}
+	}
+	if got.RealityPublicKey == got.RealityPrivateKey {
+		t.Fatalf("public/private keys should differ")
+	}
+	shortID, err := hex.DecodeString(got.RealityShortID)
+	if err != nil {
+		t.Fatalf("short id is not hex: %q: %v", got.RealityShortID, err)
+	}
+	if len(shortID) != 8 {
+		t.Fatalf("short id byte length = %d, want 8", len(shortID))
 	}
 }

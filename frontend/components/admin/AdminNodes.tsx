@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
-import { Copy, Edit3, Plus, RefreshCw, Server, Lock, Network, Sliders, Eye, EyeOff } from "lucide-react"
+import { Copy, Edit3, Plus, RefreshCw, Server, Lock, Network, Sliders, Eye, EyeOff, Wand2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { adminCreateNode, adminGetNodes, adminSyncNodeConfig, adminUpdateNode } from "@/lib/api"
+import { adminCreateNode, adminGenerateRealityConfig, adminGetNodes, adminSyncNodeConfig, adminUpdateNode } from "@/lib/api"
 
 type NodeForm = {
   name: string
@@ -103,6 +103,7 @@ export default function AdminNodes() {
   const [nodes, setNodes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [generatingReality, setGeneratingReality] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
   const [lastSecret, setLastSecret] = useState("")
@@ -204,6 +205,31 @@ export default function AdminNodes() {
       if (!next.flow) next.flow = "xtls-rprx-vision"
     }
     setForm(next)
+  }
+
+  const generateReality = async () => {
+    setGeneratingReality(true)
+    try {
+      const serverName = form.reality_server_name.trim() || "www.cloudflare.com"
+      const res = await adminGenerateRealityConfig(serverName)
+      setForm((current) => ({
+        ...current,
+        reality_server_name: res.reality_server_name,
+        reality_dest: res.reality_dest,
+        reality_public_key: res.reality_public_key,
+        reality_private_key: res.reality_private_key,
+        reality_short_id: res.reality_short_id,
+        security: "reality",
+        protocol: "vless",
+        runtime_type: "xray",
+        transport: current.transport === "udp" ? "tcp" : current.transport,
+        flow: current.flow || "xtls-rprx-vision",
+      }))
+    } catch (err: any) {
+      alert(err.message || "生成 Reality 配置失败")
+    } finally {
+      setGeneratingReality(false)
+    }
   }
 
   const payload = () => ({
@@ -485,6 +511,12 @@ export default function AdminNodes() {
                     )}
                     {cap.showReality && (
                       <>
+                        <div className="flex justify-end">
+                          <Button type="button" size="sm" variant="outline" onClick={generateReality} disabled={generatingReality}>
+                            {generatingReality ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Wand2 className="w-4 h-4 mr-1" />}
+                            自动生成
+                          </Button>
+                        </div>
                         <Row cols={2}>
                           <Field label="Reality 服务器名" required hint="客户端连接时使用">
                             <Input value={form.reality_server_name} onChange={(e) => setForm({ ...form, reality_server_name: e.target.value })} placeholder="www.cloudflare.com" className="h-10" />

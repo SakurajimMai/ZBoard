@@ -222,6 +222,19 @@ export async function adminUpdateNode(id: number, data: any) {
   })
 }
 
+export async function adminGenerateRealityConfig(serverName?: string) {
+  return adminRequest<{
+    reality_public_key: string
+    reality_private_key: string
+    reality_short_id: string
+    reality_server_name: string
+    reality_dest: string
+  }>('/api/admin/v1/reality/generate', {
+    method: 'POST',
+    body: JSON.stringify({ server_name: serverName || '' }),
+  })
+}
+
 export async function adminGetPlans() {
   return adminRequest<{ items: any[] }>('/api/admin/v1/plans')
 }
