@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	UserSessionTTL  = 7 * 24 * time.Hour
-	AdminSessionTTL = 12 * time.Hour
+	UserSessionTTL  = 180 * 24 * time.Hour
+	AdminSessionTTL = 180 * 24 * time.Hour
 	EmailCodeTTL    = 10 * time.Minute
 	EmailResendCool = 120 * time.Second
 )
@@ -337,11 +337,15 @@ func (s *Service) ResolveUserToken(ctx context.Context, token string) (int64, er
 	if token == "" {
 		return 0, httpx.ErrUnauthorized
 	}
-	id, err := s.Store.FindUserSession(ctx, authx.HashToken(token))
+	tokenHash := authx.HashToken(token)
+	id, err := s.Store.FindUserSession(ctx, tokenHash)
 	if err != nil {
 		if store.IsNoRows(err) {
 			return 0, httpx.ErrUnauthorized
 		}
+		return 0, err
+	}
+	if err := s.Store.RefreshUserSession(ctx, tokenHash, time.Now().UTC().Add(UserSessionTTL)); err != nil {
 		return 0, err
 	}
 	return id, nil
@@ -408,11 +412,15 @@ func (s *Service) ResolveAdminToken(ctx context.Context, token string) (*store.A
 	if token == "" {
 		return nil, httpx.ErrUnauthorized
 	}
-	id, err := s.Store.FindAdminSession(ctx, authx.HashToken(token))
+	tokenHash := authx.HashToken(token)
+	id, err := s.Store.FindAdminSession(ctx, tokenHash)
 	if err != nil {
 		if store.IsNoRows(err) {
 			return nil, httpx.ErrUnauthorized
 		}
+		return nil, err
+	}
+	if err := s.Store.RefreshAdminSession(ctx, tokenHash, time.Now().UTC().Add(AdminSessionTTL)); err != nil {
 		return nil, err
 	}
 	a, err := s.Store.FindAdminByID(ctx, id)

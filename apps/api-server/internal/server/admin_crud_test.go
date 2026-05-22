@@ -603,6 +603,15 @@ func TestAdminNodeListReturnsHealthIndicators(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create yellow node: %v", err)
 	}
+	oldTrafficID, _, err := st.CreateNode(ctx, store.CreateNodeInput{
+		Name:     "历史使用节点",
+		Host:     "old-traffic.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create old traffic node: %v", err)
+	}
 	redID, _, err := st.CreateNode(ctx, store.CreateNodeInput{
 		Name:     "异常节点",
 		Host:     "red.example.com",
@@ -623,8 +632,14 @@ func TestAdminNodeListReturnsHealthIndicators(t *testing.T) {
 	if err := st.EnsureNodeUserWithLimits(ctx, userID, greenID, "11111111-1111-4111-8111-111111111111", "vless", 0, 1); err != nil {
 		t.Fatalf("ensure node user: %v", err)
 	}
+	if err := st.EnsureNodeUserWithLimits(ctx, userID, yellowID, "22222222-2222-4222-8222-222222222222", "vless", 0, 1); err != nil {
+		t.Fatalf("ensure idle node user: %v", err)
+	}
+	if err := st.EnsureNodeUserWithLimits(ctx, userID, oldTrafficID, "33333333-3333-4333-8333-333333333333", "vless", 0, 1); err != nil {
+		t.Fatalf("ensure old traffic node user: %v", err)
+	}
 	now := time.Now().UTC()
-	for _, id := range []int64{greenID, yellowID} {
+	for _, id := range []int64{greenID, yellowID, oldTrafficID} {
 		if err := st.RecordHeartbeat(ctx, store.HeartbeatInput{
 			NodeID:        id,
 			AgentVersion:  "test",
@@ -633,6 +648,15 @@ func TestAdminNodeListReturnsHealthIndicators(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("record running heartbeat %d: %v", id, err)
 		}
+	}
+	if err := st.RecordTraffic(ctx, []store.TrafficDelta{
+		{UserID: userID, NodeID: greenID, UploadDelta: 128, DownloadDelta: 512},
+		{UserID: userID, NodeID: oldTrafficID, UploadDelta: 64, DownloadDelta: 64},
+	}); err != nil {
+		t.Fatalf("record traffic: %v", err)
+	}
+	if _, err := st.DB.ExecContext(ctx, st.Rebind(`UPDATE traffic_logs SET reported_at = ? WHERE node_id = ?`), now.Add(-10*time.Minute), oldTrafficID); err != nil {
+		t.Fatalf("age old traffic: %v", err)
 	}
 	if err := st.RecordHeartbeat(ctx, store.HeartbeatInput{
 		NodeID:        redID,
@@ -679,9 +703,70 @@ func TestAdminNodeListReturnsHealthIndicators(t *testing.T) {
 	if got := byID[yellowID]; got.HealthStatus != "yellow" || got.HealthLabel != "空闲" || got.ActiveUserCount != 0 || got.RuntimeStatus != "running" {
 		t.Fatalf("yellow node health mismatch: %+v", got)
 	}
+	if got := byID[oldTrafficID]; got.HealthStatus != "yellow" || got.HealthLabel != "空闲" || got.ActiveUserCount != 0 || got.RuntimeStatus != "running" {
+		t.Fatalf("old traffic node health mismatch: %+v", got)
+	}
 	if got := byID[redID]; got.HealthStatus != "red" || got.HealthLabel != "异常" || got.RuntimeStatus != "stopped" {
 		t.Fatalf("red node health mismatch: %+v", got)
 	}
+}
+
+func TestAdminNodeListReturnsTrafficTotals(t *testing.T) {
+	r, st, token := setupAdminCRUDRouter(t)
+	ctx := context.Background()
+
+	nodeID, _, err := st.CreateNode(ctx, store.CreateNodeInput{
+		Name:     "统计节点",
+		Host:     "traffic-node.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	userID, err := st.AdminCreateUser(ctx, store.AdminCreateUserInput{
+		Email:        "node-traffic@example.com",
+		PasswordHash: "hash",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if err := st.EnsureNodeUser(ctx, userID, nodeID, "11111111-1111-4111-8111-111111111111", "vless"); err != nil {
+		t.Fatalf("ensure node user: %v", err)
+	}
+	if err := st.RecordTraffic(ctx, []store.TrafficDelta{
+		{UserID: userID, NodeID: nodeID, UploadDelta: 1234, DownloadDelta: 5678},
+		{UserID: userID, NodeID: nodeID, UploadDelta: 11, DownloadDelta: 22},
+	}); err != nil {
+		t.Fatalf("record traffic: %v", err)
+	}
+
+	resp := adminJSON(t, r, token, http.MethodGet, "/api/admin/v1/nodes?page=1&page_size=10", nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("list nodes status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var got struct {
+		Items []struct {
+			ID            int64 `json:"id"`
+			UploadTotal   int64 `json:"upload_total"`
+			DownloadTotal int64 `json:"download_total"`
+			TrafficTotal  int64 `json:"traffic_total"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode nodes: %v", err)
+	}
+	for _, n := range got.Items {
+		if n.ID != nodeID {
+			continue
+		}
+		if n.UploadTotal != 1245 || n.DownloadTotal != 5700 || n.TrafficTotal != 6945 {
+			t.Fatalf("node traffic mismatch: %+v", n)
+		}
+		return
+	}
+	t.Fatalf("node %d not found in response: %+v", nodeID, got.Items)
 }
 
 func TestAdminPlanPagination(t *testing.T) {

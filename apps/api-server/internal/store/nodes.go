@@ -45,6 +45,9 @@ type Node struct {
 type NodeView struct {
 	Node
 	ActiveUserCount int64  `db:"active_user_count" json:"active_user_count"`
+	UploadTotal     int64  `db:"upload_total" json:"upload_total"`
+	DownloadTotal   int64  `db:"download_total" json:"download_total"`
+	TrafficTotal    int64  `db:"traffic_total" json:"traffic_total"`
 	RuntimeStatus   string `db:"runtime_status" json:"runtime_status"`
 	HealthStatus    string `db:"-" json:"health_status"`
 	HealthLabel     string `db:"-" json:"health_label"`
@@ -122,20 +125,35 @@ func (s *Store) ListAllNodeViewsPage(ctx context.Context, p PageParams, offlineT
 	if offlineThresholdSeconds <= 0 {
 		offlineThresholdSeconds = 120
 	}
+	activeWindowSeconds := offlineThresholdSeconds * 2
+	if activeWindowSeconds < 300 {
+		activeWindowSeconds = 300
+	}
 	var total int64
 	if err := s.DB.GetContext(ctx, &total, `SELECT COUNT(*) FROM nodes`); err != nil {
 		return nil, 0, err
 	}
 	q := `SELECT ` + prefixedNodeColumns("n") + `,
 		COALESCE(nu.active_user_count, 0) AS active_user_count,
+		COALESCE(tl.upload_total, 0) AS upload_total,
+		COALESCE(tl.download_total, 0) AS download_total,
+		COALESCE(tl.traffic_total, 0) AS traffic_total,
 		COALESCE(ah.runtime_status, '') AS runtime_status
 		FROM nodes n
 		LEFT JOIN (
-			SELECT node_id, COUNT(*) AS active_user_count
-			FROM node_users
-			WHERE enabled = 1
+			SELECT node_id, COUNT(DISTINCT user_id) AS active_user_count
+			FROM traffic_logs
+			WHERE total_delta > 0 AND reported_at >= ?
 			GROUP BY node_id
 		) nu ON nu.node_id = n.id
+		LEFT JOIN (
+			SELECT node_id,
+				SUM(upload_delta) AS upload_total,
+				SUM(download_delta) AS download_total,
+				SUM(total_delta) AS traffic_total
+			FROM traffic_logs
+			GROUP BY node_id
+		) tl ON tl.node_id = n.id
 		LEFT JOIN (
 			SELECT h.node_id, h.runtime_status
 			FROM agent_heartbeats h
@@ -148,7 +166,8 @@ func (s *Store) ListAllNodeViewsPage(ctx context.Context, p PageParams, offlineT
 		ORDER BY n.id ASC`
 	q = s.Rebind(q + ` LIMIT ? OFFSET ?`)
 	var rows []NodeView
-	if err := s.DB.SelectContext(ctx, &rows, q, p.PageSize, p.Offset()); err != nil {
+	activeSince := Now().Add(-time.Duration(activeWindowSeconds) * time.Second)
+	if err := s.DB.SelectContext(ctx, &rows, q, activeSince, p.PageSize, p.Offset()); err != nil {
 		return nil, 0, err
 	}
 	now := Now()

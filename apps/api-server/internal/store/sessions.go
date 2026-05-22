@@ -21,6 +21,12 @@ func (s *Store) FindAdminSession(ctx context.Context, tokenHash string) (int64, 
 	return id, nil
 }
 
+func (s *Store) RefreshAdminSession(ctx context.Context, tokenHash string, expires time.Time) error {
+	q := s.Rebind(`UPDATE admin_sessions SET expires_at = ? WHERE token_hash = ? AND expires_at > ?`)
+	_, err := s.DB.ExecContext(ctx, q, expires, tokenHash, Now())
+	return err
+}
+
 func (s *Store) DeleteAdminSession(ctx context.Context, tokenHash string) error {
 	q := s.Rebind(`DELETE FROM admin_sessions WHERE token_hash = ?`)
 	_, err := s.DB.ExecContext(ctx, q, tokenHash)
@@ -40,6 +46,12 @@ func (s *Store) FindUserSession(ctx context.Context, tokenHash string) (int64, e
 		return 0, err
 	}
 	return id, nil
+}
+
+func (s *Store) RefreshUserSession(ctx context.Context, tokenHash string, expires time.Time) error {
+	q := s.Rebind(`UPDATE user_sessions SET expires_at = ? WHERE token_hash = ? AND expires_at > ?`)
+	_, err := s.DB.ExecContext(ctx, q, expires, tokenHash, Now())
+	return err
 }
 
 func (s *Store) DeleteUserSession(ctx context.Context, tokenHash string) error {

@@ -138,6 +138,20 @@ function transportHostLabel(transport: string) {
   return "WS Host"
 }
 
+function formatTrafficBytes(value: unknown) {
+  const bytes = Number(value || 0)
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B"
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"]
+  let n = bytes
+  let i = 0
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024
+    i += 1
+  }
+  const fixed = i === 0 ? 0 : n >= 100 ? 0 : n >= 10 ? 1 : 2
+  return `${n.toFixed(fixed)} ${units[i]}`
+}
+
 // Protocol-specific UI capabilities
 function caps(protocol: string, transport: string, security: string) {
   const isQUIC = isQUICProtocol(protocol)
@@ -412,7 +426,7 @@ export default function AdminNodes() {
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">地区</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">协议</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">地址</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden xl:table-cell">使用</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">在线/流量</th>
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground">操作</th>
                 </tr>
               </thead>
@@ -429,8 +443,16 @@ export default function AdminNodes() {
                       <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">{n.protocol}</span>
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell text-muted-foreground">{n.host}:{n.port}</td>
-                    <td className="px-4 py-3 hidden xl:table-cell text-muted-foreground">
-                      {n.active_user_count || 0} 人
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      <div className="leading-tight">
+                        <div className="font-medium">{n.active_user_count || 0} 人使用中</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {formatTrafficBytes(n.traffic_total)} 总流量
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-muted-foreground">
+                          上 {formatTrafficBytes(n.upload_total)} / 下 {formatTrafficBytes(n.download_total)}
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1">
