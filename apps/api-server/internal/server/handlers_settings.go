@@ -9,17 +9,24 @@ import (
 )
 
 var publicSettingKeys = map[string]bool{
-	"site_name":            true,
-	"site_url":             true,
-	"subscription_name":    true,
-	"subscription_domain":  true,
-	"support_email":        true,
-	"support_telegram":     true,
-	"seo_title":            true,
-	"seo_description":      true,
-	"seo_keywords":         true,
-	"allow_register":       true,
-	"require_email_verify": true,
+	"site_name":                true,
+	"site_url":                 true,
+	"subscription_name":        true,
+	"subscription_domain":      true,
+	"support_email":            true,
+	"support_telegram":         true,
+	"seo_title":                true,
+	"seo_description":          true,
+	"seo_keywords":             true,
+	"allow_register":           true,
+	"require_email_verify":     true,
+	"captcha_provider":         true,
+	"captcha_site_key":         true,
+	"captcha_enabled_register": true,
+	"captcha_enabled_login":    true,
+	"captcha_enabled_forgot":   true,
+	"captcha_enabled_ticket":   true,
+	"turnstile_mode":           true,
 }
 
 type updateSettingsBody struct {
@@ -118,6 +125,11 @@ func defaultAdminSettings() map[string]string {
 		"captcha_provider":          "none",
 		"captcha_site_key":          "",
 		"captcha_secret_key":        "",
+		"captcha_enabled_register":  "0",
+		"captcha_enabled_login":     "0",
+		"captcha_enabled_forgot":    "0",
+		"captcha_enabled_ticket":    "0",
+		"turnstile_mode":            "managed",
 		"admin_path":                "/admin",
 		"email_domain_whitelist":    "",
 	} {

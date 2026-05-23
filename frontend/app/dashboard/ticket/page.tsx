@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Plus, MessageSquare, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { getTickets, createTicket, getTicketDetail, replyTicket } from "@/lib/api"
+import { getTickets, createTicket, getTicketDetail, replyTicket, getPublicSettings } from "@/lib/api"
+import { Captcha, captchaEnabled } from "@/components/captcha"
 
 export default function TicketPage() {
   const [tickets, setTickets] = useState<any[]>([])
@@ -15,6 +16,9 @@ export default function TicketPage() {
   const [newCategory, setNewCategory] = useState("general")
   const [newContent, setNewContent] = useState("")
   const [replyContent, setReplyContent] = useState("")
+  const [settings, setSettings] = useState<Record<string, string>>({})
+  const [captchaToken, setCaptchaToken] = useState("")
+  const [captchaKey, setCaptchaKey] = useState(0)
   const [submitting, setSubmitting] = useState(false)
 
   const load = () => {
@@ -25,13 +29,28 @@ export default function TicketPage() {
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    getPublicSettings()
+      .then((res) => setSettings(res.settings || {}))
+      .catch(() => {})
+  }, [])
+
+  const needCaptcha = captchaEnabled(settings, "ticket")
+  const resetCaptcha = useCallback(() => {
+    setCaptchaToken("")
+    setCaptchaKey((v) => v + 1)
+  }, [])
 
   const handleCreate = async () => {
     if (!newSubject.trim() || !newContent.trim()) return
+    if (needCaptcha && !captchaToken) {
+      alert("请先完成人机验证")
+      return
+    }
     setSubmitting(true)
     try {
-      await createTicket(newSubject, newCategory, newContent)
+      await createTicket(newSubject, newCategory, newContent, captchaToken)
       setShowForm(false)
       setNewSubject("")
       setNewContent("")
@@ -39,6 +58,7 @@ export default function TicketPage() {
     } catch (err: any) {
       alert(err.message || "提交失败")
     } finally {
+      if (needCaptcha) resetCaptcha()
       setSubmitting(false)
     }
   }
@@ -169,6 +189,16 @@ export default function TicketPage() {
               placeholder="请详细描述您遇到的问题..."
             />
           </div>
+          {needCaptcha && (
+            <Captcha
+              key={captchaKey}
+              provider={settings.captcha_provider as any}
+              siteKey={settings.captcha_site_key || ""}
+              mode={(settings.turnstile_mode as any) || "managed"}
+              onToken={setCaptchaToken}
+              onError={(msg) => alert(msg)}
+            />
+          )}
           <div className="flex gap-2">
             <Button onClick={handleCreate} disabled={submitting}>
               {submitting ? "提交中..." : "提交工单"}

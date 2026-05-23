@@ -48,24 +48,24 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 // ===== Auth =====
 
-export async function sendEmailCode(email: string, purpose: 'register' | 'reset_password') {
+export async function sendEmailCode(email: string, purpose: 'register' | 'reset_password', captchaToken?: string) {
   return request<{ ok: boolean }>('/api/v1/auth/send-email-code', {
     method: 'POST',
-    body: JSON.stringify({ email, purpose }),
+    body: JSON.stringify({ email, purpose, captcha_token: captchaToken || '' }),
   })
 }
 
-export async function registerWithCode(email: string, password: string, code: string) {
+export async function registerWithCode(email: string, password: string, code: string, captchaToken?: string) {
   return request<{ user_id: number }>('/api/v1/auth/register-with-code', {
     method: 'POST',
-    body: JSON.stringify({ email, password, code }),
+    body: JSON.stringify({ email, password, code, captcha_token: captchaToken || '' }),
   })
 }
 
-export async function resetPassword(email: string, newPassword: string, code: string) {
+export async function resetPassword(email: string, newPassword: string, code: string, captchaToken?: string) {
   return request<{ ok: boolean }>('/api/v1/auth/reset-password', {
     method: 'POST',
-    body: JSON.stringify({ email, new_password: newPassword, code }),
+    body: JSON.stringify({ email, new_password: newPassword, code, captcha_token: captchaToken || '' }),
   })
 }
 
@@ -76,10 +76,10 @@ export async function register(email: string, password: string) {
   })
 }
 
-export async function login(email: string, password: string) {
+export async function login(email: string, password: string, captchaToken?: string) {
   const data = await request<{ token: string; user: any }>('/api/v1/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, captcha_token: captchaToken || '' }),
   })
   if (typeof window !== 'undefined') {
     localStorage.setItem('zboard_token', data.token)
@@ -280,6 +280,15 @@ export async function adminSyncNodeConfig(nodeId: number) {
   })
 }
 
+export async function adminSyncAllNodeConfigs() {
+  return adminRequest<{
+    ok: number
+    failed: number
+    total: number
+    results: { node_id: number; name: string; task_id?: string; version?: string; error?: string }[]
+  }>('/api/admin/v1/nodes/sync-config-all', { method: 'POST' })
+}
+
 export async function adminGetPaymentProviders() {
   return adminRequest<{ items: any[] }>('/api/admin/v1/payment-providers')
 }
@@ -337,10 +346,10 @@ export async function getTickets() {
   return request<{ items: any[] }>('/api/v1/tickets')
 }
 
-export async function createTicket(subject: string, category: string, content: string) {
+export async function createTicket(subject: string, category: string, content: string, captchaToken?: string) {
   return request<{ ticket_id: number; ticket_no: string }>('/api/v1/tickets', {
     method: 'POST',
-    body: JSON.stringify({ subject, category, content }),
+    body: JSON.stringify({ subject, category, content, captcha_token: captchaToken || '' }),
   })
 }
 

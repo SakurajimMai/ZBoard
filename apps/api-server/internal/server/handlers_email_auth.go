@@ -4,12 +4,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/zboard/api-server/internal/captchasvc"
 	"github.com/zboard/api-server/internal/httpx"
 )
 
 type sendEmailCodeBody struct {
-	Email   string `json:"email" binding:"required"`
-	Purpose string `json:"purpose" binding:"required"` // "register" | "reset_password"
+	Email        string `json:"email" binding:"required"`
+	Purpose      string `json:"purpose" binding:"required"` // "register" | "reset_password"
+	CaptchaToken string `json:"captcha_token"`
 }
 
 func sendEmailCode(d Deps) gin.HandlerFunc {
@@ -30,6 +32,14 @@ func sendEmailCode(d Deps) gin.HandlerFunc {
 				return
 			}
 		}
+		scene := captchasvc.SceneRegister
+		if body.Purpose == "reset_password" {
+			scene = captchasvc.SceneForgot
+		}
+		if err := d.Captcha.Verify(c.Request.Context(), scene, body.CaptchaToken, c.ClientIP()); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
 		if err := d.Auth.SendEmailCode(c.Request.Context(), body.Email, body.Purpose); err != nil {
 			httpx.Fail(c, err)
 			return
@@ -39,9 +49,10 @@ func sendEmailCode(d Deps) gin.HandlerFunc {
 }
 
 type registerWithCodeBody struct {
-	Email    string `json:"email" binding:"required"`
-	Password string `json:"password" binding:"required"`
-	Code     string `json:"code" binding:"required"`
+	Email        string `json:"email" binding:"required"`
+	Password     string `json:"password" binding:"required"`
+	Code         string `json:"code" binding:"required"`
+	CaptchaToken string `json:"captcha_token"`
 }
 
 func registerUserWithCode(d Deps) gin.HandlerFunc {
@@ -60,6 +71,10 @@ func registerUserWithCode(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
 			return
 		}
+		if err := d.Captcha.Verify(c.Request.Context(), captchasvc.SceneRegister, body.CaptchaToken, c.ClientIP()); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
 		id, err := d.Auth.RegisterUserWithCode(c.Request.Context(), body.Email, body.Password, body.Code)
 		if err != nil {
 			httpx.Fail(c, err)
@@ -70,9 +85,10 @@ func registerUserWithCode(d Deps) gin.HandlerFunc {
 }
 
 type resetPasswordBody struct {
-	Email       string `json:"email" binding:"required"`
-	NewPassword string `json:"new_password" binding:"required"`
-	Code        string `json:"code" binding:"required"`
+	Email        string `json:"email" binding:"required"`
+	NewPassword  string `json:"new_password" binding:"required"`
+	Code         string `json:"code" binding:"required"`
+	CaptchaToken string `json:"captcha_token"`
 }
 
 func resetPassword(d Deps) gin.HandlerFunc {
@@ -80,6 +96,10 @@ func resetPassword(d Deps) gin.HandlerFunc {
 		var body resetPasswordBody
 		if err := c.ShouldBindJSON(&body); err != nil {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
+			return
+		}
+		if err := d.Captcha.Verify(c.Request.Context(), captchasvc.SceneForgot, body.CaptchaToken, c.ClientIP()); err != nil {
+			httpx.Fail(c, err)
 			return
 		}
 		if err := d.Auth.ResetPasswordWithCode(c.Request.Context(), body.Email, body.NewPassword, body.Code); err != nil {

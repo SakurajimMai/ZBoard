@@ -39,6 +39,11 @@ const defaults: SettingMap = {
   captcha_provider: "none",
   captcha_site_key: "",
   captcha_secret_key: "",
+  captcha_enabled_register: "0",
+  captcha_enabled_login: "0",
+  captcha_enabled_forgot: "0",
+  captcha_enabled_ticket: "0",
+  turnstile_mode: "managed",
   admin_path: "/admin",
   email_domain_whitelist: "",
   seo_title: "Zboard",
@@ -168,24 +173,24 @@ export default function AdminSettingsPage() {
             <div className="space-y-6">
               <SwitchRow label="允许用户注册" desc="关闭后普通注册和注册验证码都会被拒绝。" checked={bool("allow_register")} onCheckedChange={(v) => setBool("allow_register", v)} />
               <SwitchRow label="强制邮箱验证码注册" desc="开启后 /auth/register 会拒绝普通密码注册，用户必须走验证码注册接口。" checked={bool("require_email_verify")} onCheckedChange={(v) => setBool("require_email_verify", v)} />
+
+              <CaptchaPanel
+                provider={settings.captcha_provider || "none"}
+                onProviderChange={(v) => setValue("captcha_provider", v)}
+                siteKey={settings.captcha_site_key}
+                onSiteKeyChange={(v) => setValue("captcha_site_key", v)}
+                secretKey={settings.captcha_secret_key}
+                onSecretKeyChange={(v) => setValue("captcha_secret_key", v)}
+                turnstileMode={settings.turnstile_mode || "managed"}
+                onTurnstileModeChange={(v) => setValue("turnstile_mode", v)}
+                enabledRegister={bool("captcha_enabled_register")}
+                enabledLogin={bool("captcha_enabled_login")}
+                enabledForgot={bool("captcha_enabled_forgot")}
+                enabledTicket={bool("captcha_enabled_ticket")}
+                onToggle={(scene, v) => setBool(`captcha_enabled_${scene}`, v)}
+              />
+
               <Grid>
-                <Field label="验证码服务">
-                  <Select value={settings.captcha_provider} onValueChange={(v) => setValue("captcha_provider", v)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">不启用</SelectItem>
-                      <SelectItem value="turnstile">Cloudflare Turnstile</SelectItem>
-                      <SelectItem value="recaptcha">Google reCAPTCHA</SelectItem>
-                      <SelectItem value="hcaptcha">hCaptcha</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field label="Site Key">
-                  <Input value={settings.captcha_site_key} onChange={(e) => setValue("captcha_site_key", e.target.value)} />
-                </Field>
-                <Field label="Secret Key">
-                  <Input type="password" value={settings.captcha_secret_key} onChange={(e) => setValue("captcha_secret_key", e.target.value)} />
-                </Field>
                 <Field label="后台路径">
                   <Input value={settings.admin_path} onChange={(e) => setValue("admin_path", e.target.value)} />
                 </Field>
@@ -296,6 +301,154 @@ function SwitchRow({ label, desc, checked, onCheckedChange }: {
         {desc && <div className="text-xs text-muted-foreground mt-1">{desc}</div>}
       </div>
       <Switch checked={checked} onCheckedChange={onCheckedChange} />
+    </div>
+  )
+}
+
+type CaptchaProvider = "none" | "turnstile" | "recaptcha" | "hcaptcha"
+
+const providerCards: { id: CaptchaProvider; title: string; subtitle: string }[] = [
+  { id: "none", title: "不启用", subtitle: "关闭人机验证" },
+  { id: "turnstile", title: "Turnstile", subtitle: "Cloudflare · 推荐" },
+  { id: "recaptcha", title: "reCAPTCHA", subtitle: "Google · v2/v3" },
+  { id: "hcaptcha", title: "hCaptcha", subtitle: "隐私友好" },
+]
+
+const turnstileModes: { id: string; title: string; subtitle: string }[] = [
+  { id: "managed", title: "托管模式", subtitle: "自动选择最佳方式" },
+  { id: "non-interactive", title: "非交互式", subtitle: "完全无感验证" },
+  { id: "invisible", title: "隐式验证", subtitle: "可疑时才显示" },
+]
+
+function CaptchaPanel(props: {
+  provider: string
+  onProviderChange: (v: string) => void
+  siteKey: string
+  onSiteKeyChange: (v: string) => void
+  secretKey: string
+  onSecretKeyChange: (v: string) => void
+  turnstileMode: string
+  onTurnstileModeChange: (v: string) => void
+  enabledRegister: boolean
+  enabledLogin: boolean
+  enabledForgot: boolean
+  enabledTicket: boolean
+  onToggle: (scene: "register" | "login" | "forgot" | "ticket", v: boolean) => void
+}) {
+  const provider = (props.provider || "none") as CaptchaProvider
+  const docsLink: Record<CaptchaProvider, string> = {
+    none: "",
+    turnstile: "https://dash.cloudflare.com/?to=/:account/turnstile",
+    recaptcha: "https://www.google.com/recaptcha/admin",
+    hcaptcha: "https://dashboard.hcaptcha.com/sites",
+  }
+  const providerDesc: Record<CaptchaProvider, string> = {
+    none: "关闭后所有公开页面将不要求人机验证。",
+    turnstile: "免费、隐私友好，无需用户主动操作即可完成验证，不收集个人数据。",
+    recaptcha: "全球覆盖广，支持 v2 复选框 / v3 评分模式。",
+    hcaptcha: "更注重隐私，部分场景对滥用流量更敏感。",
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {providerCards.map((card) => {
+          const active = provider === card.id
+          return (
+            <button
+              key={card.id}
+              type="button"
+              onClick={() => props.onProviderChange(card.id)}
+              className={`flex flex-col items-start gap-1 rounded-lg border bg-background p-3 text-left transition ${
+                active ? "border-primary ring-2 ring-primary/30 shadow-sm" : "hover:border-foreground/30"
+              }`}
+            >
+              <div className="text-sm font-semibold">{card.title}</div>
+              <div className="text-xs text-muted-foreground">{card.subtitle}</div>
+            </button>
+          )
+        })}
+      </div>
+
+      {provider !== "none" && (
+        <div className="space-y-5 rounded-lg border bg-card p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-semibold">
+              {providerCards.find((c) => c.id === provider)?.title}
+              {docsLink[provider] && (
+                <a
+                  href={docsLink[provider]}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ml-2 text-xs font-normal text-primary hover:underline"
+                >
+                  获取密钥 →
+                </a>
+              )}
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">{providerDesc[provider]}</p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="SITE KEY">
+              <Input value={props.siteKey} onChange={(e) => props.onSiteKeyChange(e.target.value)} placeholder="0x4AAAAAAA..." />
+            </Field>
+            <Field label="SECRET KEY">
+              <Input type="password" value={props.secretKey} onChange={(e) => props.onSecretKeyChange(e.target.value)} placeholder="0x4AAAAAAA..." autoComplete="new-password" />
+            </Field>
+          </div>
+
+          {provider === "turnstile" && (
+            <div className="space-y-2">
+              <Label>验证模式</Label>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                {turnstileModes.map((m) => {
+                  const active = props.turnstileMode === m.id
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => props.onTurnstileModeChange(m.id)}
+                      className={`flex items-start gap-3 rounded-lg border bg-background p-3 text-left transition ${
+                        active ? "border-primary ring-2 ring-primary/30" : "hover:border-foreground/30"
+                      }`}
+                    >
+                      <span
+                        className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                          active ? "border-primary" : "border-muted-foreground/40"
+                        }`}
+                      >
+                        {active && <span className="h-2 w-2 rounded-full bg-primary" />}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">{m.title}</span>
+                        <span className="block text-xs text-muted-foreground">{m.subtitle}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-3">
+            <div className="text-sm font-medium">启用页面</div>
+            <ToggleRow label="注册页" checked={props.enabledRegister} onChange={(v) => props.onToggle("register", v)} />
+            <ToggleRow label="登录页" checked={props.enabledLogin} onChange={(v) => props.onToggle("login", v)} />
+            <ToggleRow label="找回密码" checked={props.enabledForgot} onChange={(v) => props.onToggle("forgot", v)} />
+            <ToggleRow label="提交工单" checked={props.enabledTicket} onChange={(v) => props.onToggle("ticket", v)} />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="text-sm">{label}</div>
+      <Switch checked={checked} onCheckedChange={onChange} />
     </div>
   )
 }

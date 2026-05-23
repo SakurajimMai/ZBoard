@@ -12,6 +12,7 @@ import (
 
 	"github.com/zboard/api-server/internal/authsvc"
 	"github.com/zboard/api-server/internal/bizsvc"
+	"github.com/zboard/api-server/internal/captchasvc"
 	"github.com/zboard/api-server/internal/config"
 	"github.com/zboard/api-server/internal/db"
 	"github.com/zboard/api-server/internal/mailer"
@@ -75,7 +76,7 @@ func main() {
 		log.Printf("payment providers: %v (will retry on first request)", err)
 	}
 
-	r := server.New(server.Deps{DB: database, Store: st, Auth: auth, Biz: biz, Nodes: nodes, Worker: wk, Payments: payments, CORSOrigins: cfg.CORSOrigins})
+	r := server.New(server.Deps{DB: database, Store: st, Auth: auth, Biz: biz, Nodes: nodes, Worker: wk, Payments: payments, Captcha: captchasvc.New(st), CORSOrigins: cfg.CORSOrigins})
 	srv := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 		Handler: r,

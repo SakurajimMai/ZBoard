@@ -8,6 +8,7 @@ import (
 	"github.com/zboard/api-server/internal/agentauth"
 	"github.com/zboard/api-server/internal/authsvc"
 	"github.com/zboard/api-server/internal/bizsvc"
+	"github.com/zboard/api-server/internal/captchasvc"
 	"github.com/zboard/api-server/internal/nodesvc"
 	"github.com/zboard/api-server/internal/payment/registry"
 	"github.com/zboard/api-server/internal/store"
@@ -23,10 +24,14 @@ type Deps struct {
 	Nodes       *nodesvc.Service
 	Worker      *worker.Service
 	Payments    *registry.Registry
+	Captcha     *captchasvc.Service
 	CORSOrigins []string
 }
 
 func New(d Deps) *gin.Engine {
+	if d.Captcha == nil && d.Store != nil {
+		d.Captcha = captchasvc.New(d.Store)
+	}
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -105,6 +110,7 @@ func New(d Deps) *gin.Engine {
 			authed.POST("/nodes", adminCreateNode(d))
 			authed.PUT("/nodes/:id", adminUpdateNode(d))
 			authed.POST("/nodes/:id/sync-config", adminSyncNodeConfig(d))
+			authed.POST("/nodes/sync-config-all", adminSyncAllNodeConfigs(d))
 			authed.GET("/nodes/:id/runtime-configs", adminListRuntimeConfigs(d))
 			authed.POST("/runtime-configs/:version/rollback", adminRollbackRuntimeConfig(d))
 			authed.GET("/node-tasks", adminListNodeTasks(d))

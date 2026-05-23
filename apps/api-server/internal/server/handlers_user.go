@@ -4,13 +4,15 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/zboard/api-server/internal/captchasvc"
 	"github.com/zboard/api-server/internal/httpx"
 	"github.com/zboard/api-server/internal/store"
 )
 
 type credentialsBody struct {
-	Email    string `json:"email" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	Email        string `json:"email" binding:"required"`
+	Password     string `json:"password" binding:"required"`
+	CaptchaToken string `json:"captcha_token"`
 }
 
 func registerUser(d Deps) gin.HandlerFunc {
@@ -38,6 +40,10 @@ func registerUser(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
 			return
 		}
+		if err := d.Captcha.Verify(c.Request.Context(), captchasvc.SceneRegister, body.CaptchaToken, c.ClientIP()); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
 		id, err := d.Auth.RegisterUser(c.Request.Context(), body.Email, body.Password)
 		if err != nil {
 			httpx.Fail(c, err)
@@ -56,6 +62,10 @@ func loginUser(d Deps) gin.HandlerFunc {
 		var body credentialsBody
 		if err := c.ShouldBindJSON(&body); err != nil {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
+			return
+		}
+		if err := d.Captcha.Verify(c.Request.Context(), captchasvc.SceneLogin, body.CaptchaToken, c.ClientIP()); err != nil {
+			httpx.Fail(c, err)
 			return
 		}
 		token, u, err := d.Auth.LoginUser(c.Request.Context(), body.Email, body.Password)

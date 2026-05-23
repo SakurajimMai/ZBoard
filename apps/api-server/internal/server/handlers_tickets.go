@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/zboard/api-server/internal/captchasvc"
 	"github.com/zboard/api-server/internal/httpx"
 	"github.com/zboard/api-server/internal/store"
 )
@@ -15,9 +16,10 @@ import (
 // ===== User ticket endpoints =====
 
 type createTicketBody struct {
-	Subject  string `json:"subject" binding:"required"`
-	Category string `json:"category"`
-	Content  string `json:"content" binding:"required"`
+	Subject      string `json:"subject" binding:"required"`
+	Category     string `json:"category"`
+	Content      string `json:"content" binding:"required"`
+	CaptchaToken string `json:"captcha_token"`
 }
 
 func createTicket(d Deps) gin.HandlerFunc {
@@ -25,6 +27,10 @@ func createTicket(d Deps) gin.HandlerFunc {
 		var body createTicketBody
 		if err := c.ShouldBindJSON(&body); err != nil {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
+			return
+		}
+		if err := d.Captcha.Verify(c.Request.Context(), captchasvc.SceneTicket, body.CaptchaToken, c.ClientIP()); err != nil {
+			httpx.Fail(c, err)
 			return
 		}
 		uid := c.MustGet(ctxUserIDKey).(int64)
