@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,7 +112,7 @@ func (s *Supervisor) restartLocked(ctx context.Context) error {
 	args := s.runArgs()
 	cmd := exec.CommandContext(ctx, s.Binary, args...)
 	cmd.Dir = s.WorkDir
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = io.Discard
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start runtime: %w", err)

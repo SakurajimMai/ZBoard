@@ -132,7 +132,7 @@ func xray(node *store.Node, users []store.NodeUser) map[string]any {
 		if u.Enabled == 0 {
 			continue
 		}
-		entry := map[string]any{"email": xrayUserEmail(u.UserID)}
+		entry := map[string]any{"email": xrayUserEmail(u.UserID), "level": 0}
 		switch node.Protocol {
 		case "vless":
 			entry["id"] = u.ClientID
@@ -242,7 +242,7 @@ func xray(node *store.Node, users []store.NodeUser) map[string]any {
 	}
 
 	return map[string]any{
-		"log":   map[string]any{"loglevel": "warning"},
+		"log":   map[string]any{"loglevel": "warning", "access": "none"},
 		"stats": map[string]any{},
 		"api": map[string]any{
 			"tag":      "api",
