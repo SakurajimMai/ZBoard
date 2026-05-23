@@ -253,6 +253,31 @@ func adminRollbackRuntimeConfig(d Deps) gin.HandlerFunc {
 	}
 }
 
+func adminSyncAllNodeConfigs(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		results, err := d.Nodes.GenerateSyncTaskAll(c.Request.Context())
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		ok, failed := 0, 0
+		for _, r := range results {
+			if r.Error == "" {
+				ok++
+			} else {
+				failed++
+			}
+		}
+		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
+		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
+			ActorType: "admin", ActorID: ptrInt64(a.ID),
+			Action: "node.sync_config_all", ResourceType: "node",
+			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+		})
+		httpx.OK(c, gin.H{"results": results, "ok": ok, "failed": failed, "total": len(results)})
+	}
+}
+
 func adminListNodeTasks(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rows, err := d.Store.ListNodeTasks(c.Request.Context(), 200)

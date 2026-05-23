@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AdminPager } from "@/components/admin/AdminPager"
-import { adminCreateNode, adminGenerateRealityConfig, adminGetNodes, adminSyncNodeConfig, adminUpdateNode } from "@/lib/api"
+import { adminCreateNode, adminGenerateRealityConfig, adminGetNodes, adminSyncAllNodeConfigs, adminSyncNodeConfig, adminUpdateNode } from "@/lib/api"
 
 type NodeForm = {
   name: string
@@ -382,6 +382,29 @@ export default function AdminNodes() {
     }
   }
 
+  const [syncingAll, setSyncingAll] = useState(false)
+  const handleSyncAll = async () => {
+    if (syncingAll) return
+    if (!confirm("将为所有启用的节点重新下发配置，确认继续？")) return
+    setSyncingAll(true)
+    try {
+      const res = await adminSyncAllNodeConfigs()
+      const failed = res.results.filter((r) => r.error)
+      let msg = `已下发 ${res.ok}/${res.total} 个节点的同步任务`
+      if (failed.length > 0) {
+        const detail = failed.slice(0, 5).map((r) => `${r.name}: ${r.error}`).join("\n")
+        msg += `\n\n失败 ${failed.length} 个：\n${detail}`
+        if (failed.length > 5) msg += `\n…(其余 ${failed.length - 5} 个省略)`
+      }
+      alert(msg)
+      load()
+    } catch (err: any) {
+      alert(err.message || "批量同步失败")
+    } finally {
+      setSyncingAll(false)
+    }
+  }
+
   const copySecret = async () => {
     if (!lastSecret) return
     await navigator.clipboard.writeText(lastSecret).catch(() => {})
@@ -399,6 +422,10 @@ export default function AdminNodes() {
         <div className="flex gap-2">
           <Button size="sm" onClick={load} variant="outline">
             <RefreshCw className="w-4 h-4 mr-1" /> 刷新
+          </Button>
+          <Button size="sm" onClick={handleSyncAll} variant="outline" disabled={syncingAll || nodes.length === 0}>
+            <RefreshCw className={`w-4 h-4 mr-1 ${syncingAll ? "animate-spin" : ""}`} />
+            {syncingAll ? "同步中..." : "全部同步"}
           </Button>
           <Button size="sm" onClick={openCreate}>
             <Plus className="w-4 h-4 mr-1" /> 新建节点

@@ -56,6 +56,36 @@ func (s *Service) GenerateSyncTask(ctx context.Context, nodeID int64) (string, s
 	return taskID, version, nil
 }
 
+// GenerateSyncTaskAll enqueues a sync_config task for every active node and
+// returns per-node results. Failures on individual nodes don't abort the batch.
+type SyncResult struct {
+	NodeID  int64  `json:"node_id"`
+	Name    string `json:"name"`
+	TaskID  string `json:"task_id,omitempty"`
+	Version string `json:"version,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+func (s *Service) GenerateSyncTaskAll(ctx context.Context) ([]SyncResult, error) {
+	nodes, err := s.Store.ListActiveNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]SyncResult, 0, len(nodes))
+	for _, n := range nodes {
+		r := SyncResult{NodeID: n.ID, Name: n.Name}
+		taskID, version, err := s.GenerateSyncTask(ctx, n.ID)
+		if err != nil {
+			r.Error = err.Error()
+		} else {
+			r.TaskID = taskID
+			r.Version = version
+		}
+		results = append(results, r)
+	}
+	return results, nil
+}
+
 // Rollback creates a `sync_config` task that points back at an older version.
 func (s *Service) Rollback(ctx context.Context, version string) (string, error) {
 	rc, err := s.Store.FindRuntimeConfigByVersion(ctx, version)
