@@ -277,8 +277,8 @@ export default function Overview() {
             {/* 主配置连结 */}
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-sm font-medium">配置同步连结</span>
-                <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">主要配置·推荐</span>
+                <span className="text-sm font-medium">主同步连结</span>
+                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">推荐</span>
                 <button
                   onClick={() => handleCopy(mainLink, "main")}
                   className="ml-auto text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
@@ -291,34 +291,38 @@ export default function Overview() {
                 onClick={() => handleCopy(mainLink, "main")}
               >
                 <p className="text-xs text-foreground break-all font-mono">{mainLink}</p>
-                <p className="text-[11px] text-muted-foreground mt-1">点击复制配置同步连结</p>
+                <p className="text-[11px] text-muted-foreground mt-1">点击复制主同步连结</p>
               </div>
             </div>
 
             {/* 备用同步连结 */}
-            {backupLink && (
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <AlertTriangle className="w-4 h-4 text-orange-500" />
-                  <span className="text-sm font-medium">备用同步连结</span>
-                </div>
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-medium">备用同步连结</span>
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">主链接不可用时使用</span>
+                {backupLink && (
+                  <button
+                    onClick={() => handleCopy(backupLink, "backup")}
+                    className="ml-auto text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  >
+                    <Copy className="w-3.5 h-3.5" /> {copied === "backup" ? "已复制" : "复制"}
+                  </button>
+                )}
+              </div>
+              {backupLink ? (
                 <div
-                  className="rounded-lg bg-orange-50 border border-orange-200 px-4 py-3 cursor-pointer hover:bg-orange-100/70 transition"
+                  className="rounded-lg bg-secondary/50 border px-4 py-3 cursor-pointer hover:bg-secondary/70 transition"
                   onClick={() => handleCopy(backupLink, "backup")}
                 >
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-foreground break-all font-mono flex-1">{backupLink}</p>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleCopy(backupLink, "backup") }}
-                      className="ml-3 text-muted-foreground hover:text-foreground"
-                    >
-                      <Copy className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-orange-600 mt-1">点击复制按钮将备用同步配置连结复制到剪贴簿</p>
+                  <p className="text-xs text-foreground break-all font-mono">{backupLink}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">点击复制备用同步连结</p>
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="rounded-lg bg-secondary/30 border border-dashed px-4 py-3">
+                  <p className="text-[11px] text-muted-foreground">站点尚未配置备用域名，请联系管理员开启。</p>
+                </div>
+              )}
+            </div>
 
             {/* 生成二维码 */}
             <QRCodeDialog url={mainLink} title="同步配置二维码" />

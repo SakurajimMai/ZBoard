@@ -210,6 +210,13 @@ export default function AdminSettingsPage() {
                 <Field label="订阅域名">
                   <Input value={settings.subscription_domain} onChange={(e) => setValue("subscription_domain", e.target.value)} placeholder="https://sub.example.com" />
                 </Field>
+                <Field label="备用订阅域名">
+                  <Input
+                    value={settings.backup_subscription_domain}
+                    onChange={(e) => setValue("backup_subscription_domain", e.target.value)}
+                    placeholder="backup.example.com（可选，主域不可达时启用）"
+                  />
+                </Field>
                 <Field label="试用流量 GB">
                   <Input type="number" min="0" value={settings.trial_traffic_gb} onChange={(e) => setValue("trial_traffic_gb", e.target.value)} />
                 </Field>
