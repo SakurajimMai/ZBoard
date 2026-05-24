@@ -7,8 +7,8 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin', 'cyrillic'], variable: '--font-sans' })
 
 export const metadata: Metadata = {
-  title: 'Zboard — 高速稳定的商业订阅机场',
-  description: 'Zboard 提供高速、稳定、安全的全球网络访问服务，支持多种协议，覆盖数十个国家节点。',
+  title: 'Zboard — 极速稳定的商业级多端同步加速网络',
+  description: 'Zboard 为您提供极速、稳定、安全的全球数据多端同步与协同网络边缘加速服务，采用先进数据加密及高速直连多线路。',
   generator: 'Zboard',
 }
 
