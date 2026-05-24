@@ -80,6 +80,16 @@ func TestAdminCanBatchUpdateUsersAndResetSubscriptions(t *testing.T) {
 	r, st, token := setupAdminCRUDRouter(t)
 	ctx := context.Background()
 
+	nodeID, _, err := st.CreateNode(ctx, store.CreateNodeInput{
+		Name:     "批量节点",
+		Host:     "batch.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+
 	var ids []int64
 	for i := 0; i < 2; i++ {
 		id, err := st.AdminCreateUser(ctx, store.AdminCreateUserInput{
@@ -92,6 +102,10 @@ func TestAdminCanBatchUpdateUsersAndResetSubscriptions(t *testing.T) {
 		}
 		if _, err := st.CreateSubToken(ctx, id, "old-token-"+strconv.Itoa(i), hashSubToken("old-token-"+strconv.Itoa(i))); err != nil {
 			t.Fatalf("create token %d: %v", i, err)
+		}
+		clientID := "11111111-1111-4111-8111-11111111111" + strconv.Itoa(i+1)
+		if err := st.EnsureNodeUser(ctx, id, nodeID, clientID, "vless"); err != nil {
+			t.Fatalf("ensure node user %d: %v", i, err)
 		}
 		ids = append(ids, id)
 	}
@@ -111,6 +125,23 @@ func TestAdminCanBatchUpdateUsersAndResetSubscriptions(t *testing.T) {
 		if u.Status != "disabled" {
 			t.Fatalf("user %d status=%s, want disabled", id, u.Status)
 		}
+		nu, err := st.FindNodeUser(ctx, id, nodeID)
+		if err != nil {
+			t.Fatalf("find node user %d: %v", id, err)
+		}
+		if nu.Enabled != 0 {
+			t.Fatalf("node user %d enabled=%d, want 0", id, nu.Enabled)
+		}
+	}
+	var syncTasks int
+	if err := st.DB.GetContext(ctx, &syncTasks, st.Rebind(
+		`SELECT COUNT(*) FROM node_tasks WHERE node_id = ? AND task_type = 'sync_config' AND status = 'pending'`),
+		nodeID,
+	); err != nil {
+		t.Fatalf("count sync tasks: %v", err)
+	}
+	if syncTasks == 0 {
+		t.Fatalf("batch disable did not enqueue sync_config task for active node")
 	}
 
 	resp = adminJSON(t, r, token, http.MethodPost, "/api/admin/v1/users/batch", map[string]any{

@@ -124,6 +124,17 @@ func (s *Service) mailerForRequest(ctx context.Context) (*mailer.Mailer, error) 
 	}), nil
 }
 
+func (s *Service) SendAdminEmail(ctx context.Context, to, subject, body string) error {
+	m, err := s.mailerForRequest(ctx)
+	if err != nil {
+		return err
+	}
+	if m == nil || !m.Enabled() {
+		return httpx.NewError(http.StatusBadRequest, "mailer_not_configured", "邮件服务未配置")
+	}
+	return m.SendText(to, subject, body)
+}
+
 // RegisterUserWithCode validates the verification code, then creates the user.
 func (s *Service) RegisterUserWithCode(ctx context.Context, email, password, code string) (int64, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
