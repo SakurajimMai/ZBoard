@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   getMe, getSubscription, resetSubscriptionToken,
-  getTrafficSnapshot, getPublicSettings, getUserNodes
+  getTrafficSnapshot, getPublicSettings, getUserNodes,
+  resetMyTraffic, resetMyUUID,
 } from "@/lib/api"
 import QRCodeDialog from "@/components/dashboard/QRCodeDialog"
 
@@ -93,6 +94,40 @@ export default function Overview() {
     }
   }
 
+  const [resettingTraffic, setResettingTraffic] = useState(false)
+  const [resettingUUID, setResettingUUID] = useState(false)
+
+  const handleResetTraffic = async () => {
+    if (resettingTraffic) return
+    if (!confirm("确认重置本月已用流量？此操作不可撤销。")) return
+    setResettingTraffic(true)
+    try {
+      await resetMyTraffic()
+      const meRes = await getMe()
+      setUser(meRes.user)
+      const snapRes = await getTrafficSnapshot().catch(() => ({ snapshot: { upload_total: 0, download_total: 0, total_used: 0, traffic_limit: 0 } }))
+      setSnapshot(snapRes.snapshot)
+    } catch (e: any) {
+      alert(e?.message || "重置流量失败")
+    } finally {
+      setResettingTraffic(false)
+    }
+  }
+
+  const handleResetUUID = async () => {
+    if (resettingUUID) return
+    if (!confirm("重置 UUID 后旧客户端将失效，需要重新导入订阅。确认继续？")) return
+    setResettingUUID(true)
+    try {
+      await resetMyUUID()
+      alert("UUID 已重置，节点同步任务已下发，请重新导入订阅。")
+    } catch (e: any) {
+      alert(e?.message || "重置 UUID 失败")
+    } finally {
+      setResettingUUID(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <Tabs defaultValue="product">
@@ -118,11 +153,11 @@ export default function Overview() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" className="text-pink-600 border-pink-200 hover:bg-pink-50">
-                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> 重置流量
+                <Button variant="outline" size="sm" className="text-pink-600 border-pink-200 hover:bg-pink-50" onClick={handleResetTraffic} disabled={resettingTraffic}>
+                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${resettingTraffic ? "animate-spin" : ""}`} /> {resettingTraffic ? "重置中..." : "重置流量"}
                 </Button>
-                <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50">
-                  <Shield className="w-3.5 h-3.5 mr-1.5" /> 重置 UUID
+                <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50" onClick={handleResetUUID} disabled={resettingUUID}>
+                  <Shield className="w-3.5 h-3.5 mr-1.5" /> {resettingUUID ? "重置中..." : "重置 UUID"}
                 </Button>
                 <Button variant="outline" size="sm" className="text-orange-600 border-orange-200 hover:bg-orange-50" onClick={handleResetToken}>
                   <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> 重置同步连结

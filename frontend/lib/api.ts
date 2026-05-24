@@ -126,6 +126,20 @@ export async function getMe() {
   return request<{ user: any }>('/api/v1/me')
 }
 
+export async function getDailyTraffic(days: number = 30) {
+  return request<{ items: { day: string; upload: number; download: number; total: number }[]; days: number }>(
+    `/api/v1/traffic/daily?days=${days}`,
+  )
+}
+
+export async function resetMyTraffic() {
+  return request<{ ok: boolean }>('/api/v1/traffic/reset', { method: 'POST' })
+}
+
+export async function resetMyUUID() {
+  return request<{ ok: boolean; client_id: string }>('/api/v1/uuid/reset', { method: 'POST' })
+}
+
 export async function getPlans() {
   return request<{ items: any[] }>('/api/v1/plans')
 }

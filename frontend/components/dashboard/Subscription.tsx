@@ -4,9 +4,9 @@ import { useEffect, useState } from "react"
 import { Wifi, Download, Upload, Globe } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-import { getMe, getTrafficLogs, getUserNodes } from "@/lib/api"
+import { getMe, getTrafficLogs, getUserNodes, getDailyTraffic } from "@/lib/api"
 import {
-  Area, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend
+  Area, AreaChart, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend
 } from "recharts"
 
 function formatTime(dateStr: string) {
@@ -18,27 +18,48 @@ function bytesToMB(bytes: number) {
   return (bytes / 1048576).toFixed(3)
 }
 
+function bytesToGB(bytes: number) {
+  return (bytes / 1073741824).toFixed(3)
+}
+
+function formatDay(day: string) {
+  const parts = day.split("-")
+  if (parts.length === 3) return `${parts[1]}/${parts[2]}`
+  return day
+}
+
 export default function Subscription() {
   const [user, setUser] = useState<any>(null)
   const [trafficLogs, setTrafficLogs] = useState<any[]>([])
+  const [dailyTraffic, setDailyTraffic] = useState<any[]>([])
   const [nodes, setNodes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [timeRange, setTimeRange] = useState("30min")
+  const [dailyDays, setDailyDays] = useState(30)
 
   useEffect(() => {
     Promise.all([
       getMe(),
       getTrafficLogs(200).catch(() => ({ items: [] })),
       getUserNodes().catch(() => ({ items: [] })),
+      getDailyTraffic(30).catch(() => ({ items: [], days: 30 })),
     ])
-      .then(([meRes, logsRes, nodesRes]) => {
+      .then(([meRes, logsRes, nodesRes, dailyRes]) => {
         setUser(meRes.user)
         setTrafficLogs(logsRes.items || [])
         setNodes(nodesRes.items || [])
+        setDailyTraffic(dailyRes.items || [])
       })
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  const reloadDaily = (days: number) => {
+    setDailyDays(days)
+    getDailyTraffic(days)
+      .then((res) => setDailyTraffic(res.items || []))
+      .catch(() => {})
+  }
 
   if (loading) return <div className="text-muted-foreground p-8">加载中...</div>
 
@@ -56,6 +77,12 @@ export default function Subscription() {
     time: formatTime(log.reported_at),
     download: Number(bytesToMB(log.download_delta)),
     upload: Number(bytesToMB(log.upload_delta)),
+  }))
+
+  const dailyChartData = dailyTraffic.map((d) => ({
+    day: formatDay(d.day),
+    upload: Number(bytesToGB(d.upload)),
+    download: Number(bytesToGB(d.download)),
   }))
 
   const regionMap: Record<string, string> = {
@@ -78,20 +105,38 @@ export default function Subscription() {
             <TabsList>
               <TabsTrigger value="recent">近期流量</TabsTrigger>
               <TabsTrigger value="daily">每日流量</TabsTrigger>
-              <TabsTrigger value="logs">同步日志</TabsTrigger>
             </TabsList>
             <div className="flex gap-1">
-              {(["30min", "1h", "2h"] as const).map((r) => (
-                <Button
-                  key={r}
-                  size="sm"
-                  variant={timeRange === r ? "default" : "outline"}
-                  onClick={() => setTimeRange(r)}
-                  className="text-xs px-3"
-                >
-                  {r === "30min" ? "30 分钟" : r === "1h" ? "1 小时" : "2 小时"}
-                </Button>
-              ))}
+              <TabsContent value="recent" className="m-0">
+                <div className="flex gap-1">
+                  {(["30min", "1h", "2h"] as const).map((r) => (
+                    <Button
+                      key={r}
+                      size="sm"
+                      variant={timeRange === r ? "default" : "outline"}
+                      onClick={() => setTimeRange(r)}
+                      className="text-xs px-3"
+                    >
+                      {r === "30min" ? "30 分钟" : r === "1h" ? "1 小时" : "2 小时"}
+                    </Button>
+                  ))}
+                </div>
+              </TabsContent>
+              <TabsContent value="daily" className="m-0">
+                <div className="flex gap-1">
+                  {([7, 14, 30] as const).map((d) => (
+                    <Button
+                      key={d}
+                      size="sm"
+                      variant={dailyDays === d ? "default" : "outline"}
+                      onClick={() => reloadDaily(d)}
+                      className="text-xs px-3"
+                    >
+                      {d} 天
+                    </Button>
+                  ))}
+                </div>
+              </TabsContent>
             </div>
           </div>
 
@@ -158,11 +203,24 @@ export default function Subscription() {
           </TabsContent>
 
           <TabsContent value="daily">
-            <div className="text-center text-muted-foreground py-12">每日流量统计 — 即将推出</div>
-          </TabsContent>
-
-          <TabsContent value="logs">
-            <div className="text-center text-muted-foreground py-12">同步日志 — 即将推出</div>
+            <h3 className="text-lg font-bold mb-4">每日流量</h3>
+            {dailyChartData.length === 0 ? (
+              <div className="text-center text-muted-foreground py-12">最近 {dailyDays} 天暂无流量记录</div>
+            ) : (
+              <div className="h-[280px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dailyChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} unit=" GB" />
+                    <Tooltip formatter={(v: number) => [`${v} GB`, ""]} />
+                    <Legend />
+                    <Bar dataKey="download" name="下载 (GB)" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="upload" name="上传 (GB)" stackId="a" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </div>
