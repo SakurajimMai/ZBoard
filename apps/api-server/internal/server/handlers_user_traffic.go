@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -113,19 +115,51 @@ func userTrafficDaily(d Deps) gin.HandlerFunc {
 	}
 }
 
-// userResetTraffic zeroes the current user's traffic counters.
+// userResetTraffic charges the user's plan-defined reset_traffic_price from
+// users.balance, then zeroes the traffic counters. Users without a plan, or
+// plans with price 0, are rejected with 403 to prevent free abuse.
 func userResetTraffic(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := c.MustGet(ctxUserIDKey).(int64)
+		u, err := d.Store.FindUserByID(c.Request.Context(), uid)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		if u.PlanID == nil || *u.PlanID == 0 {
+			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "plan_required", "请先订阅套餐后再使用此功能"))
+			return
+		}
+		plan, err := d.Store.FindPlanByID(c.Request.Context(), *u.PlanID)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		price := strings.TrimSpace(plan.ResetTrafficPrice)
+		if price == "" || price == "0" || price == "0.00" {
+			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "reset_disabled", "当前套餐未开放流量重置"))
+			return
+		}
+		ok, err := d.Store.DeductBalanceAtomic(c.Request.Context(), uid, price)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		if !ok {
+			httpx.Fail(c, httpx.NewError(http.StatusPaymentRequired, "insufficient_balance",
+				fmt.Sprintf("余额不足，本次重置需要 %s", price)))
+			return
+		}
 		if err := d.Store.ResetUserTraffic(c.Request.Context(), uid); err != nil {
 			httpx.Fail(c, err)
 			return
 		}
 		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
 			ActorType: "user", ActorID: ptrInt64(uid),
-			Action: "user.reset_traffic", IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+			Action: "user.reset_traffic", Detail: "charged=" + price,
+			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
 		})
-		httpx.OK(c, gin.H{"ok": true})
+		httpx.OK(c, gin.H{"ok": true, "charged": price})
 	}
 }
 

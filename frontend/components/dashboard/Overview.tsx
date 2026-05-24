@@ -107,9 +107,22 @@ export default function Overview() {
     }
   }
 
+  const resetPriceRaw = (user as any)?.reset_traffic_price ?? "0"
+  const resetPriceNum = Number(resetPriceRaw) || 0
+  const resetPriceEnabled = resetPriceNum > 0
+  const balanceNum = Number((user as any)?.balance ?? 0)
+
   const handleResetTraffic = async () => {
     if (resettingTraffic) return
-    if (!confirm("确认重置本月已用流量？此操作不可撤销。")) return
+    if (!resetPriceEnabled) {
+      alert("当前套餐未开放流量重置，请联系客服或升级套餐。")
+      return
+    }
+    if (balanceNum < resetPriceNum) {
+      alert(`余额不足：本次重置需要 ¥${resetPriceNum.toFixed(2)}，当前余额 ¥${balanceNum.toFixed(2)}，请先充值。`)
+      return
+    }
+    if (!confirm(`本次重置流量将从余额扣费 ¥${resetPriceNum.toFixed(2)}，确认继续？`)) return
     setResettingTraffic(true)
     try {
       await resetMyTraffic()
@@ -163,8 +176,8 @@ export default function Overview() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" className="text-pink-600 border-pink-200 hover:bg-pink-50" onClick={handleResetTraffic} disabled={resettingTraffic}>
-                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${resettingTraffic ? "animate-spin" : ""}`} /> {resettingTraffic ? "重置中..." : "重置流量"}
+                <Button variant="outline" size="sm" className="text-pink-600 border-pink-200 hover:bg-pink-50 disabled:opacity-50" onClick={handleResetTraffic} disabled={resettingTraffic || !resetPriceEnabled} title={resetPriceEnabled ? `本次重置 ¥${resetPriceNum.toFixed(2)}` : "当前套餐未开放流量重置"}>
+                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${resettingTraffic ? "animate-spin" : ""}`} /> {resettingTraffic ? "重置中..." : resetPriceEnabled ? `重置流量 ¥${resetPriceNum.toFixed(2)}` : "重置流量"}
                 </Button>
                 <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50" onClick={handleResetUUID} disabled={resettingUUID}>
                   <Shield className="w-3.5 h-3.5 mr-1.5" /> {resettingUUID ? "重置中..." : "重置 UUID"}

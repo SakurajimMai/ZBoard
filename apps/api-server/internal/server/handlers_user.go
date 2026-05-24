@@ -97,7 +97,14 @@ func currentUser(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, err)
 			return
 		}
-		httpx.OK(c, gin.H{"user": userView(u)})
+		view := userView(u)
+		if u.PlanID != nil && *u.PlanID > 0 {
+			if plan, err := d.Store.FindPlanByID(c.Request.Context(), *u.PlanID); err == nil && plan != nil {
+				view["reset_traffic_price"] = plan.ResetTrafficPrice
+				view["plan_name"] = plan.Name
+			}
+		}
+		httpx.OK(c, gin.H{"user": view})
 	}
 }
 
@@ -105,6 +112,7 @@ func userView(u *store.User) gin.H {
 	return gin.H{
 		"id":            u.ID,
 		"email":         u.Email,
+		"balance":       u.Balance,
 		"plan_id":       u.PlanID,
 		"expired_at":    u.ExpiredAt,
 		"traffic_limit": u.TrafficLimit,
