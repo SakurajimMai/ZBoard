@@ -47,6 +47,8 @@ export default function Overview() {
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState<string | null>(null)
   const [clientType, setClientType] = useState("general")
+  const [resettingTraffic, setResettingTraffic] = useState(false)
+  const [resettingUUID, setResettingUUID] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -104,9 +106,6 @@ export default function Overview() {
       console.error(e)
     }
   }
-
-  const [resettingTraffic, setResettingTraffic] = useState(false)
-  const [resettingUUID, setResettingUUID] = useState(false)
 
   const handleResetTraffic = async () => {
     if (resettingTraffic) return
