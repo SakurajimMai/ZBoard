@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/zboard/api-server/internal/config"
 )
@@ -143,4 +144,96 @@ func (s *Store) ListTrafficLogsByUser(ctx context.Context, userID int64, limit i
 		return nil, err
 	}
 	return rows, nil
+}
+
+// DailyTrafficPoint aggregates a user's traffic by calendar day.
+type DailyTrafficPoint struct {
+	Day      string `db:"day" json:"day"`
+	Upload   int64  `db:"upload" json:"upload"`
+	Download int64  `db:"download" json:"download"`
+	Total    int64  `db:"total" json:"total"`
+}
+
+// ListDailyTrafficByUser returns per-day upload/download/total bytes for the
+// given user over the last `days` days (UTC).
+func (s *Store) ListDailyTrafficByUser(ctx context.Context, userID int64, days int) ([]DailyTrafficPoint, error) {
+	if days <= 0 || days > 365 {
+		days = 30
+	}
+	var q string
+	switch s.Dialect {
+	case "mysql":
+		q = `SELECT DATE_FORMAT(reported_at, '%Y-%m-%d') AS day,
+			COALESCE(SUM(upload_delta), 0) AS upload,
+			COALESCE(SUM(download_delta), 0) AS download,
+			COALESCE(SUM(total_delta), 0) AS total
+			FROM traffic_logs
+			WHERE user_id = ? AND reported_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)
+			GROUP BY day ORDER BY day ASC`
+	case "postgres":
+		q = `SELECT TO_CHAR(reported_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
+			COALESCE(SUM(upload_delta), 0) AS upload,
+			COALESCE(SUM(download_delta), 0) AS download,
+			COALESCE(SUM(total_delta), 0) AS total
+			FROM traffic_logs
+			WHERE user_id = $1 AND reported_at >= NOW() - ($2::int || ' days')::interval
+			GROUP BY day ORDER BY day ASC`
+	default:
+		q = `SELECT strftime('%Y-%m-%d', reported_at) AS day,
+			COALESCE(SUM(upload_delta), 0) AS upload,
+			COALESCE(SUM(download_delta), 0) AS download,
+			COALESCE(SUM(total_delta), 0) AS total
+			FROM traffic_logs
+			WHERE user_id = ? AND reported_at >= datetime('now', ?)
+			GROUP BY day ORDER BY day ASC`
+	}
+	var rows []DailyTrafficPoint
+	var err error
+	switch s.Dialect {
+	case "postgres":
+		err = s.DB.SelectContext(ctx, &rows, q, userID, days)
+	case "mysql":
+		err = s.DB.SelectContext(ctx, &rows, q, userID, days)
+	default:
+		err = s.DB.SelectContext(ctx, &rows, q, userID, fmt.Sprintf("-%d days", days))
+	}
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// ResetUserTraffic zeroes out the user's traffic counters across users,
+// user_traffic_snapshots, and node_users. Idempotent.
+func (s *Store) ResetUserTraffic(ctx context.Context, userID int64) error {
+	tx, err := s.DB.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, s.Rebind(`UPDATE users SET traffic_used = 0 WHERE id = ?`), userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		s.Rebind(`UPDATE user_traffic_snapshots SET upload_total = 0, download_total = 0, total_used = 0 WHERE user_id = ?`),
+		userID,
+	); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		s.Rebind(`UPDATE node_users SET upload = 0, download = 0 WHERE user_id = ?`),
+		userID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// RotateUserClientID assigns a fresh client_id to every node_users row of a
+// user. The new id is the same value across all rows so the user's
+// subscription stays a single coherent identity.
+func (s *Store) RotateUserClientID(ctx context.Context, userID int64, newClientID string) error {
+	q := s.Rebind(`UPDATE node_users SET client_id = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`)
+	_, err := s.DB.ExecContext(ctx, q, newClientID, userID)
+	return err
 }
