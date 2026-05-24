@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -131,18 +132,70 @@ func (s *Store) ListUsers(ctx context.Context, limit int) ([]User, error) {
 	return rows, err
 }
 
+type UserFilter struct {
+	Email      string
+	Status     string
+	PlanID     *int64
+	Expires    string
+	TrafficMin *int64
+	TrafficMax *int64
+}
+
 func (s *Store) ListUsersPage(ctx context.Context, p PageParams) ([]User, int64, error) {
+	return s.ListUsersPageFiltered(ctx, p, UserFilter{})
+}
+
+func (s *Store) ListUsersPageFiltered(ctx context.Context, p PageParams, f UserFilter) ([]User, int64, error) {
 	p = NormalizePage(p)
+	where, args := userFilterWhere(f)
 	var total int64
-	if err := s.DB.GetContext(ctx, &total, `SELECT COUNT(*) FROM users`); err != nil {
+	if err := s.DB.GetContext(ctx, &total, s.Rebind(`SELECT COUNT(*) FROM users`+where), args...); err != nil {
 		return nil, 0, err
 	}
+	args = append(args, p.PageSize, p.Offset())
 	q := s.Rebind(`SELECT id, email, password_hash, balance, plan_id, expired_at,
 		traffic_limit, traffic_used, status, created_at, updated_at
-		FROM users ORDER BY id DESC LIMIT ? OFFSET ?`)
+		FROM users` + where + ` ORDER BY id DESC LIMIT ? OFFSET ?`)
 	var rows []User
-	if err := s.DB.SelectContext(ctx, &rows, q, p.PageSize, p.Offset()); err != nil {
+	if err := s.DB.SelectContext(ctx, &rows, q, args...); err != nil {
 		return nil, 0, err
 	}
 	return rows, total, nil
+}
+
+func userFilterWhere(f UserFilter) (string, []any) {
+	parts := make([]string, 0, 6)
+	args := make([]any, 0, 6)
+	if email := strings.TrimSpace(strings.ToLower(f.Email)); email != "" {
+		parts = append(parts, "LOWER(email) LIKE ?")
+		args = append(args, "%"+email+"%")
+	}
+	if status := strings.TrimSpace(f.Status); status != "" && status != "all" {
+		parts = append(parts, "status = ?")
+		args = append(args, status)
+	}
+	if f.PlanID != nil {
+		parts = append(parts, "plan_id = ?")
+		args = append(args, *f.PlanID)
+	}
+	switch strings.TrimSpace(f.Expires) {
+	case "valid":
+		parts = append(parts, "(expired_at IS NULL OR expired_at > ?)")
+		args = append(args, Now())
+	case "expired":
+		parts = append(parts, "expired_at IS NOT NULL AND expired_at <= ?")
+		args = append(args, Now())
+	}
+	if f.TrafficMin != nil {
+		parts = append(parts, "traffic_used >= ?")
+		args = append(args, *f.TrafficMin)
+	}
+	if f.TrafficMax != nil {
+		parts = append(parts, "traffic_used <= ?")
+		args = append(args, *f.TrafficMax)
+	}
+	if len(parts) == 0 {
+		return "", args
+	}
+	return fmt.Sprintf(" WHERE %s", strings.Join(parts, " AND ")), args
 }

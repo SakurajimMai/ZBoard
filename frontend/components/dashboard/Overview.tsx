@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
-  Copy, RefreshCw, Server, Shield, Calendar, Hash,
-  ChevronDown, Info, AlertTriangle, ExternalLink
+  Copy, RefreshCw, Server, Shield,
+  ChevronDown, Info, AlertTriangle
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -15,8 +15,19 @@ import {
 } from "@/lib/api"
 import QRCodeDialog from "@/components/dashboard/QRCodeDialog"
 
-function generateSubId(userId: number): string {
-  return `SUB-${userId.toString(36).toUpperCase().padStart(8, "0")}`
+function generateSubId(token: string): string {
+  if (!token) return "LINK-PENDING"
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+  let seed = 0
+  for (let i = 0; i < token.length; i++) {
+    seed = (seed * 31 + token.charCodeAt(i)) >>> 0
+  }
+  let out = ""
+  for (let i = 0; i < 6; i++) {
+    seed = (seed * 1664525 + 1013904223) >>> 0
+    out += alphabet[seed % alphabet.length]
+  }
+  return `LINK-${out.slice(0, 3)}-${out.slice(3)}`
 }
 
 function formatBytes(bytes: number): { value: string; unit: string } {
@@ -73,7 +84,7 @@ export default function Overview() {
   const usedFormatted = formatBytes(usedBytes)
   const usedPct = totalBytes > 0 ? Math.min((usedBytes / totalBytes) * 100, 100) : 0
 
-  const subId = generateSubId(user.id)
+  const subId = generateSubId(subToken)
   const expireDate = user.expired_at ? new Date(user.expired_at).toLocaleDateString("zh-CN") : "无"
 
   const firstNode = nodes[0]
@@ -183,8 +194,8 @@ export default function Overview() {
                   <p className="font-bold text-foreground text-sm">{expireDate}</p>
                 </div>
                 <div className="text-center p-3 rounded-lg bg-secondary/50">
-                  <p className="text-xs text-muted-foreground mb-1">服务编号</p>
-                  <p className="font-bold text-foreground">{user.id}</p>
+                  <p className="text-xs text-muted-foreground mb-1">同步标识</p>
+                  <p className="font-bold text-foreground">{subId.replace("LINK-", "")}</p>
                 </div>
               </div>
             </div>

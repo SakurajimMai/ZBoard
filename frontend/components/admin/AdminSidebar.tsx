@@ -10,6 +10,7 @@ import {
   Package,
   ShoppingBag,
   Ticket,
+  Megaphone,
   Settings,
   LogOut,
   Zap,
@@ -40,6 +41,7 @@ export default function AdminSidebar() {
     { href: "/admin/nodes",    label: t.admin.nodes,     icon: Server },
     { href: "/admin/plans",    label: t.admin.plans,     icon: Package },
     { href: "/admin/orders",   label: t.admin.orders,    icon: ShoppingBag },
+    { href: "/admin/announcements", label: "公告管理", icon: Megaphone },
     { href: "/admin/tickets",  label: t.admin.tickets,   icon: Ticket, badge: openTickets },
     { href: "/admin/settings", label: t.admin.settings,  icon: Settings },
   ]

@@ -1,8 +1,9 @@
 // Package mailer sends transactional emails via SMTP.
 //
 // Configure via env:
-//   ZBOARD_SMTP_HOST, ZBOARD_SMTP_PORT, ZBOARD_SMTP_USER, ZBOARD_SMTP_PASS,
-//   ZBOARD_SMTP_FROM (sender email)
+//
+//	ZBOARD_SMTP_HOST, ZBOARD_SMTP_PORT, ZBOARD_SMTP_USER, ZBOARD_SMTP_PASS,
+//	ZBOARD_SMTP_FROM (sender email)
 //
 // When SMTP is not configured, sends are logged and treated as no-ops so
 // development environments don't need a real mail server.
@@ -48,6 +49,11 @@ func (m *Mailer) SendCode(to, code, purpose string) error {
 	body := fmt.Sprintf(
 		"您好，\n\n您的 Zboard 验证码是：%s\n\n验证码 10 分钟内有效。如非本人操作，请忽略此邮件。\n\n— Zboard",
 		code)
+	return m.send(to, subject, body)
+}
+
+// SendText sends a plain UTF-8 text email for admin notices.
+func (m *Mailer) SendText(to, subject, body string) error {
 	return m.send(to, subject, body)
 }
 

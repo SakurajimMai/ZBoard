@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   Globe,
   CreditCard,
-  Download,
   Ticket,
   Settings,
   LogOut,
@@ -134,10 +133,11 @@ export default function Sidebar() {
         <SidebarContent />
       </aside>
 
-      {/* Desktop sidebar */}
-      <aside className="hidden lg:flex w-64 flex-shrink-0 border-r border-sidebar-border bg-sidebar min-h-screen flex-col sticky top-0">
+      {/* Desktop sidebar — fixed position so it doesn't scroll with content */}
+      <aside className="hidden lg:flex w-64 flex-shrink-0 border-r border-sidebar-border bg-sidebar h-screen flex-col fixed top-0 left-0">
         <SidebarContent />
       </aside>
+      <div className="hidden lg:block w-64 flex-shrink-0" />
     </>
   )
 }

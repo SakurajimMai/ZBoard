@@ -210,18 +210,32 @@ export async function adminGetMe() {
 }
 
 type PageQuery = { page?: number; pageSize?: number }
+type UserQuery = PageQuery & {
+  email?: string
+  status?: string
+  planId?: string
+  expires?: string
+  trafficMin?: number | null
+  trafficMax?: number | null
+}
 type PageResponse<T = any> = { items: T[]; page?: number; page_size?: number; total?: number }
 
-function pageQuery(params?: PageQuery) {
-  if (!params?.page && !params?.pageSize) return ''
+function pageQuery(params?: PageQuery & Record<string, any>) {
+  if (!params) return ''
   const q = new URLSearchParams()
   if (params.page) q.set('page', String(params.page))
   if (params.pageSize) q.set('page_size', String(params.pageSize))
+  for (const [key, value] of Object.entries(params)) {
+    if (key === 'page' || key === 'pageSize') continue
+    if (value === undefined || value === null || value === '' || value === 'all') continue
+    const apiKey = key.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)
+    q.set(apiKey, String(value))
+  }
   const s = q.toString()
   return s ? `?${s}` : ''
 }
 
-export async function adminGetUsers(params?: PageQuery) {
+export async function adminGetUsers(params?: UserQuery) {
   return adminRequest<PageResponse>(`/api/admin/v1/users${pageQuery(params)}`)
 }
 
@@ -246,6 +260,41 @@ export async function adminUpdateUser(id: number, data: any) {
     method: 'PUT',
     body: JSON.stringify(data),
   })
+}
+
+export async function adminBatchUsers(
+  action: 'enable' | 'disable' | 'reset_subscription' | 'send_email',
+  userIds: number[],
+  extra?: { subject?: string; content?: string },
+) {
+  return adminRequest<{ ok: boolean; count: number }>('/api/admin/v1/users/batch', {
+    method: 'POST',
+    body: JSON.stringify({ action, user_ids: userIds, ...(extra || {}) }),
+  })
+}
+
+export async function adminResetUserSubscription(id: number) {
+  return adminRequest<{ token: string }>(`/api/admin/v1/users/${id}/reset-subscription`, { method: 'POST' })
+}
+
+export async function adminGetUserSubscription(id: number) {
+  return adminRequest<{ token: string }>(`/api/admin/v1/users/${id}/subscription`)
+}
+
+export async function adminResetUserUUID(id: number) {
+  return adminRequest<{ ok: boolean; client_id: string }>(`/api/admin/v1/users/${id}/reset-uuid`, { method: 'POST' })
+}
+
+export async function adminResetUserIdentity(id: number) {
+  return adminRequest<{ token: string; client_id: string }>(`/api/admin/v1/users/${id}/reset-identity`, { method: 'POST' })
+}
+
+export async function adminGetUserOrders(id: number) {
+  return adminRequest<{ items: any[] }>(`/api/admin/v1/users/${id}/orders`)
+}
+
+export async function adminGetUserTrafficLogs(id: number) {
+  return adminRequest<{ items: any[] }>(`/api/admin/v1/users/${id}/traffic-logs`)
 }
 
 export async function adminGetOrders(params?: PageQuery) {
@@ -365,6 +414,34 @@ export async function adminUpdateSettings(settings: Record<string, string>) {
     method: 'PUT',
     body: JSON.stringify({ settings }),
   })
+}
+
+export async function adminGetAnnouncements(params?: PageQuery) {
+  return adminRequest<PageResponse>(`/api/admin/v1/announcements${pageQuery(params)}`)
+}
+
+export async function adminCreateAnnouncement(data: any) {
+  return adminRequest<{ id: number }>('/api/admin/v1/announcements', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function adminUpdateAnnouncement(id: number, data: any) {
+  return adminRequest<{ ok: boolean }>(`/api/admin/v1/announcements/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function adminDeleteAnnouncement(id: number) {
+  return adminRequest<{ ok: boolean }>(`/api/admin/v1/announcements/${id}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function getAnnouncements() {
+  return request<{ items: any[] }>('/api/v1/announcements')
 }
 
 // ===== Tickets (User) =====

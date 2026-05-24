@@ -1,0 +1,14 @@
+-- 0013 user-facing announcements (MySQL/MariaDB)
+CREATE TABLE IF NOT EXISTS announcements (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  title VARCHAR(200) NOT NULL,
+  content TEXT NOT NULL,
+  popup TINYINT(1) NOT NULL DEFAULT 0,
+  priority INT NOT NULL DEFAULT 0,
+  status VARCHAR(32) NOT NULL DEFAULT 'active',
+  starts_at DATETIME NULL,
+  ends_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_announcements_active (status, priority, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -279,7 +279,12 @@ func adminListPaymentCallbacks(d Deps) gin.HandlerFunc {
 func adminListUsers(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		params := paginationFromQuery(c)
-		rows, total, err := d.Store.ListUsersPage(c.Request.Context(), params)
+		filter, err := userFilterFromQuery(c)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		rows, total, err := d.Store.ListUsersPageFiltered(c.Request.Context(), params, filter)
 		if err != nil {
 			httpx.Fail(c, err)
 			return
@@ -299,6 +304,35 @@ func adminListUsers(d Deps) gin.HandlerFunc {
 		}
 		httpx.OK(c, gin.H{"items": view, "page": params.Page, "page_size": params.PageSize, "total": total})
 	}
+}
+
+func userFilterFromQuery(c *gin.Context) (store.UserFilter, error) {
+	var f store.UserFilter
+	f.Email = c.Query("email")
+	f.Status = c.Query("status")
+	f.Expires = c.Query("expires")
+	if raw := strings.TrimSpace(c.Query("plan_id")); raw != "" && raw != "all" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return f, httpx.NewError(http.StatusBadRequest, "bad_request", "套餐筛选不合法")
+		}
+		f.PlanID = &id
+	}
+	if raw := strings.TrimSpace(c.Query("traffic_min")); raw != "" {
+		n, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return f, httpx.NewError(http.StatusBadRequest, "bad_request", "最小流量不合法")
+		}
+		f.TrafficMin = &n
+	}
+	if raw := strings.TrimSpace(c.Query("traffic_max")); raw != "" {
+		n, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return f, httpx.NewError(http.StatusBadRequest, "bad_request", "最大流量不合法")
+		}
+		f.TrafficMax = &n
+	}
+	return f, nil
 }
 
 type adminCreateUserBody struct {
@@ -557,5 +591,245 @@ func adminUserEnable(d Deps) gin.HandlerFunc {
 			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
 		})
 		httpx.OK(c, gin.H{"ok": true})
+	}
+}
+
+type adminBatchUsersBody struct {
+	Action  string  `json:"action" binding:"required"`
+	UserIDs []int64 `json:"user_ids" binding:"required"`
+	Subject string  `json:"subject"`
+	Content string  `json:"content"`
+}
+
+func adminBatchUsers(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body adminBatchUsersBody
+		if err := c.ShouldBindJSON(&body); err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
+			return
+		}
+		if len(body.UserIDs) == 0 || len(body.UserIDs) > 500 {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "用户数量不合法"))
+			return
+		}
+		action := strings.TrimSpace(body.Action)
+		for _, id := range body.UserIDs {
+			if id <= 0 {
+				httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "用户 ID 不合法"))
+				return
+			}
+			switch action {
+			case "enable":
+				if err := d.Store.SetUserStatus(c.Request.Context(), id, "active"); err != nil {
+					httpx.Fail(c, err)
+					return
+				}
+				_ = d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 1)
+			case "disable":
+				if err := d.Store.SetUserStatus(c.Request.Context(), id, "disabled"); err != nil {
+					httpx.Fail(c, err)
+					return
+				}
+				_ = d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 0)
+			case "reset_subscription":
+				tok, err := newSubToken()
+				if err != nil {
+					httpx.Fail(c, err)
+					return
+				}
+				if err := d.Store.RotateSubToken(c.Request.Context(), id, tok, hashSubToken(tok)); err != nil {
+					httpx.Fail(c, err)
+					return
+				}
+			case "send_email":
+				if strings.TrimSpace(body.Subject) == "" || strings.TrimSpace(body.Content) == "" {
+					httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "邮件标题和内容不能为空"))
+					return
+				}
+				u, err := d.Store.FindUserByID(c.Request.Context(), id)
+				if err != nil {
+					httpx.Fail(c, err)
+					return
+				}
+				if d.Auth.Mailer == nil {
+					httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "mailer_not_configured", "邮件服务未配置"))
+					return
+				}
+				if err := d.Auth.Mailer.SendText(u.Email, body.Subject, body.Content); err != nil {
+					httpx.Fail(c, err)
+					return
+				}
+			default:
+				httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "批量操作不支持"))
+				return
+			}
+		}
+		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
+		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
+			ActorType: "admin", ActorID: ptrInt64(a.ID),
+			Action: "user.batch." + action, ResourceType: "user",
+			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+		})
+		httpx.OK(c, gin.H{"ok": true, "count": len(body.UserIDs)})
+	}
+}
+
+func adminResetUserSubscription(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "id 不合法"))
+			return
+		}
+		tok, err := newSubToken()
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		if err := d.Store.RotateSubToken(c.Request.Context(), id, tok, hashSubToken(tok)); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
+		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
+			ActorType: "admin", ActorID: ptrInt64(a.ID),
+			Action: "user.reset_subscription", ResourceType: "user", ResourceID: strconv.FormatInt(id, 10),
+			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+		})
+		httpx.OK(c, gin.H{"token": tok})
+	}
+}
+
+func adminGetUserSubscription(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "id 不合法"))
+			return
+		}
+		t, err := d.Store.FindActiveSubTokenByUser(c.Request.Context(), id)
+		if err != nil && !store.IsNoRows(err) {
+			httpx.Fail(c, err)
+			return
+		}
+		if t == nil {
+			tok, err := newSubToken()
+			if err != nil {
+				httpx.Fail(c, err)
+				return
+			}
+			if _, err := d.Store.CreateSubToken(c.Request.Context(), id, tok, hashSubToken(tok)); err != nil {
+				httpx.Fail(c, err)
+				return
+			}
+			httpx.OK(c, gin.H{"token": tok})
+			return
+		}
+		httpx.OK(c, gin.H{"token": t.Token})
+	}
+}
+
+func adminResetUserUUID(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "id 不合法"))
+			return
+		}
+		newID, err := newUserClientID()
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		if err := d.Store.RotateUserClientID(c.Request.Context(), id, newID); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		nodes, err := d.Store.ListActiveNodes(c.Request.Context())
+		if err == nil {
+			for _, n := range nodes {
+				_, _, _ = d.Nodes.GenerateSyncTask(c.Request.Context(), n.ID)
+			}
+		}
+		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
+		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
+			ActorType: "admin", ActorID: ptrInt64(a.ID),
+			Action: "user.reset_uuid", ResourceType: "user", ResourceID: strconv.FormatInt(id, 10),
+			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+		})
+		httpx.OK(c, gin.H{"ok": true, "client_id": newID})
+	}
+}
+
+func adminResetUserIdentity(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "id 不合法"))
+			return
+		}
+		newID, err := newUserClientID()
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		tok, err := newSubToken()
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		if err := d.Store.RotateUserClientID(c.Request.Context(), id, newID); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		if err := d.Store.RotateSubToken(c.Request.Context(), id, tok, hashSubToken(tok)); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		nodes, err := d.Store.ListActiveNodes(c.Request.Context())
+		if err == nil {
+			for _, n := range nodes {
+				_, _, _ = d.Nodes.GenerateSyncTask(c.Request.Context(), n.ID)
+			}
+		}
+		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
+		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
+			ActorType: "admin", ActorID: ptrInt64(a.ID),
+			Action: "user.reset_identity", ResourceType: "user", ResourceID: strconv.FormatInt(id, 10),
+			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+		})
+		httpx.OK(c, gin.H{"token": tok, "client_id": newID})
+	}
+}
+
+func adminListUserOrders(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "id 不合法"))
+			return
+		}
+		rows, err := d.Store.ListOrdersByUser(c.Request.Context(), id, 100)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		httpx.OK(c, gin.H{"items": rows})
+	}
+}
+
+func adminListUserTrafficLogs(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "id 不合法"))
+			return
+		}
+		rows, err := d.Store.ListTrafficLogsByUser(c.Request.Context(), id, 100)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		httpx.OK(c, gin.H{"items": rows})
 	}
 }

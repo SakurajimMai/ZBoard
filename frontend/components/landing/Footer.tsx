@@ -38,7 +38,6 @@ export default function Footer() {
               <li><Link href="#features" className="hover:text-primary transition-colors">{footer.links.features}</Link></li>
               <li><Link href="#pricing"  className="hover:text-primary transition-colors">{footer.links.pricing}</Link></li>
               <li><Link href="#nodes"    className="hover:text-primary transition-colors">{footer.links.nodes}</Link></li>
-              <li><Link href="/dashboard/download" className="hover:text-primary transition-colors">{footer.links.download}</Link></li>
             </ul>
           </div>
 
