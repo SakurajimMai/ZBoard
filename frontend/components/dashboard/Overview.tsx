@@ -1,49 +1,90 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Copy, RefreshCw, TrendingUp, Wifi, Clock } from "lucide-react"
+import { useRouter } from "next/navigation"
+import {
+  Copy, RefreshCw, Server, Shield, Calendar, Hash,
+  ChevronDown, Info, AlertTriangle, ExternalLink
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { getMe, getSubscription, resetSubscriptionToken } from "@/lib/api"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  getMe, getSubscription, resetSubscriptionToken,
+  getTrafficSnapshot, getPublicSettings, getUserNodes
+} from "@/lib/api"
+import QRCodeDialog from "@/components/dashboard/QRCodeDialog"
+
+function generateSubId(userId: number): string {
+  return `SUB-${userId.toString(36).toUpperCase().padStart(8, "0")}`
+}
+
+function formatBytes(bytes: number): { value: string; unit: string } {
+  if (bytes >= 1073741824) return { value: (bytes / 1073741824).toFixed(2), unit: "GB" }
+  if (bytes >= 1048576) return { value: (bytes / 1048576).toFixed(2), unit: "MB" }
+  if (bytes >= 1024) return { value: (bytes / 1024).toFixed(2), unit: "KB" }
+  return { value: bytes.toString(), unit: "B" }
+}
 
 export default function Overview() {
+  const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [subToken, setSubToken] = useState("")
+  const [snapshot, setSnapshot] = useState<any>(null)
+  const [settings, setSettings] = useState<Record<string, string>>({})
+  const [nodes, setNodes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
+  const [clientType, setClientType] = useState("general")
 
   useEffect(() => {
-    Promise.all([getMe(), getSubscription()])
-      .then(([meRes, subRes]) => {
+    Promise.all([
+      getMe(),
+      getSubscription(),
+      getTrafficSnapshot().catch(() => ({ snapshot: { upload_total: 0, download_total: 0, total_used: 0, traffic_limit: 0 } })),
+      getPublicSettings().catch(() => ({ settings: {} })),
+      getUserNodes().catch(() => ({ items: [] })),
+    ])
+      .then(([meRes, subRes, snapRes, settingsRes, nodesRes]) => {
         setUser(meRes.user)
         setSubToken(subRes.token)
+        setSnapshot(snapRes.snapshot)
+        setSettings(settingsRes.settings)
+        setNodes(nodesRes.items || [])
       })
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
 
-  if (loading) {
-    return <div className="text-muted-foreground p-8">加载中...</div>
-  }
+  if (loading) return <div className="text-muted-foreground p-8">加载中...</div>
+  if (!user) return <div className="text-red-500 p-8">无法加载用户信息</div>
 
-  if (!user) {
-    return <div className="text-red-500 p-8">无法加载用户信息</div>
-  }
-
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? window.location.origin.replace(':3001', ':3000') : '')
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? window.location.origin.replace(":3001", ":3000") : "")
   const subscriptionUrl = `${apiBase}/api/sub/${subToken}`
-  const usedBytes = user.traffic_used || 0
-  const totalBytes = user.traffic_limit || 0
-  const usedGB = (usedBytes / 1073741824).toFixed(1)
-  const totalGB = (totalBytes / 1073741824).toFixed(0)
-  const usedPct = totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0
+  const targetSuffix = clientType === "clash" ? "?target=clash" : clientType === "singbox" ? "?target=sing-box" : ""
+  const mainLink = `${subscriptionUrl}${targetSuffix}`
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(subscriptionUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  const backupDomain = settings.backup_subscription_domain || ""
+  const backupLink = backupDomain ? `https://${backupDomain}/api/sub/${subToken}${targetSuffix}` : ""
+
+  const totalBytes = user.traffic_limit || 0
+  const usedBytes = user.traffic_used || 0
+  const totalFormatted = formatBytes(totalBytes)
+  const usedFormatted = formatBytes(usedBytes)
+  const usedPct = totalBytes > 0 ? Math.min((usedBytes / totalBytes) * 100, 100) : 0
+
+  const subId = generateSubId(user.id)
+  const expireDate = user.expired_at ? new Date(user.expired_at).toLocaleDateString("zh-CN") : "无"
+
+  const firstNode = nodes[0]
+  const protocolDisplay = firstNode ? `${firstNode.protocol}/${firstNode.transport}`.toUpperCase() : "—"
+
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text)
+    setCopied(id)
+    setTimeout(() => setCopied(null), 2000)
   }
 
-  const handleReset = async () => {
+  const handleResetToken = async () => {
     try {
       const res = await resetSubscriptionToken()
       setSubToken(res.token)
@@ -52,73 +93,197 @@ export default function Overview() {
     }
   }
 
-  const expireDate = user.expired_at
-    ? new Date(user.expired_at).toLocaleDateString("zh-CN")
-    : "未订阅"
-
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-foreground">控制台</h1>
-        <p className="text-sm text-muted-foreground mt-1">欢迎回来，{user.email}</p>
-      </div>
+      <Tabs defaultValue="product">
+        <TabsList className="mb-6">
+          <TabsTrigger value="product">产品详情</TabsTrigger>
+          <TabsTrigger value="billing" onClick={() => router.push("/dashboard/billing")}>帐务</TabsTrigger>
+        </TabsList>
 
-      {/* Subscription URL */}
-      <div className="rounded-2xl border bg-card p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="font-medium flex items-center gap-2">
-            <Wifi className="w-4 h-4" /> 订阅链接
-          </h3>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={handleCopy}>
-              <Copy className="w-3 h-3 mr-1" /> {copied ? "已复制" : "复制"}
-            </Button>
-            <Button size="sm" variant="outline" onClick={handleReset}>
-              <RefreshCw className="w-3 h-3 mr-1" /> 重置
-            </Button>
+        <TabsContent value="product" className="space-y-6">
+          {/* === 头部卡片 === */}
+          <div className="rounded-xl border bg-card p-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center">
+                  <Server className="w-6 h-6 text-blue-500" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">{subId}</h2>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                    最后使用: {new Date().toLocaleString("zh-CN")}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" className="text-pink-600 border-pink-200 hover:bg-pink-50">
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> 重置流量
+                </Button>
+                <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50">
+                  <Shield className="w-3.5 h-3.5 mr-1.5" /> 重置 UUID
+                </Button>
+                <Button variant="outline" size="sm" className="text-orange-600 border-orange-200 hover:bg-orange-50" onClick={handleResetToken}>
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> 重置同步连结
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
-        <code className="block text-xs bg-muted rounded-lg p-3 break-all">
-          {subscriptionUrl}
-        </code>
-        <p className="text-xs text-muted-foreground">
-          支持 Clash Meta / sing-box / V2rayN。添加 ?target=clash 或 ?target=sing-box 切换格式。
-        </p>
-      </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="rounded-2xl border bg-card p-4">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <TrendingUp className="w-4 h-4" /> 已用流量
-          </div>
-          <p className="text-2xl font-bold mt-1">{usedGB} GB</p>
-          <p className="text-xs text-muted-foreground">/ {totalGB} GB ({usedPct}%)</p>
-          <div className="mt-2 h-2 rounded-full bg-muted overflow-hidden">
-            <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min(usedPct, 100)}%` }} />
-          </div>
-        </div>
+          {/* === 产品资讯 + 使用统计 === */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* 产品资讯 */}
+            <div className="rounded-xl border bg-card p-5">
+              <h3 className="text-sm font-medium text-muted-foreground mb-4">产品资讯</h3>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center p-3 rounded-lg bg-secondary/50">
+                  <p className="text-xs text-muted-foreground mb-1">状态</p>
+                  <p className={`font-bold ${user.status === "active" ? "text-green-600" : "text-red-500"}`}>
+                    {user.status === "active" ? "可用" : "禁用"}
+                  </p>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-secondary/50">
+                  <p className="text-xs text-muted-foreground mb-1">到期日</p>
+                  <p className="font-bold text-foreground text-sm">{expireDate}</p>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-secondary/50">
+                  <p className="text-xs text-muted-foreground mb-1">服务编号</p>
+                  <p className="font-bold text-foreground">{user.id}</p>
+                </div>
+              </div>
+            </div>
 
-        <div className="rounded-2xl border bg-card p-4">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Clock className="w-4 h-4" /> 到期时间
+            {/* 本月使用统计 */}
+            <div className="rounded-xl border bg-card p-5">
+              <h3 className="text-sm font-medium text-muted-foreground mb-4">本月使用统计</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="text-center">
+                  <p className="text-3xl font-bold text-blue-600">{totalFormatted.value}<span className="text-base font-normal text-muted-foreground ml-0.5">{totalFormatted.unit}</span></p>
+                  <p className="text-xs text-muted-foreground mt-1">全部</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-3xl font-bold text-foreground">{usedFormatted.value}<span className="text-base font-normal text-muted-foreground ml-0.5">{usedFormatted.unit}</span></p>
+                  <p className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">已用流量 <RefreshCw className="w-3 h-3" /></p>
+                </div>
+              </div>
+            </div>
           </div>
-          <p className="text-2xl font-bold mt-1">{expireDate}</p>
-          <p className="text-xs text-muted-foreground">
-            {user.status === "active" ? "套餐生效中" : "已过期或未订阅"}
-          </p>
-        </div>
 
-        <div className="rounded-2xl border bg-card p-4">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Wifi className="w-4 h-4" /> 账户状态
+          {/* === 流量策略 === */}
+          <div className="rounded-xl border bg-card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-foreground">流量策略</h3>
+              <span className="text-xs text-muted-foreground">每月自动重置已用流量 (UTC)</span>
+            </div>
+            <div className="relative w-full h-6 rounded-full bg-blue-100 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-blue-400 to-blue-500 transition-all duration-500 flex items-center"
+                style={{ width: `${Math.max(usedPct, 2)}%` }}
+              >
+                <span className="text-[10px] text-white font-medium pl-3 whitespace-nowrap">
+                  本月使用统计 已使用 {usedPct.toFixed(2)}%
+                </span>
+              </div>
+              {usedPct > 80 && (
+                <div className="absolute right-0 top-0 h-full bg-red-400/60" style={{ width: `${100 - 80}%` }} />
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">若流量超过方案限制，将自动停用。</p>
           </div>
-          <p className={`text-2xl font-bold mt-1 ${user.status === "active" ? "text-green-600" : "text-red-500"}`}>
-            {user.status === "active" ? "正常" : "已禁用"}
-          </p>
-          <p className="text-xs text-muted-foreground">{user.email}</p>
-        </div>
-      </div>
+
+          {/* === 同步配置 === */}
+          <div className="rounded-xl border bg-card p-5 space-y-5">
+            <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-green-500"></span>
+              同步配置
+            </h3>
+
+            {/* 客户端类型选择 */}
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">选择工具类型</p>
+              <div className="relative">
+                <select
+                  value={clientType}
+                  onChange={(e) => setClientType(e.target.value)}
+                  className="w-full rounded-lg border bg-card px-4 py-2.5 text-sm appearance-none cursor-pointer pr-10 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                  <option value="general">🔗 通用同步配置 — 多端通用</option>
+                  <option value="clash">⚡ Meta 配置 — 适用 Meta 兼容客户端</option>
+                  <option value="singbox">📦 Box 配置 — 适用 Box 兼容客户端</option>
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              </div>
+            </div>
+
+            {/* 主配置连结 */}
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-medium">配置同步连结</span>
+                <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">主要配置·推荐</span>
+                <button
+                  onClick={() => handleCopy(mainLink, "main")}
+                  className="ml-auto text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                >
+                  <Copy className="w-3.5 h-3.5" /> {copied === "main" ? "已复制" : "复制"}
+                </button>
+              </div>
+              <div
+                className="rounded-lg bg-secondary/50 border px-4 py-3 cursor-pointer hover:bg-secondary/70 transition"
+                onClick={() => handleCopy(mainLink, "main")}
+              >
+                <p className="text-xs text-foreground break-all font-mono">{mainLink}</p>
+                <p className="text-[11px] text-muted-foreground mt-1">点击复制配置同步连结</p>
+              </div>
+            </div>
+
+            {/* 备用同步连结 */}
+            {backupLink && (
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="w-4 h-4 text-orange-500" />
+                  <span className="text-sm font-medium">备用同步连结</span>
+                </div>
+                <div
+                  className="rounded-lg bg-orange-50 border border-orange-200 px-4 py-3 cursor-pointer hover:bg-orange-100/70 transition"
+                  onClick={() => handleCopy(backupLink, "backup")}
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-foreground break-all font-mono flex-1">{backupLink}</p>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleCopy(backupLink, "backup") }}
+                      className="ml-3 text-muted-foreground hover:text-foreground"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-orange-600 mt-1">点击复制按钮将备用同步配置连结复制到剪贴簿</p>
+                </div>
+              </div>
+            )}
+
+            {/* 生成二维码 */}
+            <QRCodeDialog url={mainLink} title="同步配置二维码" />
+
+            {/* 连接信息 */}
+            <div className="rounded-lg bg-secondary/30 border p-4">
+              <h4 className="text-sm font-medium flex items-center gap-1.5 mb-3">
+                <Info className="w-4 h-4 text-muted-foreground" /> 连接信息
+              </h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">用户标识</span>
+                  <span className="font-mono text-xs">{subId}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">协议</span>
+                  <span className="text-xs">{protocolDisplay}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

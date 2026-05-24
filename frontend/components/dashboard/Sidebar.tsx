@@ -30,7 +30,6 @@ export default function Sidebar() {
     { href: "/dashboard",              label: t.dash.overview,      icon: LayoutDashboard },
     { href: "/dashboard/subscription", label: t.dash.subscription,  icon: Globe },
     { href: "/dashboard/billing",      label: t.dash.billing,       icon: CreditCard },
-    { href: "/dashboard/download",     label: t.dash.download,      icon: Download },
     { href: "/dashboard/ticket",       label: t.dash.ticket,        icon: Ticket },
     { href: "/dashboard/settings",     label: t.dash.settings,      icon: Settings },
   ]
@@ -85,7 +84,7 @@ export default function Sidebar() {
           </div>
         </div>
         <div className="flex items-center justify-between px-2">
-          <LanguageSwitcher align="left" />
+          <LanguageSwitcher align="left" side="top" />
           <button className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors">
             <LogOut className="w-4 h-4" />
             <span>{t.dash.logout}</span>
@@ -106,7 +105,7 @@ export default function Sidebar() {
           <span className="font-bold text-lg text-foreground">Zboard</span>
         </Link>
         <div className="flex items-center gap-2">
-          <LanguageSwitcher align="right" />
+          <LanguageSwitcher align="right" side="bottom" />
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
             className="p-2 rounded-xl hover:bg-accent transition-colors"

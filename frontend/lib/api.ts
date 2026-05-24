@@ -158,6 +158,19 @@ export async function getPaymentMethods() {
   return request<{ methods: any[] }>('/api/v1/payment-methods')
 }
 
+export async function getTrafficSnapshot() {
+  return request<{ snapshot: { upload_total: number; download_total: number; total_used: number; traffic_limit: number } }>('/api/v1/traffic/snapshot')
+}
+
+export async function getTrafficLogs(limit?: number) {
+  const q = limit ? `?limit=${limit}` : ''
+  return request<{ items: { id: number; user_id: number; node_id: number; upload_delta: number; download_delta: number; total_delta: number; reported_at: string; created_at: string }[] }>(`/api/v1/traffic/logs${q}`)
+}
+
+export async function getUserNodes() {
+  return request<{ items: { id: number; name: string; region: string | null; protocol: string; transport: string; status: string; last_heartbeat_at: string | null }[] }>('/api/v1/nodes')
+}
+
 // ===== Admin =====
 
 function adminRequest<T>(path: string, options: RequestInit = {}): Promise<T> {

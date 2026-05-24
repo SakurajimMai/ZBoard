@@ -49,7 +49,7 @@ export default function AdminOverview() {
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={Users} label="总用户数" value={String(stats.users)} />
-        <StatCard icon={Server} label="在线节点" value={String(stats.nodes)} />
+        <StatCard icon={Server} label="在线网点" value={String(stats.nodes)} />
         <StatCard icon={DollarSign} label="总收入" value={`¥${stats.revenue}`} />
         <StatCard icon={TrendingUp} label="已付订单" value={String(stats.orders)} />
       </div>

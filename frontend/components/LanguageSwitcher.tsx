@@ -6,7 +6,7 @@ import { LOCALES, type Locale } from "@/lib/i18n/locales"
 import { useI18n } from "@/lib/i18n/context"
 import { cn } from "@/lib/utils"
 
-export default function LanguageSwitcher({ align = "right" }: { align?: "left" | "right" }) {
+export default function LanguageSwitcher({ align = "right", side = "bottom" }: { align?: "left" | "right"; side?: "top" | "bottom" }) {
   const { locale, setLocale } = useI18n()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -53,7 +53,10 @@ export default function LanguageSwitcher({ align = "right" }: { align?: "left" |
           role="listbox"
           aria-label="选择语言"
           className={cn(
-            "absolute z-[200] top-full mt-1.5 w-44 rounded-xl border border-border bg-background shadow-lg shadow-black/5 overflow-hidden animate-in fade-in-0 zoom-in-95 duration-150",
+            "absolute z-[200] w-44 rounded-xl border border-border/80 bg-background/95 backdrop-blur-md shadow-2xl shadow-black/15 overflow-hidden animate-in fade-in-0 duration-150",
+            side === "top"
+              ? "bottom-full mb-1.5 origin-bottom slide-in-from-bottom-2"
+              : "top-full mt-1.5 origin-top slide-in-from-top-2",
             align === "right" ? "right-0" : "left-0"
           )}
         >
@@ -83,7 +86,7 @@ export default function LanguageSwitcher({ align = "right" }: { align?: "left" |
           </ul>
 
           {/* Footer — mirrors the design in the screenshot */}
-          <div className="border-t border-border px-4 py-2.5 flex items-center gap-2 bg-muted/30">
+          <div className="border-t border-border px-4 py-2.5 flex items-center gap-2 bg-muted/40">
             <Globe className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             <span className="text-xs text-muted-foreground truncate">{current.nativeLabel}</span>
           </div>
