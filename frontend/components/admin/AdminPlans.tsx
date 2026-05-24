@@ -15,6 +15,7 @@ import { adminCreatePlan, adminGetPlans, adminUpdatePlan } from "@/lib/api"
 type PlanForm = {
   name: string
   price: string
+  reset_traffic_price: string
   duration_days: string
   traffic_limit_gb: string
   device_limit: string
@@ -26,6 +27,7 @@ type PlanForm = {
 const emptyForm: PlanForm = {
   name: "",
   price: "9.90",
+  reset_traffic_price: "0.00",
   duration_days: "30",
   traffic_limit_gb: "100",
   device_limit: "3",
@@ -69,6 +71,7 @@ export default function AdminPlans() {
     setForm({
       name: p.name || "",
       price: p.price || "0.00",
+      reset_traffic_price: p.reset_traffic_price || "0.00",
       duration_days: String(p.duration_days || 30),
       traffic_limit_gb: bytesToGB(p.traffic_limit),
       device_limit: String(p.device_limit || 3),
@@ -89,6 +92,7 @@ export default function AdminPlans() {
   const payload = () => ({
     name: form.name.trim(),
     price: form.price.trim(),
+    reset_traffic_price: form.reset_traffic_price.trim() || "0.00",
     duration_days: Number(form.duration_days || 0),
     traffic_limit: gbToBytes(form.traffic_limit_gb),
     device_limit: Number(form.device_limit || 0),
@@ -227,6 +231,16 @@ export default function AdminPlans() {
                 <Input type="number" value={form.sort} onChange={(e) => setForm({ ...form, sort: e.target.value })} />
               </Field>
             </div>
+            <Field label="重置流量单价（CNY，0 表示禁用）">
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.reset_traffic_price}
+                onChange={(e) => setForm({ ...form, reset_traffic_price: e.target.value })}
+                placeholder="0.00"
+              />
+            </Field>
             <Field label="自定义卖点">
               <Textarea
                 value={form.features_text}

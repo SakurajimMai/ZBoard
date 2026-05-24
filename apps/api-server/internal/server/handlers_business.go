@@ -44,26 +44,28 @@ func adminListPlans(d Deps) gin.HandlerFunc {
 }
 
 type createPlanBody struct {
-	Name         string   `json:"name" binding:"required"`
-	Price        string   `json:"price" binding:"required"`
-	DurationDays int      `json:"duration_days" binding:"required"`
-	TrafficLimit int64    `json:"traffic_limit"`
-	DeviceLimit  int      `json:"device_limit"`
-	Features     []string `json:"features"`
-	NodeGroupID  *int64   `json:"node_group_id"`
-	Sort         int      `json:"sort"`
+	Name              string   `json:"name" binding:"required"`
+	Price             string   `json:"price" binding:"required"`
+	ResetTrafficPrice string   `json:"reset_traffic_price"`
+	DurationDays      int      `json:"duration_days" binding:"required"`
+	TrafficLimit      int64    `json:"traffic_limit"`
+	DeviceLimit       int      `json:"device_limit"`
+	Features          []string `json:"features"`
+	NodeGroupID       *int64   `json:"node_group_id"`
+	Sort              int      `json:"sort"`
 }
 
 type updatePlanBody struct {
-	Name         string   `json:"name" binding:"required"`
-	Price        string   `json:"price" binding:"required"`
-	DurationDays int      `json:"duration_days" binding:"required"`
-	TrafficLimit int64    `json:"traffic_limit"`
-	DeviceLimit  int      `json:"device_limit"`
-	Features     []string `json:"features"`
-	NodeGroupID  *int64   `json:"node_group_id"`
-	Status       string   `json:"status"`
-	Sort         int      `json:"sort"`
+	Name              string   `json:"name" binding:"required"`
+	Price             string   `json:"price" binding:"required"`
+	ResetTrafficPrice string   `json:"reset_traffic_price"`
+	DurationDays      int      `json:"duration_days" binding:"required"`
+	TrafficLimit      int64    `json:"traffic_limit"`
+	DeviceLimit       int      `json:"device_limit"`
+	Features          []string `json:"features"`
+	NodeGroupID       *int64   `json:"node_group_id"`
+	Status            string   `json:"status"`
+	Sort              int      `json:"sort"`
 }
 
 func adminCreatePlan(d Deps) gin.HandlerFunc {
@@ -77,14 +79,15 @@ func adminCreatePlan(d Deps) gin.HandlerFunc {
 			body.DeviceLimit = 3
 		}
 		id, err := d.Biz.CreatePlan(c.Request.Context(), store.CreatePlanInput{
-			Name:         body.Name,
-			Price:        body.Price,
-			DurationDays: body.DurationDays,
-			TrafficLimit: body.TrafficLimit,
-			DeviceLimit:  body.DeviceLimit,
-			Features:     normalizeFeatureList(body.Features),
-			NodeGroupID:  body.NodeGroupID,
-			Sort:         body.Sort,
+			Name:              body.Name,
+			Price:             body.Price,
+			ResetTrafficPrice: body.ResetTrafficPrice,
+			DurationDays:      body.DurationDays,
+			TrafficLimit:      body.TrafficLimit,
+			DeviceLimit:       body.DeviceLimit,
+			Features:          normalizeFeatureList(body.Features),
+			NodeGroupID:       body.NodeGroupID,
+			Sort:              body.Sort,
 		})
 		if err != nil {
 			httpx.Fail(c, err)
@@ -124,15 +127,16 @@ func adminUpdatePlan(d Deps) gin.HandlerFunc {
 			body.DeviceLimit = 3
 		}
 		if err := d.Store.UpdatePlan(c.Request.Context(), id, store.UpdatePlanInput{
-			Name:         body.Name,
-			Price:        body.Price,
-			DurationDays: body.DurationDays,
-			TrafficLimit: body.TrafficLimit,
-			DeviceLimit:  body.DeviceLimit,
-			Features:     normalizeFeatureList(body.Features),
-			NodeGroupID:  body.NodeGroupID,
-			Status:       status,
-			Sort:         body.Sort,
+			Name:              body.Name,
+			Price:             body.Price,
+			ResetTrafficPrice: body.ResetTrafficPrice,
+			DurationDays:      body.DurationDays,
+			TrafficLimit:      body.TrafficLimit,
+			DeviceLimit:       body.DeviceLimit,
+			Features:          normalizeFeatureList(body.Features),
+			NodeGroupID:       body.NodeGroupID,
+			Status:            status,
+			Sort:              body.Sort,
 		}); err != nil {
 			httpx.Fail(c, err)
 			return
@@ -547,6 +551,22 @@ func provisionUserOnActiveNodes(ctx context.Context, st *store.Store, userID int
 	for _, n := range nodes {
 		if err := st.EnsureNodeUserWithLimits(ctx, userID, n.ID, clientID, n.Protocol, 0, deviceLimit); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func enqueueActiveNodeSync(ctx context.Context, d Deps) error {
+	if d.Nodes == nil {
+		return httpx.NewError(http.StatusInternalServerError, "node_service_unavailable", "节点服务不可用")
+	}
+	results, err := d.Nodes.GenerateSyncTaskAll(ctx)
+	if err != nil {
+		return err
+	}
+	for _, result := range results {
+		if result.Error != "" {
+			return httpx.NewError(http.StatusInternalServerError, "node_sync_failed", result.Error)
 		}
 	}
 	return nil

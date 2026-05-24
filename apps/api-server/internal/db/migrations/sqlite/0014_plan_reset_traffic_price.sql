@@ -1,0 +1,1 @@
+ALTER TABLE plans ADD COLUMN reset_traffic_price NUMERIC NOT NULL DEFAULT 0;

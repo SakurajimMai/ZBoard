@@ -48,60 +48,69 @@ func (s *StringList) Scan(value any) error {
 }
 
 type Plan struct {
-	ID           int64      `db:"id" json:"id"`
-	Name         string     `db:"name" json:"name"`
-	Price        string     `db:"price" json:"price"`
-	DurationDays int        `db:"duration_days" json:"duration_days"`
-	TrafficLimit int64      `db:"traffic_limit" json:"traffic_limit"`
-	DeviceLimit  int        `db:"device_limit" json:"device_limit"`
-	SpeedLimit   int        `db:"speed_limit" json:"speed_limit"`
-	Features     StringList `db:"features_json" json:"features"`
-	NodeGroupID  *int64     `db:"node_group_id" json:"node_group_id"`
-	Status       string     `db:"status" json:"status"`
-	Sort         int        `db:"sort" json:"sort"`
-	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt    time.Time  `db:"updated_at" json:"updated_at"`
+	ID                int64      `db:"id" json:"id"`
+	Name              string     `db:"name" json:"name"`
+	Price             string     `db:"price" json:"price"`
+	ResetTrafficPrice string     `db:"reset_traffic_price" json:"reset_traffic_price"`
+	DurationDays      int        `db:"duration_days" json:"duration_days"`
+	TrafficLimit      int64      `db:"traffic_limit" json:"traffic_limit"`
+	DeviceLimit       int        `db:"device_limit" json:"device_limit"`
+	SpeedLimit        int        `db:"speed_limit" json:"speed_limit"`
+	Features          StringList `db:"features_json" json:"features"`
+	NodeGroupID       *int64     `db:"node_group_id" json:"node_group_id"`
+	Status            string     `db:"status" json:"status"`
+	Sort              int        `db:"sort" json:"sort"`
+	CreatedAt         time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt         time.Time  `db:"updated_at" json:"updated_at"`
 }
 
 type CreatePlanInput struct {
-	Name         string
-	Price        string
-	DurationDays int
-	TrafficLimit int64
-	DeviceLimit  int
-	SpeedLimit   int
-	Features     []string
-	NodeGroupID  *int64
-	Sort         int
+	Name              string
+	Price             string
+	ResetTrafficPrice string
+	DurationDays      int
+	TrafficLimit      int64
+	DeviceLimit       int
+	SpeedLimit        int
+	Features          []string
+	NodeGroupID       *int64
+	Sort              int
 }
 
 type UpdatePlanInput struct {
-	Name         string
-	Price        string
-	DurationDays int
-	TrafficLimit int64
-	DeviceLimit  int
-	SpeedLimit   int
-	Features     []string
-	NodeGroupID  *int64
-	Status       string
-	Sort         int
+	Name              string
+	Price             string
+	ResetTrafficPrice string
+	DurationDays      int
+	TrafficLimit      int64
+	DeviceLimit       int
+	SpeedLimit        int
+	Features          []string
+	NodeGroupID       *int64
+	Status            string
+	Sort              int
 }
 
 func (s *Store) CreatePlan(ctx context.Context, in CreatePlanInput) (int64, error) {
+	if in.ResetTrafficPrice == "" {
+		in.ResetTrafficPrice = "0.00"
+	}
 	return s.InsertReturningID(ctx,
-		`INSERT INTO plans(name, price, duration_days, traffic_limit, device_limit,
-			speed_limit, features_json, node_group_id, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		in.Name, in.Price, in.DurationDays, in.TrafficLimit, in.DeviceLimit,
+		`INSERT INTO plans(name, price, reset_traffic_price, duration_days, traffic_limit, device_limit,
+			speed_limit, features_json, node_group_id, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		in.Name, in.Price, in.ResetTrafficPrice, in.DurationDays, in.TrafficLimit, in.DeviceLimit,
 		0, StringList(in.Features), in.NodeGroupID, in.Sort,
 	)
 }
 
 func (s *Store) UpdatePlan(ctx context.Context, id int64, in UpdatePlanInput) error {
-	q := s.Rebind(`UPDATE plans SET name = ?, price = ?, duration_days = ?,
+	if in.ResetTrafficPrice == "" {
+		in.ResetTrafficPrice = "0.00"
+	}
+	q := s.Rebind(`UPDATE plans SET name = ?, price = ?, reset_traffic_price = ?, duration_days = ?,
 		traffic_limit = ?, device_limit = ?, speed_limit = ?, features_json = ?,
 		node_group_id = ?, status = ?, sort = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-	if _, err := s.DB.ExecContext(ctx, q, in.Name, in.Price, in.DurationDays,
+	if _, err := s.DB.ExecContext(ctx, q, in.Name, in.Price, in.ResetTrafficPrice, in.DurationDays,
 		in.TrafficLimit, in.DeviceLimit, 0, StringList(in.Features),
 		in.NodeGroupID, in.Status, in.Sort, id); err != nil {
 		return err
@@ -110,7 +119,7 @@ func (s *Store) UpdatePlan(ctx context.Context, id int64, in UpdatePlanInput) er
 }
 
 func (s *Store) ListActivePlans(ctx context.Context) ([]Plan, error) {
-	q := `SELECT id, name, price, duration_days, traffic_limit, device_limit,
+	q := `SELECT id, name, price, reset_traffic_price, duration_days, traffic_limit, device_limit,
 		speed_limit, features_json, node_group_id, status, sort, created_at, updated_at
 		FROM plans WHERE status = 'active' ORDER BY sort ASC, id ASC`
 	var rows []Plan
@@ -131,7 +140,7 @@ func (s *Store) ListAllPlansPage(ctx context.Context, p PageParams) ([]Plan, int
 	if err := s.DB.GetContext(ctx, &total, `SELECT COUNT(*) FROM plans`); err != nil {
 		return nil, 0, err
 	}
-	q := s.Rebind(`SELECT id, name, price, duration_days, traffic_limit, device_limit,
+	q := s.Rebind(`SELECT id, name, price, reset_traffic_price, duration_days, traffic_limit, device_limit,
 		speed_limit, features_json, node_group_id, status, sort, created_at, updated_at
 		FROM plans ORDER BY sort ASC, id ASC LIMIT ? OFFSET ?`)
 	var rows []Plan
@@ -142,7 +151,7 @@ func (s *Store) ListAllPlansPage(ctx context.Context, p PageParams) ([]Plan, int
 }
 
 func (s *Store) FindPlanByID(ctx context.Context, id int64) (*Plan, error) {
-	q := s.Rebind(`SELECT id, name, price, duration_days, traffic_limit, device_limit,
+	q := s.Rebind(`SELECT id, name, price, reset_traffic_price, duration_days, traffic_limit, device_limit,
 		speed_limit, features_json, node_group_id, status, sort, created_at, updated_at
 		FROM plans WHERE id = ?`)
 	var p Plan
