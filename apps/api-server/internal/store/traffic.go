@@ -131,3 +131,16 @@ func (s *Store) ListTrafficLogs(ctx context.Context, limit int) ([]TrafficLog, e
 	}
 	return rows, nil
 }
+
+func (s *Store) ListTrafficLogsByUser(ctx context.Context, userID int64, limit int) ([]TrafficLog, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	q := s.Rebind(`SELECT id, user_id, node_id, upload_delta, download_delta, total_delta, reported_at, created_at
+		FROM traffic_logs WHERE user_id = ? ORDER BY id DESC LIMIT ?`)
+	var rows []TrafficLog
+	if err := s.DB.SelectContext(ctx, &rows, q, userID, limit); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}

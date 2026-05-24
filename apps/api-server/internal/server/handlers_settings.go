@@ -27,6 +27,7 @@ var publicSettingKeys = map[string]bool{
 	"captcha_enabled_forgot":   true,
 	"captcha_enabled_ticket":   true,
 	"turnstile_mode":           true,
+	"backup_subscription_domain": true,
 }
 
 type updateSettingsBody struct {
@@ -100,7 +101,8 @@ func defaultPublicSettings() map[string]string {
 		"seo_description":      "",
 		"seo_keywords":         "",
 		"allow_register":       "1",
-		"require_email_verify": "0",
+		"require_email_verify":        "0",
+		"backup_subscription_domain": "",
 	}
 }
 
@@ -132,6 +134,7 @@ func defaultAdminSettings() map[string]string {
 		"turnstile_mode":            "managed",
 		"admin_path":                "/admin",
 		"email_domain_whitelist":    "",
+		"backup_subscription_domain": "",
 	} {
 		settings[key] = value
 	}
