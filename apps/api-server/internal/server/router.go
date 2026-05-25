@@ -120,6 +120,7 @@ func New(d Deps) *gin.Engine {
 			authed.PUT("/plans/:id", adminUpdatePlan(d))
 			authed.GET("/settings", adminGetSettings(d))
 			authed.PUT("/settings", adminUpdateSettings(d))
+			authed.POST("/settings/test-email", adminSendTestEmail(d))
 			authed.GET("/orders", adminListOrders(d))
 			authed.GET("/payments", adminListPayments(d))
 			authed.GET("/payment-callbacks", adminListPaymentCallbacks(d))

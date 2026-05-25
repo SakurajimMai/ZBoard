@@ -271,6 +271,8 @@ export async function adminGetOverview() {
     active_nodes: number
     paid_orders: number
     revenue: string
+    revenue_trend: Array<{ month: string; label: string; revenue: number }>
+    traffic_trend: Array<{ day: string; label: string; total: number; tb: number }>
   }>('/api/admin/v1/overview')
 }
 
@@ -440,6 +442,10 @@ export async function adminUpdateSettings(settings: Record<string, string>) {
     method: 'PUT',
     body: JSON.stringify({ settings }),
   })
+}
+
+export async function adminSendTestEmail() {
+  return adminRequest<{ ok: boolean }>('/api/admin/v1/settings/test-email', { method: 'POST' })
 }
 
 export async function adminGetAnnouncements(params?: PageQuery) {

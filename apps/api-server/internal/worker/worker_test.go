@@ -126,3 +126,72 @@ func TestSweepTimeoutTasks(t *testing.T) {
 		t.Fatalf("expected 1 timed-out task, got %d", res.TimedOutTasks)
 	}
 }
+
+func TestRunCreatesSubscriptionReminderNotifications(t *testing.T) {
+	s := testsupport.NewStore(t)
+	wk := worker.New(s)
+	ctx := context.Background()
+	if err := s.SetSettings(ctx, map[string]string{
+		"subscription_expire_reminder_enabled": "1",
+		"traffic_alert_enabled":                "1",
+		"reminder_days_before":                 "3",
+		"traffic_alert_threshold":              "80",
+	}); err != nil {
+		t.Fatalf("set settings: %v", err)
+	}
+	planID, err := s.CreatePlan(ctx, store.CreatePlanInput{
+		Name: "P", Price: "1", DurationDays: 30, TrafficLimit: 100,
+	})
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	plan, _ := s.FindPlanByID(ctx, planID)
+	uExpiring, _ := s.CreateUser(ctx, "expiring@example.com", "h")
+	uTraffic, _ := s.CreateUser(ctx, "traffic@example.com", "h")
+	if err := s.ActivateUserPlan(ctx, uExpiring, plan); err != nil {
+		t.Fatalf("activate expiring: %v", err)
+	}
+	if err := s.ActivateUserPlan(ctx, uTraffic, plan); err != nil {
+		t.Fatalf("activate traffic: %v", err)
+	}
+	if _, err := s.DB.ExecContext(ctx,
+		s.Rebind(`UPDATE users SET expired_at = ? WHERE id = ?`),
+		time.Now().UTC().Add(48*time.Hour), uExpiring); err != nil {
+		t.Fatalf("set expiring: %v", err)
+	}
+	if _, err := s.DB.ExecContext(ctx,
+		s.Rebind(`UPDATE users SET traffic_used = 85 WHERE id = ?`),
+		uTraffic); err != nil {
+		t.Fatalf("set traffic: %v", err)
+	}
+
+	res, err := wk.Run(ctx)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.ExpiryReminders != 1 || res.TrafficReminders != 1 {
+		t.Fatalf("reminder counts wrong: %+v", res)
+	}
+	expiringNotifications, err := s.ListNotifications(ctx, uExpiring, 10)
+	if err != nil {
+		t.Fatalf("list expiring notifications: %v", err)
+	}
+	if len(expiringNotifications) != 1 || expiringNotifications[0].Type != "plan_expiring" {
+		t.Fatalf("unexpected expiring notifications: %+v", expiringNotifications)
+	}
+	trafficNotifications, err := s.ListNotifications(ctx, uTraffic, 10)
+	if err != nil {
+		t.Fatalf("list traffic notifications: %v", err)
+	}
+	if len(trafficNotifications) != 1 || trafficNotifications[0].Type != "traffic_alert" {
+		t.Fatalf("unexpected traffic notifications: %+v", trafficNotifications)
+	}
+
+	res, err = wk.Run(ctx)
+	if err != nil {
+		t.Fatalf("Run #2: %v", err)
+	}
+	if res.ExpiryReminders != 0 || res.TrafficReminders != 0 {
+		t.Fatalf("second run should not duplicate reminders: %+v", res)
+	}
+}

@@ -5,7 +5,7 @@ import "context"
 type Notification struct {
 	ID        int64  `db:"id" json:"id"`
 	UserID    int64  `db:"user_id" json:"user_id"`
-	Type      string `db:"type" json:"type"`     // ticket_reply, payment_success, plan_expiring, plan_expired, system
+	Type      string `db:"type" json:"type"` // ticket_reply, payment_success, plan_expiring, plan_expired, system
 	Title     string `db:"title" json:"title"`
 	Content   string `db:"content" json:"content"`
 	IsRead    int    `db:"is_read" json:"is_read"`
@@ -39,6 +39,15 @@ func (s *Store) CountUnreadNotifications(ctx context.Context, userID int64) (int
 		return 0, err
 	}
 	return n, nil
+}
+
+func (s *Store) HasUnreadNotificationType(ctx context.Context, userID int64, ntype string) (bool, error) {
+	q := s.Rebind(`SELECT COUNT(*) FROM notifications WHERE user_id = ? AND type = ? AND is_read = 0`)
+	var n int
+	if err := s.DB.GetContext(ctx, &n, q, userID, ntype); err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 func (s *Store) MarkNotificationRead(ctx context.Context, id, userID int64) error {

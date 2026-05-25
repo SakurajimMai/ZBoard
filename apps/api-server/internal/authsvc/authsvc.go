@@ -80,7 +80,15 @@ func (s *Service) SendEmailCode(ctx context.Context, email, purpose string) erro
 		return err
 	}
 	if m, err := s.mailerForRequest(ctx); err == nil && m != nil {
-		_ = m.SendCode(email, code, purpose)
+		subject, body, html, err := s.emailCodeTemplate(ctx, email, purpose, code)
+		if err != nil {
+			return err
+		}
+		if html {
+			_ = m.SendHTML(email, subject, body)
+		} else {
+			_ = m.SendText(email, subject, body)
+		}
 	} else if err != nil {
 		return err
 	}
@@ -111,16 +119,36 @@ func (s *Service) mailerForRequest(ctx context.Context) (*mailer.Mailer, error) 
 	if err != nil {
 		return nil, err
 	}
+	fromName, err := s.Store.GetSetting(ctx, "smtp_from_name", "")
+	if err != nil {
+		return nil, err
+	}
+	encryption, err := s.Store.GetSetting(ctx, "smtp_encryption", "starttls")
+	if err != nil {
+		return nil, err
+	}
+	authEnabled, err := s.Store.BoolSetting(ctx, "smtp_auth_enabled", true)
+	if err != nil {
+		return nil, err
+	}
+	verifySSL, err := s.Store.BoolSetting(ctx, "smtp_ssl_verify_enabled", true)
+	if err != nil {
+		return nil, err
+	}
 	port, err := strconv.Atoi(strings.TrimSpace(portRaw))
 	if err != nil || port <= 0 {
 		port = 587
 	}
 	return mailer.New(mailer.Config{
-		Host: strings.TrimSpace(host),
-		Port: port,
-		User: strings.TrimSpace(user),
-		Pass: pass,
-		From: strings.TrimSpace(from),
+		Host:        strings.TrimSpace(host),
+		Port:        port,
+		User:        strings.TrimSpace(user),
+		Pass:        pass,
+		From:        strings.TrimSpace(from),
+		FromName:    strings.TrimSpace(fromName),
+		Encryption:  strings.TrimSpace(strings.ToLower(encryption)),
+		AuthEnabled: authEnabled,
+		SkipVerify:  !verifySSL,
 	}), nil
 }
 
@@ -133,6 +161,43 @@ func (s *Service) SendAdminEmail(ctx context.Context, to, subject, body string) 
 		return httpx.NewError(http.StatusBadRequest, "mailer_not_configured", "邮件服务未配置")
 	}
 	return m.SendText(to, subject, body)
+}
+
+func (s *Service) emailCodeTemplate(ctx context.Context, email, purpose, code string) (string, string, bool, error) {
+	subjectKey := "email_template_register_subject"
+	bodyKey := "email_template_register_body"
+	defaultSubject := "[{{site_name}}] 注册验证码 {{code}}"
+	defaultBody := "您好，您的 {{site_name}} 验证码是：{{code}}\n\n验证码 10 分钟内有效。如果不是本人操作，请忽略此邮件。"
+	if purpose == "reset_password" {
+		subjectKey = "email_template_reset_subject"
+		bodyKey = "email_template_reset_body"
+		defaultSubject = "[{{site_name}}] 密码重置验证码 {{code}}"
+		defaultBody = "您好，您的 {{site_name}} 密码重置验证码是：{{code}}\n\n验证码 10 分钟内有效。如果不是本人操作，请立即检查账号安全。"
+	}
+	subject, err := s.Store.GetSetting(ctx, subjectKey, defaultSubject)
+	if err != nil {
+		return "", "", false, err
+	}
+	body, err := s.Store.GetSetting(ctx, bodyKey, defaultBody)
+	if err != nil {
+		return "", "", false, err
+	}
+	siteName, err := s.Store.GetSetting(ctx, "site_name", "Zboard")
+	if err != nil {
+		return "", "", false, err
+	}
+	username := strings.Split(strings.TrimSpace(email), "@")[0]
+	replacer := strings.NewReplacer(
+		"{{code}}", code,
+		"{{email}}", email,
+		"{{username}}", username,
+		"{{site_name}}", siteName,
+	)
+	subject = replacer.Replace(subject)
+	body = replacer.Replace(body)
+	lower := strings.ToLower(body)
+	isHTML := strings.Contains(lower, "<html") || strings.Contains(lower, "<body") || strings.Contains(lower, "<p") || strings.Contains(lower, "<div")
+	return subject, body, isHTML, nil
 }
 
 // RegisterUserWithCode validates the verification code, then creates the user.

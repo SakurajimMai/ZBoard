@@ -119,12 +119,10 @@ const zhCN = {
   dash: {
     overview:     "控制台",
     subscription: "同步配置",
-    billing:      "账单与充值",
     download:     "工具下载",
     ticket:       "工单支持",
     settings:     "账户设置",
     logout:       "退出登录",
-    plan_label:   "标准版",
   },
   // Admin sidebar
   admin: {
@@ -230,9 +228,9 @@ const zhTW: TranslationDict = {
     copyright: "版權所有",
   },
   dash: {
-    overview: "控制台", subscription: "同步配置", billing: "帳單與儲值",
+    overview: "控制台", subscription: "同步配置",
     download: "工具下載", ticket: "工單支援", settings: "帳戶設定",
-    logout: "登出", plan_label: "標準版",
+    logout: "登出",
   },
   admin: {
     overview: "資料概覽", users: "用戶管理", nodes: "網點管理",
@@ -323,9 +321,9 @@ const en: TranslationDict = {
     copyright: "All rights reserved",
   },
   dash: {
-    overview: "Dashboard", subscription: "My Subscription", billing: "Billing",
+    overview: "Dashboard", subscription: "My Subscription",
     download: "Downloads", ticket: "Support", settings: "Settings",
-    logout: "Sign Out", plan_label: "Standard",
+    logout: "Sign Out",
   },
   admin: {
     overview: "Overview", users: "Users", nodes: "Nodes",
@@ -416,9 +414,9 @@ const fa: TranslationDict = {
     copyright: "تمامی حقوق محفوظ است",
   },
   dash: {
-    overview: "داشبورد", subscription: "اشتراک من", billing: "صورتحساب",
+    overview: "داشبورد", subscription: "اشتراک من",
     download: "دانلود", ticket: "پشتیبانی", settings: "تنظیمات",
-    logout: "خروج", plan_label: "استاندارد",
+    logout: "خروج",
   },
   admin: {
     overview: "نمای کلی", users: "کاربران", nodes: "گره‌ها",
@@ -509,9 +507,9 @@ const ja: TranslationDict = {
     copyright: "全著作権所有",
   },
   dash: {
-    overview: "ダッシュボード", subscription: "マイサブスク", billing: "請求",
+    overview: "ダッシュボード", subscription: "マイサブスク",
     download: "ダウンロード", ticket: "サポート", settings: "設定",
-    logout: "ログアウト", plan_label: "スタンダード",
+    logout: "ログアウト",
   },
   admin: {
     overview: "概要", users: "ユーザー", nodes: "ノード",
@@ -602,9 +600,9 @@ const vi: TranslationDict = {
     copyright: "Bản quyền thuộc về",
   },
   dash: {
-    overview: "Bảng điều khiển", subscription: "Đăng ký của tôi", billing: "Thanh toán",
+    overview: "Bảng điều khiển", subscription: "Đăng ký của tôi",
     download: "Tải xuống", ticket: "Hỗ trợ", settings: "Cài đặt",
-    logout: "Đăng xuất", plan_label: "Tiêu chuẩn",
+    logout: "Đăng xuất",
   },
   admin: {
     overview: "Tổng quan", users: "Người dùng", nodes: "Máy chủ",
@@ -695,9 +693,9 @@ const ko: TranslationDict = {
     copyright: "모든 권리 보유",
   },
   dash: {
-    overview: "대시보드", subscription: "내 구독", billing: "결제",
+    overview: "대시보드", subscription: "내 구독",
     download: "다운로드", ticket: "지원", settings: "설정",
-    logout: "로그아웃", plan_label: "스탠다드",
+    logout: "로그아웃",
   },
   admin: {
     overview: "개요", users: "사용자", nodes: "노드",
@@ -788,9 +786,9 @@ const ru: TranslationDict = {
     copyright: "Все права защищены",
   },
   dash: {
-    overview: "Панель", subscription: "Моя подписка", billing: "Оплата",
+    overview: "Панель", subscription: "Моя подписка",
     download: "Загрузки", ticket: "Поддержка", settings: "Настройки",
-    logout: "Выйти", plan_label: "Стандарт",
+    logout: "Выйти",
   },
   admin: {
     overview: "Обзор", users: "Пользователи", nodes: "Серверы",

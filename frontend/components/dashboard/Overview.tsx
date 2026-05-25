@@ -1,13 +1,11 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
 import {
   Copy, RefreshCw, Server, Shield,
   ChevronDown, Info, AlertTriangle
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   getMe, getSubscription, resetSubscriptionToken,
   getTrafficSnapshot, getPublicSettings, getUserNodes,
@@ -40,7 +38,6 @@ function formatBytes(bytes: number): { value: string; unit: string } {
 }
 
 export default function Overview() {
-  const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [subToken, setSubToken] = useState("")
   const [snapshot, setSnapshot] = useState<any>(null)
@@ -153,13 +150,7 @@ export default function Overview() {
 
   return (
     <div className="space-y-6">
-      <Tabs defaultValue="product">
-        <TabsList className="mb-6">
-          <TabsTrigger value="product">产品详情</TabsTrigger>
-          <TabsTrigger value="billing" onClick={() => router.push("/dashboard/billing")}>帐务</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="product" className="space-y-6">
+      <div className="space-y-6">
           {/* === 头部卡片 === */}
           <div className="rounded-xl border bg-card p-5">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -344,8 +335,7 @@ export default function Overview() {
               </div>
             </div>
           </div>
-        </TabsContent>
-      </Tabs>
+      </div>
     </div>
   )
 }

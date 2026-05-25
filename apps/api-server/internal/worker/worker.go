@@ -1,7 +1,6 @@
 // Package worker contains the maintenance pipeline that disables expired and
-// over-quota users, generates disable_user tasks for the affected nodes, and
-// sweeps stale tasks. It runs in-process and is triggered manually today; cron
-// integration is a follow-up.
+// over-quota users, sends subscription reminders, generates disable_user tasks
+// for the affected nodes, and sweeps stale tasks.
 package worker
 
 import (
@@ -28,11 +27,13 @@ func New(s *store.Store) *Service { return &Service{Store: s} }
 
 // Result reports counts for a single maintenance run.
 type Result struct {
-	ExpiredUsers   int   `json:"expired_users"`
-	OverQuotaUsers int   `json:"over_quota_users"`
-	DisabledUsers  int   `json:"disabled_users"`
-	DisableTasks   int   `json:"disable_tasks"`
-	TimedOutTasks  int64 `json:"timed_out_tasks"`
+	ExpiredUsers     int   `json:"expired_users"`
+	OverQuotaUsers   int   `json:"over_quota_users"`
+	DisabledUsers    int   `json:"disabled_users"`
+	DisableTasks     int   `json:"disable_tasks"`
+	ExpiryReminders  int   `json:"expiry_reminders"`
+	TrafficReminders int   `json:"traffic_reminders"`
+	TimedOutTasks    int64 `json:"timed_out_tasks"`
 }
 
 // Run executes a full maintenance pass.
@@ -40,7 +41,6 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 	now := time.Now().UTC()
 	res := &Result{}
 
-	// 1. Expired users
 	expired, err := s.Store.FindExpiredActiveUserIDs(ctx, now)
 	if err != nil {
 		return nil, err
@@ -54,7 +54,6 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 	}
 	res.ExpiredUsers = len(expired)
 
-	// 2. Over-quota users
 	overs, err := s.Store.FindOverQuotaUserIDs(ctx)
 	if err != nil {
 		return nil, err
@@ -69,7 +68,17 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 	res.OverQuotaUsers = len(overs)
 	res.DisabledUsers = len(expired) + len(overs)
 
-	// 3. Sweep stale running tasks
+	expiryReminders, err := s.sendExpiryReminders(ctx, now)
+	if err != nil {
+		return nil, err
+	}
+	res.ExpiryReminders = expiryReminders
+	trafficReminders, err := s.sendTrafficReminders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	res.TrafficReminders = trafficReminders
+
 	swept, err := s.Store.SweepTimeoutTasks(ctx, now.Add(-TaskRunTimeout))
 	if err != nil {
 		return nil, err
@@ -77,6 +86,71 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 	res.TimedOutTasks = swept
 
 	return res, nil
+}
+
+func (s *Service) sendExpiryReminders(ctx context.Context, now time.Time) (int, error) {
+	enabled, err := s.Store.BoolSetting(ctx, "subscription_expire_reminder_enabled", true)
+	if err != nil || !enabled {
+		return 0, err
+	}
+	days, err := s.Store.IntSetting(ctx, "reminder_days_before", 3)
+	if err != nil {
+		return 0, err
+	}
+	if days <= 0 {
+		days = 3
+	}
+	userIDs, err := s.Store.FindExpiringActiveUserIDs(ctx, now, now.AddDate(0, 0, days))
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, userID := range userIDs {
+		exists, err := s.Store.HasUnreadNotificationType(ctx, userID, "plan_expiring")
+		if err != nil {
+			return count, err
+		}
+		if exists {
+			continue
+		}
+		if err := s.Store.CreateNotification(ctx, userID, "plan_expiring",
+			"订阅即将到期", fmt.Sprintf("您的订阅将在 %d 天内到期，请及时续费。", days), "/dashboard"); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, nil
+}
+
+func (s *Service) sendTrafficReminders(ctx context.Context) (int, error) {
+	enabled, err := s.Store.BoolSetting(ctx, "traffic_alert_enabled", true)
+	if err != nil || !enabled {
+		return 0, err
+	}
+	threshold, err := s.Store.IntSetting(ctx, "traffic_alert_threshold", 80)
+	if err != nil {
+		return 0, err
+	}
+	userIDs, err := s.Store.FindTrafficAlertUserIDs(ctx, threshold)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, userID := range userIDs {
+		exists, err := s.Store.HasUnreadNotificationType(ctx, userID, "traffic_alert")
+		if err != nil {
+			return count, err
+		}
+		if exists {
+			continue
+		}
+		if err := s.Store.CreateNotification(ctx, userID, "traffic_alert",
+			"流量即将用尽", fmt.Sprintf("您的订阅流量已使用超过 %d%%，请留意剩余流量。", threshold), "/dashboard"); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, nil
 }
 
 // disableUser flips status, disables node_users, and emits one disable_user
@@ -99,16 +173,15 @@ func (s *Service) disableUser(ctx context.Context, userID int64, reason string) 
 			return 0, err
 		}
 	}
-	// Notify user about account suspension
 	switch reason {
 	case "expired":
 		s.Store.NotifyUser(ctx, userID, "plan_expired",
 			"套餐已到期", "您的套餐已到期，服务已暂停。请续费以恢复使用。",
-			"/dashboard/billing")
+			"/dashboard")
 	case "traffic_exceeded":
-		s.Store.NotifyUser(ctx, userID, "plan_expired",
-			"流量已用尽", "您的流量已超出限额，服务已暂停。请购买新套餐或流量包。",
-			"/dashboard/billing")
+		s.Store.NotifyUser(ctx, userID, "traffic_exceeded",
+			"流量已用尽", "您的流量已超出限额，服务已暂停。请购买新套餐或联系管理员。",
+			"/dashboard")
 	}
 	return len(nodeIDs), nil
 }

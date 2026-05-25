@@ -9,24 +9,31 @@ import (
 )
 
 var publicSettingKeys = map[string]bool{
-	"site_name":                true,
-	"site_url":                 true,
-	"subscription_name":        true,
-	"subscription_domain":      true,
-	"support_email":            true,
-	"support_telegram":         true,
-	"seo_title":                true,
-	"seo_description":          true,
-	"seo_keywords":             true,
-	"allow_register":           true,
-	"require_email_verify":     true,
-	"captcha_provider":         true,
-	"captcha_site_key":         true,
-	"captcha_enabled_register": true,
-	"captcha_enabled_login":    true,
-	"captcha_enabled_forgot":   true,
-	"captcha_enabled_ticket":   true,
-	"turnstile_mode":           true,
+	"site_name":                  true,
+	"site_url":                   true,
+	"subscription_name":          true,
+	"subscription_domain":        true,
+	"support_email":              true,
+	"support_telegram":           true,
+	"seo_title":                  true,
+	"seo_description":            true,
+	"seo_keywords":               true,
+	"seo_og_image":               true,
+	"seo_twitter_card":           true,
+	"seo_favicon_url":            true,
+	"seo_canonical_url":          true,
+	"seo_allow_index":            true,
+	"seo_generate_sitemap":       true,
+	"seo_structured_data":        true,
+	"allow_register":             true,
+	"require_email_verify":       true,
+	"captcha_provider":           true,
+	"captcha_site_key":           true,
+	"captcha_enabled_register":   true,
+	"captcha_enabled_login":      true,
+	"captcha_enabled_forgot":     true,
+	"captcha_enabled_ticket":     true,
+	"turnstile_mode":             true,
 	"backup_subscription_domain": true,
 }
 
@@ -89,19 +96,48 @@ func adminUpdateSettings(d Deps) gin.HandlerFunc {
 	}
 }
 
+func adminSendTestEmail(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if d.Auth == nil {
+			httpx.Fail(c, httpx.NewError(http.StatusInternalServerError, "auth_not_configured", "认证服务未初始化"))
+			return
+		}
+		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
+		subject := "Zboard SMTP 测试邮件"
+		body := "这是一封来自 Zboard 管理后台的 SMTP 测试邮件。收到此邮件说明邮件服务器配置可用。"
+		if err := d.Auth.SendAdminEmail(c.Request.Context(), a.Email, subject, body); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
+			ActorType: "admin", ActorID: ptrInt64(a.ID),
+			Action: "settings.test_email", ResourceType: "settings",
+			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+		})
+		httpx.OK(c, gin.H{"ok": true})
+	}
+}
+
 func defaultPublicSettings() map[string]string {
 	return map[string]string{
-		"site_name":            "Zboard",
-		"site_url":             "",
-		"subscription_name":    "Zboard",
-		"subscription_domain":  "",
-		"support_email":        "",
-		"support_telegram":     "",
-		"seo_title":            "Zboard",
-		"seo_description":      "",
-		"seo_keywords":         "",
-		"allow_register":       "1",
-		"require_email_verify":        "0",
+		"site_name":                  "Zboard",
+		"site_url":                   "",
+		"subscription_name":          "Zboard",
+		"subscription_domain":        "",
+		"support_email":              "",
+		"support_telegram":           "",
+		"seo_title":                  "Zboard",
+		"seo_description":            "",
+		"seo_keywords":               "",
+		"seo_og_image":               "",
+		"seo_twitter_card":           "summary_large_image",
+		"seo_favicon_url":            "/favicon.ico",
+		"seo_canonical_url":          "",
+		"seo_allow_index":            "1",
+		"seo_generate_sitemap":       "1",
+		"seo_structured_data":        "1",
+		"allow_register":             "1",
+		"require_email_verify":       "0",
 		"backup_subscription_domain": "",
 	}
 }
@@ -109,32 +145,50 @@ func defaultPublicSettings() map[string]string {
 func defaultAdminSettings() map[string]string {
 	settings := defaultPublicSettings()
 	for key, value := range map[string]string{
-		"default_language":          "zh-CN",
-		"trial_traffic_gb":          "0",
-		"trial_days":                "0",
-		"user_default_device_limit": "3",
-		"require_email_verify":      "0",
-		"clash_enabled":             "1",
-		"singbox_enabled":           "1",
-		"v2rayn_enabled":            "1",
-		"smtp_host":                 "",
-		"smtp_port":                 "587",
-		"smtp_user":                 "",
-		"smtp_pass":                 "",
-		"smtp_from_name":            "",
-		"smtp_from_email":           "",
-		"smtp_encryption":           "starttls",
-		"captcha_provider":          "none",
-		"captcha_site_key":          "",
-		"captcha_secret_key":        "",
-		"captcha_enabled_register":  "0",
-		"captcha_enabled_login":     "0",
-		"captcha_enabled_forgot":    "0",
-		"captcha_enabled_ticket":    "0",
-		"turnstile_mode":            "managed",
-		"admin_path":                "/admin",
-		"email_domain_whitelist":    "",
-		"backup_subscription_domain": "",
+		"default_language":                     "zh-CN",
+		"trial_traffic_gb":                     "0",
+		"trial_days":                           "0",
+		"user_default_device_limit":            "3",
+		"require_email_verify":                 "0",
+		"clash_enabled":                        "1",
+		"singbox_enabled":                      "1",
+		"v2rayn_enabled":                       "1",
+		"smtp_host":                            "",
+		"smtp_port":                            "587",
+		"smtp_user":                            "",
+		"smtp_pass":                            "",
+		"smtp_from_name":                       "",
+		"smtp_from_email":                      "",
+		"smtp_encryption":                      "starttls",
+		"smtp_auth_enabled":                    "1",
+		"smtp_ssl_verify_enabled":              "1",
+		"email_template_register_subject":      "[{{site_name}}] 您的验证码是 {{code}}",
+		"email_template_register_body":         "<!DOCTYPE html>\n<html>\n<body style=\"font-family: sans-serif;\">\n<h2>验证码</h2>\n<p>您好，您的验证码是：</p>\n<p style=\"font-size: 24px; font-weight: bold; color: #6366f1;\">{{code}}</p>\n<p>验证码有效期为 10 分钟。</p>\n<p>如果不是本人操作，请忽略此邮件。</p>\n</body>\n</html>",
+		"email_template_reset_subject":         "[{{site_name}}] 密码重置验证码 {{code}}",
+		"email_template_reset_body":            "<!DOCTYPE html>\n<html>\n<body style=\"font-family: sans-serif;\">\n<h2>密码重置</h2>\n<p>您好，您的重置验证码是：</p>\n<p style=\"font-size: 24px; font-weight: bold; color: #6366f1;\">{{code}}</p>\n<p>验证码有效期为 10 分钟。</p>\n<p>如果不是本人操作，请立即检查账号安全。</p>\n</body>\n</html>",
+		"email_template_expire_subject":        "[{{site_name}}] 订阅即将到期提醒",
+		"email_template_expire_body":           "<p>您好，您的订阅将在 {{expire_time}} 到期，请及时续费。</p>",
+		"email_template_traffic_subject":       "[{{site_name}}] 流量使用提醒",
+		"email_template_traffic_body":          "<p>您好，您的订阅流量已接近上限，请留意使用情况。</p>",
+		"captcha_provider":                     "none",
+		"captcha_site_key":                     "",
+		"captcha_secret_key":                   "",
+		"captcha_enabled_register":             "0",
+		"captcha_enabled_login":                "0",
+		"captcha_enabled_forgot":               "0",
+		"captcha_enabled_ticket":               "0",
+		"turnstile_mode":                       "managed",
+		"admin_path":                           "/admin",
+		"email_domain_whitelist":               "",
+		"backup_subscription_domain":           "",
+		"subscription_expire_reminder_enabled": "1",
+		"traffic_alert_enabled":                "1",
+		"renewal_success_email_enabled":        "1",
+		"new_order_notify_enabled":             "1",
+		"reminder_days_before":                 "3",
+		"traffic_alert_threshold":              "80",
+		"reminder_interval_hours":              "24",
+		"reminder_max_count":                   "3",
 	} {
 		settings[key] = value
 	}

@@ -43,11 +43,13 @@ func main() {
 
 	st := store.New(database, cfg.DBDialect)
 	mail := mailer.New(mailer.Config{
-		Host: cfg.SMTPHost,
-		Port: cfg.SMTPPort,
-		User: cfg.SMTPUser,
-		Pass: cfg.SMTPPass,
-		From: cfg.SMTPFrom,
+		Host:        cfg.SMTPHost,
+		Port:        cfg.SMTPPort,
+		User:        cfg.SMTPUser,
+		Pass:        cfg.SMTPPass,
+		From:        cfg.SMTPFrom,
+		AuthEnabled: cfg.SMTPUser != "",
+		Encryption:  "starttls",
 	})
 	if mail.Enabled() {
 		log.Printf("SMTP enabled: %s:%d (from=%s)", cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPFrom)

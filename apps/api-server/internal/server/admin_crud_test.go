@@ -868,21 +868,59 @@ func TestAdminOverviewUsesAggregateTotals(t *testing.T) {
 		}
 	}
 
+	if err := st.RecordTraffic(ctx, []store.TrafficDelta{{
+		UserID:        userID,
+		NodeID:        2,
+		UploadDelta:   1099511627776,
+		DownloadDelta: 1099511627776,
+	}}); err != nil {
+		t.Fatalf("record traffic: %v", err)
+	}
+
 	resp := adminJSON(t, r, token, http.MethodGet, "/api/admin/v1/overview", nil)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("overview status=%d body=%s", resp.Code, resp.Body.String())
 	}
 	var got struct {
-		Users       int64  `json:"users"`
-		ActiveNodes int64  `json:"active_nodes"`
-		PaidOrders  int64  `json:"paid_orders"`
-		Revenue     string `json:"revenue"`
+		Users        int64  `json:"users"`
+		ActiveNodes  int64  `json:"active_nodes"`
+		PaidOrders   int64  `json:"paid_orders"`
+		Revenue      string `json:"revenue"`
+		RevenueTrend []struct {
+			Month   string  `json:"month"`
+			Label   string  `json:"label"`
+			Revenue float64 `json:"revenue"`
+		} `json:"revenue_trend"`
+		TrafficTrend []struct {
+			Day   string  `json:"day"`
+			Label string  `json:"label"`
+			Total int64   `json:"total"`
+			TB    float64 `json:"tb"`
+		} `json:"traffic_trend"`
 	}
 	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode overview: %v", err)
 	}
 	if got.Users != 1 || got.ActiveNodes != 104 || got.PaidOrders != 104 || got.Revenue != "156.00" {
 		t.Fatalf("unexpected overview: %+v", got)
+	}
+	if len(got.RevenueTrend) != 6 || got.RevenueTrend[5].Revenue != 156 {
+		t.Fatalf("unexpected revenue trend: %+v", got.RevenueTrend)
+	}
+	if len(got.TrafficTrend) != 7 || got.TrafficTrend[6].Total != 2199023255552 || got.TrafficTrend[6].TB != 2 {
+		t.Fatalf("unexpected traffic trend: %+v", got.TrafficTrend)
+	}
+}
+
+func TestAdminSendTestEmailRequiresMailerConfig(t *testing.T) {
+	r, _, token := setupAdminCRUDRouter(t)
+
+	resp := adminJSON(t, r, token, http.MethodPost, "/api/admin/v1/settings/test-email", nil)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("test email status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if !bytes.Contains(resp.Body.Bytes(), []byte("mailer_not_configured")) {
+		t.Fatalf("test email should report missing mailer, body=%s", resp.Body.String())
 	}
 }
 

@@ -1,58 +1,41 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
+import { useEffect, useState } from "react"
+import { CircleUserRound } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { getMe } from "@/lib/api"
 
 export default function SettingsPage() {
+  const [user, setUser] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    getMe()
+      .then((res) => setUser(res.user))
+      .catch(() => setUser(null))
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return <div className="text-muted-foreground p-8">加载中...</div>
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">账户设置</h1>
-        <p className="text-sm text-muted-foreground mt-1">管理您的个人信息和安全设置。</p>
+        <p className="text-sm text-muted-foreground mt-1">查看当前登录账户信息。</p>
       </div>
 
       <div className="rounded-xl border border-border bg-card p-6 space-y-5">
         <h2 className="font-semibold text-foreground">基本信息</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
+        <div className="flex items-center gap-4">
+          <CircleUserRound className="w-12 h-12 text-foreground/80 flex-shrink-0" strokeWidth={1.8} />
+          <div className="flex-1 min-w-0">
             <label className="text-sm text-muted-foreground mb-1.5 block">邮箱地址</label>
-            <Input defaultValue="user@example.com" className="bg-secondary border-border" />
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground mb-1.5 block">用户名</label>
-            <Input defaultValue="myuser" className="bg-secondary border-border" />
+            <Input value={user?.email || ""} readOnly className="bg-secondary border-border" />
           </div>
         </div>
-        <Button className="bg-primary text-primary-foreground hover:bg-primary/90">保存更改</Button>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card p-6 space-y-5">
-        <h2 className="font-semibold text-foreground">修改密码</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="text-sm text-muted-foreground mb-1.5 block">当前密码</label>
-            <Input type="password" placeholder="••••••••" className="bg-secondary border-border" />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="text-sm text-muted-foreground mb-1.5 block">新密码</label>
-            <Input type="password" placeholder="••••••••" className="bg-secondary border-border" />
-          </div>
-          <div>
-            <label className="text-sm text-muted-foreground mb-1.5 block">确认新密码</label>
-            <Input type="password" placeholder="••••••••" className="bg-secondary border-border" />
-          </div>
-        </div>
-        <Button variant="outline" className="hover:border-primary/50">更新密码</Button>
-      </div>
-
-      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-6">
-        <h2 className="font-semibold text-foreground mb-2">危险区域</h2>
-        <p className="text-sm text-muted-foreground mb-4">注销账户后，所有数据将被永久删除且无法恢复。</p>
-        <Button variant="outline" className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive">
-          注销账户
-        </Button>
       </div>
     </div>
   )

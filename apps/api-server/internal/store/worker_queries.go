@@ -25,6 +25,36 @@ func (s *Store) FindOverQuotaUserIDs(ctx context.Context) ([]int64, error) {
 	return ids, nil
 }
 
+// FindExpiringActiveUserIDs returns active users whose subscriptions expire in
+// the configured reminder window.
+func (s *Store) FindExpiringActiveUserIDs(ctx context.Context, now, before time.Time) ([]int64, error) {
+	q := s.Rebind(`SELECT id FROM users
+		WHERE status = 'active' AND expired_at IS NOT NULL AND expired_at > ? AND expired_at <= ?`)
+	var ids []int64
+	if err := s.DB.SelectContext(ctx, &ids, q, now, before); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+// FindTrafficAlertUserIDs returns active users whose traffic usage has reached
+// the threshold percentage but has not yet exceeded the hard quota.
+func (s *Store) FindTrafficAlertUserIDs(ctx context.Context, thresholdPercent int) ([]int64, error) {
+	if thresholdPercent <= 0 || thresholdPercent > 100 {
+		thresholdPercent = 80
+	}
+	q := s.Rebind(`SELECT id FROM users
+		WHERE status = 'active'
+		  AND traffic_limit > 0
+		  AND traffic_used < traffic_limit
+		  AND traffic_used * 100 >= traffic_limit * ?`)
+	var ids []int64
+	if err := s.DB.SelectContext(ctx, &ids, q, thresholdPercent); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
 // FindUserNodeIDs returns the node IDs that currently have a node_users row for this user.
 func (s *Store) FindUserNodeIDs(ctx context.Context, userID int64) ([]int64, error) {
 	q := s.Rebind(`SELECT node_id FROM node_users WHERE user_id = ?`)
