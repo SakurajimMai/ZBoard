@@ -246,6 +246,51 @@ func TestSubscriptionRejectsExpiredAndTrafficExceededUsers(t *testing.T) {
 	}
 }
 
+func TestUserCanChangePasswordAndDeleteAccount(t *testing.T) {
+	r, st, _ := setupAdminCRUDRouter(t)
+	ctx := context.Background()
+	auth := authsvc.New(st, "setup-token", nil)
+	userID, err := auth.RegisterUser(ctx, "profile@example.com", "oldpass123")
+	if err != nil {
+		t.Fatalf("register user: %v", err)
+	}
+	token, _, err := auth.LoginUser(ctx, "profile@example.com", "oldpass123")
+	if err != nil {
+		t.Fatalf("login user: %v", err)
+	}
+
+	change := adminJSON(t, r, token, http.MethodPost, "/api/v1/me/password", map[string]any{
+		"current_password": "oldpass123",
+		"new_password":     "newpass123",
+	})
+	if change.Code != http.StatusOK {
+		t.Fatalf("change password status=%d body=%s", change.Code, change.Body.String())
+	}
+	if _, _, err := auth.LoginUser(ctx, "profile@example.com", "oldpass123"); err == nil {
+		t.Fatalf("old password should not work")
+	}
+	if _, _, err := auth.LoginUser(ctx, "profile@example.com", "newpass123"); err != nil {
+		t.Fatalf("new password should work: %v", err)
+	}
+
+	deleteResp := adminJSON(t, r, token, http.MethodDelete, "/api/v1/me", map[string]any{
+		"password": "newpass123",
+	})
+	if deleteResp.Code != http.StatusOK {
+		t.Fatalf("delete account status=%d body=%s", deleteResp.Code, deleteResp.Body.String())
+	}
+	u, err := st.FindUserByID(ctx, userID)
+	if err != nil {
+		t.Fatalf("find user: %v", err)
+	}
+	if u.Status != "deleted" {
+		t.Fatalf("user status=%q, want deleted", u.Status)
+	}
+	if _, err := auth.ResolveUserToken(ctx, token); err == nil {
+		t.Fatalf("deleted account token should be logged out")
+	}
+}
+
 func TestSubscriptionUserinfoUsesUploadDownloadSnapshot(t *testing.T) {
 	r, st, _ := setupAdminCRUDRouter(t)
 	userID, err := st.AdminCreateUser(context.Background(), store.AdminCreateUserInput{

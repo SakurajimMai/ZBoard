@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react"
 import {
   Copy, RefreshCw, Server, Shield,
-  ChevronDown, Info, AlertTriangle
+  ChevronDown, Info
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   getMe, getSubscription, resetSubscriptionToken,
-  getTrafficSnapshot, getPublicSettings, getUserNodes,
+  getPublicSettings,
   resetMyTraffic, resetMyUUID,
   buildSubscriptionUrl,
   buildSubscriptionUrlFromBase,
@@ -40,9 +40,7 @@ function formatBytes(bytes: number): { value: string; unit: string } {
 export default function Overview() {
   const [user, setUser] = useState<any>(null)
   const [subToken, setSubToken] = useState("")
-  const [snapshot, setSnapshot] = useState<any>(null)
   const [settings, setSettings] = useState<Record<string, string>>({})
-  const [nodes, setNodes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState<string | null>(null)
   const [clientType, setClientType] = useState("general")
@@ -53,16 +51,12 @@ export default function Overview() {
     Promise.all([
       getMe(),
       getSubscription(),
-      getTrafficSnapshot().catch(() => ({ snapshot: { upload_total: 0, download_total: 0, total_used: 0, traffic_limit: 0 } })),
       getPublicSettings().catch(() => ({ settings: {} })),
-      getUserNodes().catch(() => ({ items: [] })),
     ])
-      .then(([meRes, subRes, snapRes, settingsRes, nodesRes]) => {
+      .then(([meRes, subRes, settingsRes]) => {
         setUser(meRes.user)
         setSubToken(subRes.token)
-        setSnapshot(snapRes.snapshot)
         setSettings(settingsRes.settings)
-        setNodes(nodesRes.items || [])
       })
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -85,9 +79,6 @@ export default function Overview() {
 
   const subId = generateSubId(subToken)
   const expireDate = user.expired_at ? new Date(user.expired_at).toLocaleDateString("zh-CN") : "无"
-
-  const firstNode = nodes[0]
-  const protocolDisplay = firstNode ? `${firstNode.protocol}/${firstNode.transport}`.toUpperCase() : "—"
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text)
@@ -125,8 +116,6 @@ export default function Overview() {
       await resetMyTraffic()
       const meRes = await getMe()
       setUser(meRes.user)
-      const snapRes = await getTrafficSnapshot().catch(() => ({ snapshot: { upload_total: 0, download_total: 0, total_used: 0, traffic_limit: 0 } }))
-      setSnapshot(snapRes.snapshot)
     } catch (e: any) {
       alert(e?.message || "重置流量失败")
     } finally {
@@ -174,7 +163,7 @@ export default function Overview() {
                   <Shield className="w-3.5 h-3.5 mr-1.5" /> {resettingUUID ? "重置中..." : "重置 UUID"}
                 </Button>
                 <Button variant="outline" size="sm" className="text-orange-600 border-orange-200 hover:bg-orange-50" onClick={handleResetToken}>
-                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> 重置同步连结
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> 重置节点订阅链接
                 </Button>
               </div>
             </div>
@@ -197,7 +186,7 @@ export default function Overview() {
                   <p className="font-bold text-foreground text-sm">{expireDate}</p>
                 </div>
                 <div className="text-center p-3 rounded-lg bg-secondary/50">
-                  <p className="text-xs text-muted-foreground mb-1">同步标识</p>
+                  <p className="text-xs text-muted-foreground mb-1">节点标识</p>
                   <p className="font-bold text-foreground">{subId.replace("LINK-", "")}</p>
                 </div>
               </div>
@@ -241,11 +230,11 @@ export default function Overview() {
             <p className="text-xs text-muted-foreground mt-2">若流量超过方案限制，将自动停用。</p>
           </div>
 
-          {/* === 同步配置 === */}
+          {/* === 节点配置 === */}
           <div className="rounded-xl border bg-card p-5 space-y-5">
             <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
               <span className="inline-block w-2 h-2 rounded-full bg-green-500"></span>
-              同步配置
+              节点配置
             </h3>
 
             {/* 客户端类型选择 */}
@@ -257,9 +246,9 @@ export default function Overview() {
                   onChange={(e) => setClientType(e.target.value)}
                   className="w-full rounded-lg border bg-card px-4 py-2.5 text-sm appearance-none cursor-pointer pr-10 focus:outline-none focus:ring-2 focus:ring-primary/20"
                 >
-                  <option value="general">🔗 通用同步配置 — 多端通用</option>
-                  <option value="clash">⚡ Meta 配置 — 适用 Meta 兼容客户端</option>
-                  <option value="singbox">📦 Box 配置 — 适用 Box 兼容客户端</option>
+                  <option value="general">[通用] 通用节点配置 - 多端通用</option>
+                  <option value="clash">[Meta] Meta 节点配置 - 适用 Meta 兼容客户端</option>
+                  <option value="singbox">[Box] Box 节点配置 - 适用 Box 兼容客户端</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
               </div>
@@ -268,7 +257,7 @@ export default function Overview() {
             {/* 主配置连结 */}
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-sm font-medium">主同步连结</span>
+                <span className="text-sm font-medium">主节点订阅链接</span>
                 <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">推荐</span>
                 <button
                   onClick={() => handleCopy(mainLink, "main")}
@@ -282,14 +271,14 @@ export default function Overview() {
                 onClick={() => handleCopy(mainLink, "main")}
               >
                 <p className="text-xs text-foreground break-all font-mono">{mainLink}</p>
-                <p className="text-[11px] text-muted-foreground mt-1">点击复制主同步连结</p>
+                <p className="text-[11px] text-muted-foreground mt-1">点击复制主节点订阅链接</p>
               </div>
             </div>
 
-            {/* 备用同步连结 */}
+            {/* 备用节点订阅链接 */}
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-sm font-medium">备用同步连结</span>
+                <span className="text-sm font-medium">备用节点订阅链接</span>
                 <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">主链接不可用时使用</span>
                 {backupLink && (
                   <button
@@ -306,7 +295,7 @@ export default function Overview() {
                   onClick={() => handleCopy(backupLink, "backup")}
                 >
                   <p className="text-xs text-foreground break-all font-mono">{backupLink}</p>
-                  <p className="text-[11px] text-muted-foreground mt-1">点击复制备用同步连结</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">点击复制备用节点订阅链接</p>
                 </div>
               ) : (
                 <div className="rounded-lg bg-secondary/30 border border-dashed px-4 py-3">
@@ -316,21 +305,17 @@ export default function Overview() {
             </div>
 
             {/* 生成二维码 */}
-            <QRCodeDialog url={mainLink} title="同步配置二维码" />
+            <QRCodeDialog url={mainLink} title="节点订阅链接二维码" />
 
-            {/* 连接信息 */}
+            {/* 节点订阅信息 */}
             <div className="rounded-lg bg-secondary/30 border p-4">
               <h4 className="text-sm font-medium flex items-center gap-1.5 mb-3">
-                <Info className="w-4 h-4 text-muted-foreground" /> 连接信息
+                <Info className="w-4 h-4 text-muted-foreground" /> 节点订阅信息
               </h4>
               <div className="space-y-2 text-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">用户标识</span>
                   <span className="font-mono text-xs">{subId}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">协议</span>
-                  <span className="text-xs">{protocolDisplay}</span>
                 </div>
               </div>
             </div>

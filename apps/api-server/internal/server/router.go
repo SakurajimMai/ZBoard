@@ -63,6 +63,8 @@ func New(d Deps) *gin.Engine {
 		authed.Use(userAuth(d.Auth))
 		{
 			authed.GET("/me", currentUser(d))
+			authed.POST("/me/password", changeUserPassword(d))
+			authed.DELETE("/me", deleteUserAccount(d))
 			authed.POST("/auth/logout", logoutUser(d))
 			authed.POST("/orders", createOrder(d))
 			authed.POST("/orders/:order_no/pay", createPaymentWithProvider(d, d.Payments))

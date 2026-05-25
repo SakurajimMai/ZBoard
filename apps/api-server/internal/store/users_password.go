@@ -8,3 +8,9 @@ func (s *Store) UpdateUserPasswordHash(ctx context.Context, userID int64, hash s
 	_, err := s.DB.ExecContext(ctx, q, hash, userID)
 	return err
 }
+
+func (s *Store) DeleteUserSessions(ctx context.Context, userID int64) error {
+	q := s.Rebind(`DELETE FROM user_sessions WHERE user_id = ?`)
+	_, err := s.DB.ExecContext(ctx, q, userID)
+	return err
+}

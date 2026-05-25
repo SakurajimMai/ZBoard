@@ -88,7 +88,7 @@ const zhCN = {
     subtitle: "快速找到您需要的答案",
     items: [
       { q: "支持哪些设备和系统？",         a: "支持常用主流终端设备与系统，提供快速接入配置与详细操作指南。" },
-      { q: "如何获取同步配置链接？",       a: "注册登录后，在「配置中心」复制同步配置链接，导入至兼容的第三方辅助客户端工具中即可。" },
+      { q: "如何获取订阅链接？",         a: "注册登录后，在用户端复制订阅链接，导入至兼容的第三方辅助客户端工具中即可。" },
       { q: "流量用完了怎么办？",           a: "可在「账单 & 充值」页面购买流量加油包，或等待下个月自动重置，也可升级更高套餐。" },
       { q: "能同时在多少台设备上使用？",   a: "轻量版支持 3 台设备同时在线，标准版支持 5 台，专业版支持无限设备。" },
       { q: "是否提供退款保障？",           a: "提供 3 天无理由退款保障，购买后如不满意可联系客服申请全额退款。" },
@@ -118,7 +118,7 @@ const zhCN = {
   // Dashboard sidebar
   dash: {
     overview:     "控制台",
-    subscription: "同步配置",
+    subscription: "节点配置",
     download:     "工具下载",
     ticket:       "工单支持",
     settings:     "账户设置",
@@ -208,7 +208,7 @@ const zhTW: TranslationDict = {
     subtitle: "快速找到您需要的答案",
     items: [
       { q: "支援哪些裝置和系統？",       a: "支援常用主流終端裝置與系統，提供快速接入設定與詳細操作指南。" },
-      { q: "如何取得同步配置連結？",     a: "註冊登入後，在「配置中心」複製同步配置連結，匯入至相容的第三方輔助客戶端工具中即可。" },
+      { q: "如何取得訂閱連結？",       a: "註冊登入後，在用戶端複製訂閱連結，匯入至相容的第三方輔助客戶端工具中即可。" },
       { q: "流量用完了怎麼辦？",         a: "可在「帳單 & 儲值」頁面購買流量加油包，或等待下個月自動重置，也可升級更高套餐。" },
       { q: "能同時在多少台裝置上使用？", a: "輕量版支援 3 台裝置同時上線，標準版支援 5 台，專業版支援無限裝置。" },
       { q: "是否提供退款保障？",         a: "提供 3 天無理由退款保障，購買後如不滿意可聯繫客服申請全額退款。" },
@@ -228,7 +228,7 @@ const zhTW: TranslationDict = {
     copyright: "版權所有",
   },
   dash: {
-    overview: "控制台", subscription: "同步配置",
+    overview: "控制台", subscription: "節點配置",
     download: "工具下載", ticket: "工單支援", settings: "帳戶設定",
     logout: "登出",
   },
@@ -321,7 +321,7 @@ const en: TranslationDict = {
     copyright: "All rights reserved",
   },
   dash: {
-    overview: "Dashboard", subscription: "My Subscription",
+    overview: "Dashboard", subscription: "Node Config",
     download: "Downloads", ticket: "Support", settings: "Settings",
     logout: "Sign Out",
   },
@@ -414,7 +414,7 @@ const fa: TranslationDict = {
     copyright: "تمامی حقوق محفوظ است",
   },
   dash: {
-    overview: "داشبورد", subscription: "اشتراک من",
+    overview: "داشبورد", subscription: "پیکربندی گره",
     download: "دانلود", ticket: "پشتیبانی", settings: "تنظیمات",
     logout: "خروج",
   },
@@ -507,7 +507,7 @@ const ja: TranslationDict = {
     copyright: "全著作権所有",
   },
   dash: {
-    overview: "ダッシュボード", subscription: "マイサブスク",
+    overview: "ダッシュボード", subscription: "ノード設定",
     download: "ダウンロード", ticket: "サポート", settings: "設定",
     logout: "ログアウト",
   },
@@ -600,7 +600,7 @@ const vi: TranslationDict = {
     copyright: "Bản quyền thuộc về",
   },
   dash: {
-    overview: "Bảng điều khiển", subscription: "Đăng ký của tôi",
+    overview: "Bảng điều khiển", subscription: "Cấu hình nút",
     download: "Tải xuống", ticket: "Hỗ trợ", settings: "Cài đặt",
     logout: "Đăng xuất",
   },
@@ -693,7 +693,7 @@ const ko: TranslationDict = {
     copyright: "모든 권리 보유",
   },
   dash: {
-    overview: "대시보드", subscription: "내 구독",
+    overview: "대시보드", subscription: "노드 설정",
     download: "다운로드", ticket: "지원", settings: "설정",
     logout: "로그아웃",
   },
@@ -786,7 +786,7 @@ const ru: TranslationDict = {
     copyright: "Все права защищены",
   },
   dash: {
-    overview: "Панель", subscription: "Моя подписка",
+    overview: "Панель", subscription: "Настройка узлов",
     download: "Загрузки", ticket: "Поддержка", settings: "Настройки",
     logout: "Выйти",
   },

@@ -152,6 +152,20 @@ export async function getMe() {
   return request<{ user: any }>('/api/v1/me')
 }
 
+export async function changeMyPassword(currentPassword: string, newPassword: string) {
+  return request<{ ok: boolean }>('/api/v1/me/password', {
+    method: 'POST',
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  })
+}
+
+export async function deleteMyAccount(password: string) {
+  return request<{ ok: boolean }>('/api/v1/me', {
+    method: 'DELETE',
+    body: JSON.stringify({ password }),
+  })
+}
+
 export async function getDailyTraffic(days: number = 30) {
   return request<{ items: { day: string; upload: number; download: number; total: number }[]; days: number }>(
     `/api/v1/traffic/daily?days=${days}`,

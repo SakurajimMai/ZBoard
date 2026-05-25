@@ -89,6 +89,55 @@ func logoutUser(d Deps) gin.HandlerFunc {
 	}
 }
 
+type changePasswordBody struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required"`
+}
+
+func changeUserPassword(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		uid := c.MustGet(ctxUserIDKey).(int64)
+		var body changePasswordBody
+		if err := c.ShouldBindJSON(&body); err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
+			return
+		}
+		if err := d.Auth.ChangeUserPassword(c.Request.Context(), uid, body.CurrentPassword, body.NewPassword); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
+			ActorType: "user", ActorID: ptrInt64(uid),
+			Action: "user.password.change", IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+		})
+		httpx.OK(c, gin.H{"ok": true})
+	}
+}
+
+type deleteAccountBody struct {
+	Password string `json:"password" binding:"required"`
+}
+
+func deleteUserAccount(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		uid := c.MustGet(ctxUserIDKey).(int64)
+		var body deleteAccountBody
+		if err := c.ShouldBindJSON(&body); err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
+			return
+		}
+		if err := d.Auth.DeleteUserAccount(c.Request.Context(), uid, body.Password); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
+			ActorType: "user", ActorID: ptrInt64(uid),
+			Action: "user.delete", IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+		})
+		httpx.OK(c, gin.H{"ok": true})
+	}
+}
+
 func currentUser(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := c.MustGet(ctxUserIDKey).(int64)

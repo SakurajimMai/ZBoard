@@ -434,6 +434,41 @@ func (s *Service) LogoutUser(ctx context.Context, token string) error {
 	return s.Store.DeleteUserSession(ctx, authx.HashToken(token))
 }
 
+func (s *Service) ChangeUserPassword(ctx context.Context, userID int64, currentPassword, newPassword string) error {
+	if len(newPassword) < 6 {
+		return httpx.NewError(http.StatusBadRequest, "bad_request", "密码至少 6 位")
+	}
+	u, err := s.Store.FindUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if err := authx.VerifyPassword(u.PasswordHash, currentPassword); err != nil {
+		return httpx.NewError(http.StatusUnauthorized, "invalid_credentials", "当前密码错误")
+	}
+	hash, err := authx.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	return s.Store.UpdateUserPasswordHash(ctx, userID, hash)
+}
+
+func (s *Service) DeleteUserAccount(ctx context.Context, userID int64, password string) error {
+	u, err := s.Store.FindUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if err := authx.VerifyPassword(u.PasswordHash, password); err != nil {
+		return httpx.NewError(http.StatusUnauthorized, "invalid_credentials", "密码错误")
+	}
+	if err := s.Store.SetUserStatus(ctx, userID, "deleted"); err != nil {
+		return err
+	}
+	if err := s.Store.SetNodeUserEnabledForUser(ctx, userID, 0); err != nil {
+		return err
+	}
+	return s.Store.DeleteUserSessions(ctx, userID)
+}
+
 // ===== Admin =====
 
 func (s *Service) BootstrapAdmin(ctx context.Context, setupToken, email, password string) (int64, error) {

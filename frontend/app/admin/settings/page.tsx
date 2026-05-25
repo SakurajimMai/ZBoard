@@ -465,14 +465,8 @@ export default function AdminSettingsPage() {
             <Divider />
 
             <Grid>
-              <Field label="后台路径">
+              <Field label="后台路径" hint="用于管理端入口提示；实际路由仍以部署配置为准">
                 <Input value={settings.admin_path} onChange={(e) => setValue("admin_path", e.target.value)} />
-              </Field>
-              <Field label="支持邮箱">
-                <Input value={settings.support_email} onChange={(e) => setValue("support_email", e.target.value)} />
-              </Field>
-              <Field label="Telegram">
-                <Input value={settings.support_telegram} onChange={(e) => setValue("support_telegram", e.target.value)} />
               </Field>
             </Grid>
             <Field label="邮箱域名白名单">

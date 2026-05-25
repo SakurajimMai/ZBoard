@@ -10,7 +10,7 @@ interface QRCodeDialogProps {
   title?: string
 }
 
-export default function QRCodeDialog({ url, title = "同步配置二维码" }: QRCodeDialogProps) {
+export default function QRCodeDialog({ url, title = "节点订阅链接二维码" }: QRCodeDialogProps) {
   return (
     <Dialog>
       <DialogTrigger asChild>
