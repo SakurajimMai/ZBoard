@@ -474,9 +474,19 @@ func adminUpdateUser(d Deps) gin.HandlerFunc {
 				httpx.Fail(c, err)
 				return
 			}
-			_ = d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 1)
+			if err := d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 1); err != nil {
+				httpx.Fail(c, err)
+				return
+			}
 		} else {
-			_ = d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 0)
+			if err := d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 0); err != nil {
+				httpx.Fail(c, err)
+				return
+			}
+		}
+		if err := enqueueActiveNodeSync(c.Request.Context(), d); err != nil {
+			httpx.Fail(c, err)
+			return
 		}
 		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
 		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
@@ -583,6 +593,14 @@ func adminUserDisable(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, err)
 			return
 		}
+		if err := d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 0); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		if err := enqueueActiveNodeSync(c.Request.Context(), d); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
 		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
 		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
 			ActorType: "admin", ActorID: ptrInt64(a.ID),
@@ -601,6 +619,14 @@ func adminUserEnable(d Deps) gin.HandlerFunc {
 			return
 		}
 		if err := d.Store.SetUserStatus(c.Request.Context(), id, "active"); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		if err := d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 1); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		if err := enqueueActiveNodeSync(c.Request.Context(), d); err != nil {
 			httpx.Fail(c, err)
 			return
 		}
@@ -633,6 +659,7 @@ func adminBatchUsers(d Deps) gin.HandlerFunc {
 			return
 		}
 		action := strings.TrimSpace(body.Action)
+		needsNodeSync := false
 		for _, id := range body.UserIDs {
 			if id <= 0 {
 				httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "用户 ID 不合法"))
@@ -644,13 +671,21 @@ func adminBatchUsers(d Deps) gin.HandlerFunc {
 					httpx.Fail(c, err)
 					return
 				}
-				_ = d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 1)
+				if err := d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 1); err != nil {
+					httpx.Fail(c, err)
+					return
+				}
+				needsNodeSync = true
 			case "disable":
 				if err := d.Store.SetUserStatus(c.Request.Context(), id, "disabled"); err != nil {
 					httpx.Fail(c, err)
 					return
 				}
-				_ = d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 0)
+				if err := d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 0); err != nil {
+					httpx.Fail(c, err)
+					return
+				}
+				needsNodeSync = true
 			case "reset_subscription":
 				tok, err := newSubToken()
 				if err != nil {
@@ -671,16 +706,22 @@ func adminBatchUsers(d Deps) gin.HandlerFunc {
 					httpx.Fail(c, err)
 					return
 				}
-				if d.Auth.Mailer == nil {
+				if d.Auth == nil {
 					httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "mailer_not_configured", "邮件服务未配置"))
 					return
 				}
-				if err := d.Auth.Mailer.SendText(u.Email, body.Subject, body.Content); err != nil {
+				if err := d.Auth.SendAdminEmail(c.Request.Context(), u.Email, body.Subject, body.Content); err != nil {
 					httpx.Fail(c, err)
 					return
 				}
 			default:
 				httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "批量操作不支持"))
+				return
+			}
+		}
+		if needsNodeSync {
+			if err := enqueueActiveNodeSync(c.Request.Context(), d); err != nil {
+				httpx.Fail(c, err)
 				return
 			}
 		}

@@ -51,6 +51,8 @@ import {
   adminGetUserTrafficLogs,
   adminResetUserIdentity,
   adminUpdateUser,
+  buildSubscriptionUrl,
+  getPublicSettings,
 } from "@/lib/api"
 
 type UserForm = {
@@ -110,6 +112,7 @@ export default function AdminUsers() {
   const [detailItems, setDetailItems] = useState<any[]>([])
   const [form, setForm] = useState<UserForm>(emptyForm)
   const [filters, setFilters] = useState<UserFilter>(emptyFilter)
+  const [settings, setSettings] = useState<Record<string, string>>({})
   const [mailSubject, setMailSubject] = useState("")
   const [mailContent, setMailContent] = useState("")
   const [selected, setSelected] = useState<number[]>([])
@@ -135,11 +138,13 @@ export default function AdminUsers() {
         trafficMax: filters.traffic_max_gb ? gbToBytes(filters.traffic_max_gb) : null,
       }),
       adminGetPlans({ page: 1, pageSize: 100 }),
+      getPublicSettings().catch(() => ({ settings: {} })),
     ])
-      .then(([u, p]) => {
+      .then(([u, p, publicSettings]) => {
         setUsers(u.items || [])
         setTotal(u.total ?? (u.items || []).length)
         setPlans(p.items || [])
+        setSettings(publicSettings.settings || {})
         setSelected([])
       })
       .catch((err) => alert(err.message || "加载失败"))
@@ -305,7 +310,7 @@ export default function AdminUsers() {
   const copySubscription = async (u: any) => {
     try {
       const res = await adminGetUserSubscription(u.id)
-      const url = `${window.location.origin}/api/sub/${res.token}`
+      const url = buildSubscriptionUrl(res.token, undefined, settings)
       await navigator.clipboard.writeText(url)
       alert("已复制订阅 URL")
     } catch (err: any) {
@@ -317,7 +322,7 @@ export default function AdminUsers() {
     if (!confirm("重置 UUID 及订阅 URL 会让旧客户端和旧订阅链接失效，确认继续？")) return
     try {
       const res = await adminResetUserIdentity(u.id)
-      const url = `${window.location.origin}/api/sub/${res.token}`
+      const url = buildSubscriptionUrl(res.token, undefined, settings)
       await navigator.clipboard.writeText(url)
       alert("UUID 和订阅 URL 已重置，新的订阅 URL 已复制")
       load()

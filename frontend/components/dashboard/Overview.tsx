@@ -12,6 +12,8 @@ import {
   getMe, getSubscription, resetSubscriptionToken,
   getTrafficSnapshot, getPublicSettings, getUserNodes,
   resetMyTraffic, resetMyUUID,
+  buildSubscriptionUrl,
+  buildSubscriptionUrlFromBase,
 } from "@/lib/api"
 import QRCodeDialog from "@/components/dashboard/QRCodeDialog"
 
@@ -72,13 +74,11 @@ export default function Overview() {
   if (loading) return <div className="text-muted-foreground p-8">加载中...</div>
   if (!user) return <div className="text-red-500 p-8">无法加载用户信息</div>
 
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || (typeof window !== "undefined" ? window.location.origin.replace(":3001", ":3000") : "")
-  const subscriptionUrl = `${apiBase}/api/sub/${subToken}`
-  const targetSuffix = clientType === "clash" ? "?target=clash" : clientType === "singbox" ? "?target=sing-box" : ""
-  const mainLink = `${subscriptionUrl}${targetSuffix}`
+  const target = clientType === "clash" ? "clash" : clientType === "singbox" ? "sing-box" : undefined
+  const mainLink = buildSubscriptionUrl(subToken, target, settings)
 
   const backupDomain = settings.backup_subscription_domain || ""
-  const backupLink = backupDomain ? `https://${backupDomain}/api/sub/${subToken}${targetSuffix}` : ""
+  const backupLink = backupDomain ? buildSubscriptionUrlFromBase(backupDomain, subToken, target) : ""
 
   const totalBytes = user.traffic_limit || 0
   const usedBytes = user.traffic_used || 0

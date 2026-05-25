@@ -3,14 +3,40 @@
 //   - 走 CDN 时只需代理 80/443,不必暴露 :3000
 //   - 浏览器无跨域,无需 CORS 预检
 // 如果显式指定 NEXT_PUBLIC_API_URL 则走绝对地址(用于独立 API 子域名场景)。
-function getApiBase(): string {
+export function getApiBase(): string {
   if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL
+    return process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '')
   }
   return ''
 }
 
 const API_BASE = getApiBase()
+
+export function normalizeOrigin(value?: string): string {
+  const raw = (value || '').trim().replace(/\/+$/, '')
+  if (!raw) return ''
+  if (/^https?:\/\//i.test(raw)) return raw
+  return `https://${raw}`
+}
+
+export function buildSubscriptionUrlFromBase(base: string, token: string, target?: string): string {
+  const origin = normalizeOrigin(base)
+  const suffix = target ? `?target=${encodeURIComponent(target)}` : ''
+  return `${origin}/api/sub/${token}${suffix}`
+}
+
+export function getSubscriptionBase(settings?: Record<string, string>): string {
+  const configured = normalizeOrigin(settings?.subscription_domain)
+  if (configured) return configured
+  const apiBase = normalizeOrigin(getApiBase())
+  if (apiBase) return apiBase
+  if (typeof window !== 'undefined') return window.location.origin.replace(/\/+$/, '')
+  return ''
+}
+
+export function buildSubscriptionUrl(token: string, target?: string, settings?: Record<string, string>): string {
+  return buildSubscriptionUrlFromBase(getSubscriptionBase(settings), token, target)
+}
 
 class ApiError extends Error {
   status: number

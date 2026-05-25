@@ -38,6 +38,21 @@ const emptyForm: FormState = {
   ends_at: "",
 }
 
+function toDateTimeLocal(value?: string | null): string {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function fromDateTimeLocal(value: string): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toISOString()
+}
+
 export default function AdminAnnouncements() {
   const [items, setItems] = useState<any[]>([])
   const [page, setPage] = useState(1)
@@ -76,8 +91,8 @@ export default function AdminAnnouncements() {
       popup: Boolean(item.popup),
       priority: String(item.priority ?? 0),
       status: item.status === "inactive" ? "inactive" : "active",
-      starts_at: item.starts_at ? String(item.starts_at).slice(0, 16) : "",
-      ends_at: item.ends_at ? String(item.ends_at).slice(0, 16) : "",
+      starts_at: toDateTimeLocal(item.starts_at),
+      ends_at: toDateTimeLocal(item.ends_at),
     })
     setDialogOpen(true)
   }
@@ -95,8 +110,8 @@ export default function AdminAnnouncements() {
     popup: form.popup,
     priority: Number(form.priority || 0),
     status: form.status,
-    starts_at: form.starts_at ? new Date(form.starts_at).toISOString() : null,
-    ends_at: form.ends_at ? new Date(form.ends_at).toISOString() : null,
+    starts_at: fromDateTimeLocal(form.starts_at),
+    ends_at: fromDateTimeLocal(form.ends_at),
   })
 
   const save = async () => {
