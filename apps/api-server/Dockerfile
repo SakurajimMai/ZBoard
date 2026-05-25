@@ -4,14 +4,15 @@ WORKDIR /src
 
 RUN apk add --no-cache git ca-certificates
 
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETOS
+ARG TARGETARCH
 
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w" -o /out/zboard-api ./cmd/server
+RUN test -n "${TARGETOS}" && test -n "${TARGETARCH}" && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w" -o /out/zboard-api ./cmd/server
 
 # Runtime stage
 FROM alpine:3.20
