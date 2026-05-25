@@ -10,6 +10,7 @@ type Order struct {
 	OrderNo     string     `db:"order_no" json:"order_no"`
 	UserID      int64      `db:"user_id" json:"user_id"`
 	PlanID      int64      `db:"plan_id" json:"plan_id"`
+	Kind        string     `db:"kind" json:"kind"`
 	Amount      string     `db:"amount" json:"amount"`
 	Currency    string     `db:"currency" json:"currency"`
 	Status      string     `db:"status" json:"status"`
@@ -20,16 +21,24 @@ type Order struct {
 	UpdatedAt   time.Time  `db:"updated_at" json:"updated_at"`
 }
 
+const (
+	OrderKindPlan         = "plan"
+	OrderKindTrafficReset = "traffic_reset"
+)
+
 func (s *Store) CreateOrder(ctx context.Context, o *Order) (int64, error) {
+	if o.Kind == "" {
+		o.Kind = OrderKindPlan
+	}
 	return s.InsertReturningID(ctx,
-		`INSERT INTO orders(order_no, user_id, plan_id, amount, currency, status, expired_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		o.OrderNo, o.UserID, o.PlanID, o.Amount, o.Currency, o.Status, o.ExpiredAt,
+		`INSERT INTO orders(order_no, user_id, plan_id, kind, amount, currency, status, expired_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		o.OrderNo, o.UserID, o.PlanID, o.Kind, o.Amount, o.Currency, o.Status, o.ExpiredAt,
 	)
 }
 
 func (s *Store) FindOrderByNo(ctx context.Context, orderNo string) (*Order, error) {
-	q := s.Rebind(`SELECT id, order_no, user_id, plan_id, amount, currency, status,
+	q := s.Rebind(`SELECT id, order_no, user_id, plan_id, kind, amount, currency, status,
 		paid_at, cancelled_at, expired_at, created_at, updated_at
 		FROM orders WHERE order_no = ?`)
 	var o Order
@@ -49,7 +58,7 @@ func (s *Store) ListOrdersByUser(ctx context.Context, userID int64, limit int) (
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	q := s.Rebind(`SELECT id, order_no, user_id, plan_id, amount, currency, status,
+	q := s.Rebind(`SELECT id, order_no, user_id, plan_id, kind, amount, currency, status,
 		paid_at, cancelled_at, expired_at, created_at, updated_at
 		FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT ?`)
 	var rows []Order
@@ -73,7 +82,7 @@ func (s *Store) ListAllOrdersPage(ctx context.Context, p PageParams) ([]Order, i
 	if err := s.DB.GetContext(ctx, &total, `SELECT COUNT(*) FROM orders`); err != nil {
 		return nil, 0, err
 	}
-	q := s.Rebind(`SELECT id, order_no, user_id, plan_id, amount, currency, status,
+	q := s.Rebind(`SELECT id, order_no, user_id, plan_id, kind, amount, currency, status,
 		paid_at, cancelled_at, expired_at, created_at, updated_at
 		FROM orders ORDER BY id DESC LIMIT ? OFFSET ?`)
 	var rows []Order

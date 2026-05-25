@@ -41,6 +41,7 @@
 | `sakurajiamai/zboard-agent:latest` | Node Agent |
 
 镜像由 GitHub Actions 在每次 push 到 `main` 时自动构建并推送到 DockerHub。
+镜像发布为多架构 manifest，支持 `linux/amd64` 与 `linux/arm64`；ARM 服务器无需更换镜像名，Docker 会按宿主机架构自动拉取对应版本。
 
 ---
 

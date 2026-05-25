@@ -31,6 +31,7 @@ jobs:
         with:
           context: ./apps/api-server
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.API_IMAGE }}:latest
             ${{ env.API_IMAGE }}:${{ github.sha }}
@@ -56,6 +57,7 @@ jobs:
         with:
           context: ./frontend
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.FRONTEND_IMAGE }}:latest
             ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
@@ -81,6 +83,7 @@ jobs:
         with:
           context: ./apps/node-agent
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.AGENT_IMAGE }}:latest
             ${{ env.AGENT_IMAGE }}:${{ github.sha }}

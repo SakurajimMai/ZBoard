@@ -1,14 +1,17 @@
 # Build stage
-FROM golang:1.25-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 WORKDIR /src
 
 RUN apk add --no-cache git ca-certificates
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
 
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/zboard-agent ./cmd/zboard-agent
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w" -o /out/zboard-agent ./cmd/zboard-agent
 
 # Download Xray and sing-box binaries
 FROM alpine:3.20 AS runtime-dl
@@ -18,7 +21,12 @@ ARG XRAY_VERSION=25.5.16
 ARG SINGBOX_VERSION=1.11.8
 ARG TARGETARCH=amd64
 
-RUN curl -fsSL "https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-linux-64.zip" \
+RUN case "${TARGETARCH}" in \
+      amd64) XRAY_ASSET="Xray-linux-64.zip" ;; \
+      arm64) XRAY_ASSET="Xray-linux-arm64-v8a.zip" ;; \
+      *) echo "unsupported TARGETARCH for Xray: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL "https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/${XRAY_ASSET}" \
       -o /tmp/xray.zip && \
     unzip /tmp/xray.zip -d /tmp/xray && \
     chmod +x /tmp/xray/xray

@@ -62,6 +62,8 @@ docker compose up -d
 | `sakurajiamai/zboard-frontend` | 前端 |
 | `sakurajiamai/zboard-agent` | Node Agent |
 
+以上镜像发布为多架构 manifest，支持 `linux/amd64` 与 `linux/arm64`，ARM 服务器可直接使用同一组 `latest` 镜像部署。
+
 ## 本地开发
 
 ```bash

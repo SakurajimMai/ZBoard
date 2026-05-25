@@ -173,7 +173,7 @@ export async function getDailyTraffic(days: number = 30) {
 }
 
 export async function resetMyTraffic() {
-  return request<{ ok: boolean }>('/api/v1/traffic/reset', { method: 'POST' })
+  return request<{ order: any }>('/api/v1/traffic/reset', { method: 'POST' })
 }
 
 export async function resetMyUUID() {

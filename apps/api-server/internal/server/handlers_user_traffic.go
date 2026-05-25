@@ -3,10 +3,7 @@ package server
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
-	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,7 +11,7 @@ import (
 	"github.com/zboard/api-server/internal/store"
 )
 
-// userTrafficSnapshot returns the current user's upload/download traffic breakdown.
+// userTrafficSnapshot 返回当前用户的上传、下载和总流量快照。
 func userTrafficSnapshot(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := c.MustGet(ctxUserIDKey).(int64)
@@ -36,7 +33,7 @@ func userTrafficSnapshot(d Deps) gin.HandlerFunc {
 	}
 }
 
-// userTrafficLogs returns recent traffic log entries for the current user.
+// userTrafficLogs 返回当前用户最近的流量明细。
 func userTrafficLogs(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := c.MustGet(ctxUserIDKey).(int64)
@@ -55,7 +52,6 @@ func userTrafficLogs(d Deps) gin.HandlerFunc {
 	}
 }
 
-// userNodeView is a sanitized node view for end users — no secrets, no private keys.
 type userNodeView struct {
 	ID              int64      `json:"id"`
 	Name            string     `json:"name"`
@@ -66,7 +62,7 @@ type userNodeView struct {
 	LastHeartbeatAt *time.Time `json:"last_heartbeat_at"`
 }
 
-// userNodes returns the list of active nodes visible to the current user.
+// userNodes 返回用户端可见节点，过滤掉密钥和私有配置。
 func userNodes(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		nodes, err := d.Store.ListActiveNodes(c.Request.Context())
@@ -95,8 +91,7 @@ func userNodes(d Deps) gin.HandlerFunc {
 	}
 }
 
-// userTrafficDaily returns per-day upload/download/total bytes over the last
-// `days` days (default 30, capped 365).
+// userTrafficDaily 返回最近 days 天的每日流量聚合。
 func userTrafficDaily(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := c.MustGet(ctxUserIDKey).(int64)
@@ -115,56 +110,30 @@ func userTrafficDaily(d Deps) gin.HandlerFunc {
 	}
 }
 
-// userResetTraffic charges the user's plan-defined reset_traffic_price from
-// users.balance, then zeroes the traffic counters. Users without a plan, or
-// plans with price 0, are rejected with 403 to prevent free abuse.
+// userResetTraffic 创建流量重置支付订单；支付回调成功后才真正清零流量。
 func userResetTraffic(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := c.MustGet(ctxUserIDKey).(int64)
-		u, err := d.Store.FindUserByID(c.Request.Context(), uid)
+		res, err := d.Biz.CreateTrafficResetOrder(c.Request.Context(), uid)
 		if err != nil {
-			httpx.Fail(c, err)
-			return
-		}
-		if u.PlanID == nil || *u.PlanID == 0 {
-			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "plan_required", "请先订阅套餐后再使用此功能"))
-			return
-		}
-		plan, err := d.Store.FindPlanByID(c.Request.Context(), *u.PlanID)
-		if err != nil {
-			httpx.Fail(c, err)
-			return
-		}
-		price := strings.TrimSpace(plan.ResetTrafficPrice)
-		if price == "" || price == "0" || price == "0.00" {
-			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "reset_disabled", "当前套餐未开放流量重置"))
-			return
-		}
-		ok, err := d.Store.DeductBalanceAtomic(c.Request.Context(), uid, price)
-		if err != nil {
-			httpx.Fail(c, err)
-			return
-		}
-		if !ok {
-			httpx.Fail(c, httpx.NewError(http.StatusPaymentRequired, "insufficient_balance",
-				fmt.Sprintf("余额不足，本次重置需要 %s", price)))
-			return
-		}
-		if err := d.Store.ResetUserTraffic(c.Request.Context(), uid); err != nil {
 			httpx.Fail(c, err)
 			return
 		}
 		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
-			ActorType: "user", ActorID: ptrInt64(uid),
-			Action: "user.reset_traffic", Detail: "charged=" + price,
-			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+			ActorType:    "user",
+			ActorID:      ptrInt64(uid),
+			Action:       "user.reset_traffic_order",
+			ResourceType: "order",
+			ResourceID:   res.Order.OrderNo,
+			Detail:       "amount=" + res.Order.Amount,
+			IP:           c.ClientIP(),
+			UserAgent:    c.Request.UserAgent(),
 		})
-		httpx.OK(c, gin.H{"ok": true, "charged": price})
+		httpx.Created(c, gin.H{"order": res.Order})
 	}
 }
 
-// userResetUUID rotates the user's client_id across every node_users row and
-// regenerates sync_config tasks so the new id reaches each node's runtime.
+// userResetUUID 轮换用户在全部节点映射中的 client_id，并下发节点同步任务。
 func userResetUUID(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := c.MustGet(ctxUserIDKey).(int64)
@@ -184,8 +153,11 @@ func userResetUUID(d Deps) gin.HandlerFunc {
 			}
 		}
 		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
-			ActorType: "user", ActorID: ptrInt64(uid),
-			Action: "user.reset_uuid", IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+			ActorType: "user",
+			ActorID:   ptrInt64(uid),
+			Action:    "user.reset_uuid",
+			IP:        c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
 		})
 		httpx.OK(c, gin.H{"ok": true, "client_id": newID})
 	}
@@ -198,11 +170,13 @@ func newUserClientID() (string, error) {
 	}
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%s-%s-%s-%s-%s",
-		hex.EncodeToString(b[0:4]),
-		hex.EncodeToString(b[4:6]),
-		hex.EncodeToString(b[6:8]),
-		hex.EncodeToString(b[8:10]),
-		hex.EncodeToString(b[10:16]),
-	), nil
+	return fmtUUID(b), nil
+}
+
+func fmtUUID(b []byte) string {
+	return hex.EncodeToString(b[0:4]) + "-" +
+		hex.EncodeToString(b[4:6]) + "-" +
+		hex.EncodeToString(b[6:8]) + "-" +
+		hex.EncodeToString(b[8:10]) + "-" +
+		hex.EncodeToString(b[10:16])
 }

@@ -11,9 +11,8 @@ import (
 	"github.com/zboard/api-server/internal/store"
 )
 
-// paymentCallback is a generic webhook handler that dispatches to the correct
-// provider based on the :provider path param, verifies the signature, and
-// activates the user's plan on success.
+// paymentCallback dispatches provider webhooks and completes the paid order.
+// Plan orders activate subscriptions; traffic-reset orders clear used traffic.
 func paymentCallback(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		providerName := c.Param("provider")
@@ -89,9 +88,8 @@ func respondCallback(c *gin.Context, provider string) {
 	}
 }
 
-// createPaymentOrder handles POST /api/v1/orders/:order_no/pay with a real
-// provider. It replaces the old mock-only flow when a provider query param is
-// given (e.g. ?provider=epay&pay_type=alipay).
+// createPaymentWithProvider handles POST /api/v1/orders/:order_no/pay with a
+// real provider when a provider query param is given.
 func createPaymentWithProvider(d Deps, reg *registry.Registry) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		orderNo := c.Param("order_no")
@@ -136,7 +134,7 @@ func createPaymentWithProvider(d Deps, reg *registry.Registry) gin.HandlerFunc {
 		}
 		baseURL := scheme + "://" + c.Request.Host
 		notifyURL := baseURL + "/api/v1/payments/" + providerName + "/callback"
-		returnURL := baseURL + "/app/orders"
+		returnURL := baseURL + "/dashboard"
 
 		resp, err := prov.CreatePayment(c.Request.Context(), payment.CreateRequest{
 			OrderNo:   o.OrderNo,

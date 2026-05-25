@@ -3,13 +3,24 @@
 import { useEffect, useState } from "react"
 import {
   Copy, RefreshCw, Server, Shield,
-  ChevronDown, Info
+  ChevronDown, Info, CreditCard, AlertCircle, CheckCircle2
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   getMe, getSubscription, resetSubscriptionToken,
   getPublicSettings,
   resetMyTraffic, resetMyUUID,
+  getPaymentMethods, payOrder,
   buildSubscriptionUrl,
   buildSubscriptionUrlFromBase,
 } from "@/lib/api"
@@ -46,6 +57,9 @@ export default function Overview() {
   const [clientType, setClientType] = useState("general")
   const [resettingTraffic, setResettingTraffic] = useState(false)
   const [resettingUUID, setResettingUUID] = useState(false)
+  const [trafficDialogOpen, setTrafficDialogOpen] = useState(false)
+  const [uuidDialogOpen, setUUIDDialogOpen] = useState(false)
+  const [notice, setNotice] = useState<{ type: "success" | "error"; message: string } | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -98,26 +112,42 @@ export default function Overview() {
   const resetPriceRaw = (user as any)?.reset_traffic_price ?? "0"
   const resetPriceNum = Number(resetPriceRaw) || 0
   const resetPriceEnabled = resetPriceNum > 0
-  const balanceNum = Number((user as any)?.balance ?? 0)
 
-  const handleResetTraffic = async () => {
+  const openTrafficResetDialog = () => {
+    if (!resetPriceEnabled) {
+      setNotice({ type: "error", message: "当前套餐未开放流量重置，请联系客服或升级套餐。" })
+      return
+    }
+    setTrafficDialogOpen(true)
+  }
+
+  const handleResetTrafficPayment = async () => {
     if (resettingTraffic) return
     if (!resetPriceEnabled) {
-      alert("当前套餐未开放流量重置，请联系客服或升级套餐。")
+      setNotice({ type: "error", message: "当前套餐未开放流量重置，请联系客服或升级套餐。" })
       return
     }
-    if (balanceNum < resetPriceNum) {
-      alert(`余额不足：本次重置需要 ¥${resetPriceNum.toFixed(2)}，当前余额 ¥${balanceNum.toFixed(2)}，请先充值。`)
-      return
-    }
-    if (!confirm(`本次重置流量将从余额扣费 ¥${resetPriceNum.toFixed(2)}，确认继续？`)) return
     setResettingTraffic(true)
+    setNotice(null)
     try {
-      await resetMyTraffic()
-      const meRes = await getMe()
-      setUser(meRes.user)
+      const methodsRes = await getPaymentMethods()
+      const method = methodsRes.methods?.[0]
+      if (!method?.name) {
+        throw new Error("站点尚未配置可用支付方式，请联系管理员。")
+      }
+      const orderRes = await resetMyTraffic()
+      const orderNo = orderRes.order?.order_no
+      if (!orderNo) {
+        throw new Error("流量重置订单创建失败，请稍后重试。")
+      }
+      const payType = method.provider_type === "epay" ? "alipay" : undefined
+      const payRes = await payOrder(orderNo, method.name, payType)
+      if (!payRes.pay_url) {
+        throw new Error("支付网关未返回支付地址，请联系管理员检查支付配置。")
+      }
+      window.location.href = payRes.pay_url
     } catch (e: any) {
-      alert(e?.message || "重置流量失败")
+      setNotice({ type: "error", message: e?.message || "创建支付订单失败" })
     } finally {
       setResettingTraffic(false)
     }
@@ -125,13 +155,14 @@ export default function Overview() {
 
   const handleResetUUID = async () => {
     if (resettingUUID) return
-    if (!confirm("重置 UUID 后旧客户端将失效，需要重新导入订阅。确认继续？")) return
     setResettingUUID(true)
+    setNotice(null)
     try {
       await resetMyUUID()
-      alert("UUID 已重置，节点同步任务已下发，请重新导入订阅。")
+      setUUIDDialogOpen(false)
+      setNotice({ type: "success", message: "UUID 已重置，节点同步任务已下发，请重新导入节点配置。" })
     } catch (e: any) {
-      alert(e?.message || "重置 UUID 失败")
+      setNotice({ type: "error", message: e?.message || "重置 UUID 失败" })
     } finally {
       setResettingUUID(false)
     }
@@ -140,6 +171,16 @@ export default function Overview() {
   return (
     <div className="space-y-6">
       <div className="space-y-6">
+          {notice && (
+            <div className={`rounded-lg border px-4 py-3 text-sm flex items-start gap-2 ${
+              notice.type === "success"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"
+                : "border-destructive/30 bg-destructive/10 text-destructive"
+            }`}>
+              {notice.type === "success" ? <CheckCircle2 className="w-4 h-4 mt-0.5" /> : <AlertCircle className="w-4 h-4 mt-0.5" />}
+              <span>{notice.message}</span>
+            </div>
+          )}
           {/* === 头部卡片 === */}
           <div className="rounded-xl border bg-card p-5">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -156,10 +197,10 @@ export default function Overview() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" className="text-pink-600 border-pink-200 hover:bg-pink-50 disabled:opacity-50" onClick={handleResetTraffic} disabled={resettingTraffic || !resetPriceEnabled} title={resetPriceEnabled ? `本次重置 ¥${resetPriceNum.toFixed(2)}` : "当前套餐未开放流量重置"}>
-                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${resettingTraffic ? "animate-spin" : ""}`} /> {resettingTraffic ? "重置中..." : resetPriceEnabled ? `重置流量 ¥${resetPriceNum.toFixed(2)}` : "重置流量"}
+                <Button variant="outline" size="sm" className="text-pink-600 border-pink-200 hover:bg-pink-50 disabled:opacity-50" onClick={openTrafficResetDialog} disabled={resettingTraffic} title={resetPriceEnabled ? `本次重置 ¥${resetPriceNum.toFixed(2)}` : "当前套餐未开放流量重置"}>
+                  <CreditCard className={`w-3.5 h-3.5 mr-1.5 ${resettingTraffic ? "animate-pulse" : ""}`} /> {resettingTraffic ? "支付创建中..." : resetPriceEnabled ? `重置流量 ¥${resetPriceNum.toFixed(2)}` : "重置流量"}
                 </Button>
-                <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50" onClick={handleResetUUID} disabled={resettingUUID}>
+                <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50" onClick={() => setUUIDDialogOpen(true)} disabled={resettingUUID}>
                   <Shield className="w-3.5 h-3.5 mr-1.5" /> {resettingUUID ? "重置中..." : "重置 UUID"}
                 </Button>
                 <Button variant="outline" size="sm" className="text-orange-600 border-orange-200 hover:bg-orange-50" onClick={handleResetToken}>
@@ -321,6 +362,61 @@ export default function Overview() {
             </div>
           </div>
       </div>
+      <AlertDialog open={trafficDialogOpen} onOpenChange={setTrafficDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认重置流量</AlertDialogTitle>
+            <AlertDialogDescription>
+              本次将创建 ¥{resetPriceNum.toFixed(2)} 的支付订单。支付成功后，系统会自动清零当前已用流量，不会从账户余额扣费。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-lg border bg-muted/40 p-4 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">订单类型</span>
+              <span className="font-medium">流量重置</span>
+            </div>
+            <div className="mt-2 flex items-center justify-between">
+              <span className="text-muted-foreground">应付金额</span>
+              <span className="font-semibold text-primary">¥{resetPriceNum.toFixed(2)}</span>
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={resettingTraffic}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={resettingTraffic}
+              onClick={(event) => {
+                event.preventDefault()
+                void handleResetTrafficPayment()
+              }}
+            >
+              {resettingTraffic ? "正在创建支付..." : "去支付"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={uuidDialogOpen} onOpenChange={setUUIDDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认重置 UUID</AlertDialogTitle>
+            <AlertDialogDescription>
+              重置后旧客户端配置会失效，需要重新导入节点配置。节点同步任务会自动下发。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={resettingUUID}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={resettingUUID}
+              onClick={(event) => {
+                event.preventDefault()
+                void handleResetUUID()
+              }}
+            >
+              {resettingUUID ? "重置中..." : "确认重置"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

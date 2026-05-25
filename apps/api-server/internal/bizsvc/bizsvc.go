@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/zboard/api-server/internal/authx"
@@ -120,6 +121,7 @@ func (s *Service) insertOrder(ctx context.Context, userID int64, plan *store.Pla
 		OrderNo:   orderNo,
 		UserID:    userID,
 		PlanID:    plan.ID,
+		Kind:      store.OrderKindPlan,
 		Amount:    plan.Price,
 		Currency:  "CNY",
 		Status:    "pending",
@@ -131,6 +133,51 @@ func (s *Service) insertOrder(ctx context.Context, userID int64, plan *store.Pla
 	}
 	o.ID = id
 	return s.Store.FindOrderByNo(ctx, orderNo)
+}
+
+// CreateTrafficResetOrder creates a payable order for resetting the current
+// user's traffic. The traffic is not cleared until the payment callback marks
+// the order as paid.
+func (s *Service) CreateTrafficResetOrder(ctx context.Context, userID int64) (*OrderResult, error) {
+	u, err := s.Store.FindUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if u.PlanID == nil || *u.PlanID == 0 {
+		return nil, httpx.NewError(http.StatusForbidden, "plan_required", "请先订阅套餐后再使用此功能")
+	}
+	plan, err := s.Store.FindPlanByID(ctx, *u.PlanID)
+	if err != nil {
+		if store.IsNoRows(err) {
+			return nil, httpx.NewError(http.StatusNotFound, "plan_not_found", "套餐不存在")
+		}
+		return nil, err
+	}
+	price := strings.TrimSpace(plan.ResetTrafficPrice)
+	if price == "" || price == "0" || price == "0.00" {
+		return nil, httpx.NewError(http.StatusForbidden, "reset_disabled", "当前套餐未开放流量重置")
+	}
+	expiresAt := time.Now().UTC().Add(30 * time.Minute)
+	o := &store.Order{
+		OrderNo:   newOrderNo(),
+		UserID:    userID,
+		PlanID:    plan.ID,
+		Kind:      store.OrderKindTrafficReset,
+		Amount:    price,
+		Currency:  "CNY",
+		Status:    "pending",
+		ExpiredAt: &expiresAt,
+	}
+	id, err := s.Store.CreateOrder(ctx, o)
+	if err != nil {
+		return nil, err
+	}
+	o.ID = id
+	created, err := s.Store.FindOrderByNo(ctx, o.OrderNo)
+	if err != nil {
+		return nil, err
+	}
+	return &OrderResult{Order: created}, nil
 }
 
 func newOrderNo() string {
@@ -249,6 +296,9 @@ func (s *Service) HandleMockCallback(ctx context.Context, eventID, orderNo, paym
 	if err != nil {
 		return err
 	}
+	if o.Kind == store.OrderKindTrafficReset {
+		return s.completeTrafficResetOrder(ctx, o)
+	}
 	plan, err := s.Store.FindPlanByID(ctx, o.PlanID)
 	if err != nil {
 		return err
@@ -291,6 +341,9 @@ func (s *Service) ActivateByCallback(ctx context.Context, orderNo, provider, pro
 	if err := s.Store.MarkOrderPaid(ctx, orderNo, now); err != nil {
 		return err
 	}
+	if o.Kind == store.OrderKindTrafficReset {
+		return s.completeTrafficResetOrder(ctx, o)
+	}
 	plan, err := s.Store.FindPlanByID(ctx, o.PlanID)
 	if err != nil {
 		return err
@@ -314,6 +367,16 @@ func (s *Service) ActivateByCallback(ctx context.Context, orderNo, provider, pro
 	// Notify user: payment success
 	s.Store.NotifyUser(ctx, o.UserID, "payment_success",
 		"支付成功", "您的订单 "+orderNo+" 已支付成功，套餐已激活",
+		"/dashboard")
+	return nil
+}
+
+func (s *Service) completeTrafficResetOrder(ctx context.Context, o *store.Order) error {
+	if err := s.Store.ResetUserTraffic(ctx, o.UserID); err != nil {
+		return err
+	}
+	s.Store.NotifyUser(ctx, o.UserID, "traffic_reset",
+		"流量重置成功", "您的流量重置订单 "+o.OrderNo+" 已支付成功，已用流量已清零。",
 		"/dashboard")
 	return nil
 }
