@@ -493,6 +493,44 @@ export async function getAnnouncements() {
   return request<{ items: any[] }>('/api/v1/announcements')
 }
 
+type KnowledgeQuery = PageQuery & {
+  category?: string
+  status?: string
+}
+
+export async function adminGetKnowledge(params?: KnowledgeQuery) {
+  return adminRequest<PageResponse>(`/api/admin/v1/knowledge${pageQuery(params)}`)
+}
+
+export async function adminCreateKnowledge(data: any) {
+  return adminRequest<{ id: number; slug: string }>('/api/admin/v1/knowledge', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function adminUpdateKnowledge(id: number, data: any) {
+  return adminRequest<{ ok: boolean }>(`/api/admin/v1/knowledge/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function adminDeleteKnowledge(id: number) {
+  return adminRequest<{ ok: boolean }>(`/api/admin/v1/knowledge/${id}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function getKnowledge(category?: string) {
+  const q = category ? `?category=${encodeURIComponent(category)}` : ''
+  return request<{ items: any[] }>(`/api/v1/knowledge${q}`)
+}
+
+export async function getKnowledgeArticle(slug: string) {
+  return request<{ article: any }>(`/api/v1/knowledge/${encodeURIComponent(slug)}`)
+}
+
 // ===== Tickets (User) =====
 
 export async function getTickets() {

@@ -6,6 +6,7 @@ import { useState } from "react"
 import {
   ChevronRight,
   CircleUserRound,
+  BookOpen,
   Globe,
   LayoutDashboard,
   LogOut,
@@ -34,6 +35,7 @@ export default function Sidebar({ user }: SidebarProps) {
   const navItems = [
     { href: "/dashboard", label: t.dash.overview, icon: LayoutDashboard },
     { href: "/dashboard/subscription", label: t.dash.subscription, icon: Globe },
+    { href: "/dashboard/knowledge", label: "使用教程", icon: BookOpen },
     { href: "/dashboard/ticket", label: t.dash.ticket, icon: Ticket },
     { href: "/dashboard/settings", label: t.dash.settings, icon: Settings },
   ]

@@ -626,6 +626,73 @@ func TestAdminCanUpdatePlanAndNode(t *testing.T) {
 	}
 }
 
+func TestAdminCreateNodeBackfillsOnlyProvisionableUsers(t *testing.T) {
+	r, st, token := setupAdminCRUDRouter(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	future := now.Add(24 * time.Hour)
+	past := now.Add(-24 * time.Hour)
+
+	validID, err := st.AdminCreateUser(ctx, store.AdminCreateUserInput{
+		Email:        "node-valid@example.com",
+		PasswordHash: "hash",
+		ExpiredAt:    &future,
+		TrafficLimit: 100,
+		TrafficUsed:  10,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create valid user: %v", err)
+	}
+	expiredID, err := st.AdminCreateUser(ctx, store.AdminCreateUserInput{
+		Email:        "node-expired@example.com",
+		PasswordHash: "hash",
+		ExpiredAt:    &past,
+		TrafficLimit: 100,
+		TrafficUsed:  10,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create expired user: %v", err)
+	}
+	overQuotaID, err := st.AdminCreateUser(ctx, store.AdminCreateUserInput{
+		Email:        "node-overquota@example.com",
+		PasswordHash: "hash",
+		ExpiredAt:    &future,
+		TrafficLimit: 100,
+		TrafficUsed:  100,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create over quota user: %v", err)
+	}
+
+	resp := adminJSON(t, r, token, http.MethodPost, "/api/admin/v1/nodes", map[string]any{
+		"name":     "Backfill Node",
+		"host":     "provision.example.com",
+		"port":     443,
+		"protocol": "vless",
+	})
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("create node status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		NodeID int64 `json:"node_id"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode node: %v", err)
+	}
+	if _, err := st.FindNodeUser(ctx, validID, body.NodeID); err != nil {
+		t.Fatalf("valid user should be provisioned: %v", err)
+	}
+	if _, err := st.FindNodeUser(ctx, expiredID, body.NodeID); !store.IsNoRows(err) {
+		t.Fatalf("expired user should not be provisioned, err=%v", err)
+	}
+	if _, err := st.FindNodeUser(ctx, overQuotaID, body.NodeID); !store.IsNoRows(err) {
+		t.Fatalf("over-quota user should not be provisioned, err=%v", err)
+	}
+}
+
 func TestAdminNodeListReturnsHealthIndicators(t *testing.T) {
 	r, st, token := setupAdminCRUDRouter(t)
 	ctx := context.Background()

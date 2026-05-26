@@ -13,6 +13,8 @@ import (
 	"github.com/zboard/api-server/internal/payment/creem"
 	"github.com/zboard/api-server/internal/payment/epay"
 	"github.com/zboard/api-server/internal/payment/nowpay"
+	"github.com/zboard/api-server/internal/payment/paypal"
+	"github.com/zboard/api-server/internal/payment/stripe"
 	"github.com/zboard/api-server/internal/store"
 )
 
@@ -133,6 +135,44 @@ func buildProvider(row store.PaymentProvider) (payment.Provider, error) {
 			APIKey:    cfg.APIKey,
 			IPNSecret: cfg.IPNSecret,
 			APIURL:    cfg.APIURL,
+		}), nil
+
+	case "stripe":
+		var cfg struct {
+			SecretKey     string `json:"secret_key"`
+			WebhookSecret string `json:"webhook_secret"`
+			APIURL        string `json:"api_url"`
+		}
+		if err := json.Unmarshal([]byte(row.ConfigJSON), &cfg); err != nil {
+			return nil, fmt.Errorf("parse stripe config: %w", err)
+		}
+		if cfg.SecretKey == "" || cfg.WebhookSecret == "" {
+			return nil, fmt.Errorf("stripe: secret_key and webhook_secret are required")
+		}
+		return stripe.New(stripe.Config{
+			SecretKey:     cfg.SecretKey,
+			WebhookSecret: cfg.WebhookSecret,
+			APIURL:        cfg.APIURL,
+		}), nil
+
+	case "paypal":
+		var cfg struct {
+			ClientID     string `json:"client_id"`
+			ClientSecret string `json:"client_secret"`
+			WebhookID    string `json:"webhook_id"`
+			APIURL       string `json:"api_url"`
+		}
+		if err := json.Unmarshal([]byte(row.ConfigJSON), &cfg); err != nil {
+			return nil, fmt.Errorf("parse paypal config: %w", err)
+		}
+		if cfg.ClientID == "" || cfg.ClientSecret == "" {
+			return nil, fmt.Errorf("paypal: client_id and client_secret are required")
+		}
+		return paypal.New(paypal.Config{
+			ClientID:     cfg.ClientID,
+			ClientSecret: cfg.ClientSecret,
+			WebhookID:    cfg.WebhookID,
+			APIURL:       cfg.APIURL,
 		}), nil
 
 	default:

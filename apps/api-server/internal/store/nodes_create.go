@@ -145,8 +145,23 @@ func (s *Store) CreateNode(ctx context.Context, in CreateNodeInput) (int64, stri
 	return nodeID, secret, nil
 }
 
-// ListUserIDsActive returns IDs of active users — used to provision node_users
-// for a newly added node.
+// ListUserIDsProvisionable returns IDs of active users that still have usable
+// subscription entitlement. It is used to provision node_users for a newly
+// added node without adding expired or over-quota accounts to runtime configs.
+func (s *Store) ListUserIDsProvisionable(ctx context.Context) ([]int64, error) {
+	q := s.Rebind(`SELECT id FROM users
+		WHERE status = 'active'
+		  AND (expired_at IS NULL OR expired_at > ?)
+		  AND (traffic_limit <= 0 OR traffic_used < traffic_limit)`)
+	var ids []int64
+	if err := s.DB.SelectContext(ctx, &ids, q, Now()); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+// ListUserIDsActive returns IDs of active users. Use ListUserIDsProvisionable
+// when the caller is adding users to node runtime access.
 func (s *Store) ListUserIDsActive(ctx context.Context) ([]int64, error) {
 	q := `SELECT id FROM users WHERE status = 'active'`
 	var ids []int64

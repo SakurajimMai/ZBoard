@@ -2,17 +2,24 @@
 
 import { useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
-import { Bell, FileText, Globe, Mail, Save, Send, Settings, Shield } from "lucide-react"
+import { Bell, CreditCard, FileText, Globe, Mail, Save, Send, Settings, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { adminGetSettings, adminSendTestEmail, adminUpdateSettings } from "@/lib/api"
+import {
+  adminCreatePaymentProvider,
+  adminGetPaymentProviders,
+  adminGetSettings,
+  adminSendTestEmail,
+  adminUpdatePaymentProvider,
+  adminUpdateSettings,
+} from "@/lib/api"
 
 type SettingMap = Record<string, string>
-type TabId = "basic" | "subscription" | "email" | "seo" | "security"
+type TabId = "basic" | "subscription" | "payment" | "email" | "seo" | "security"
 
 const defaults: SettingMap = {
   site_name: "Zboard",
@@ -85,6 +92,7 @@ const defaults: SettingMap = {
 const tabs: { id: TabId; label: string; icon: any }[] = [
   { id: "basic", label: "注册与用户", icon: Settings },
   { id: "subscription", label: "订阅提醒", icon: Bell },
+  { id: "payment", label: "支付设置", icon: CreditCard },
   { id: "email", label: "邮件配置", icon: Mail },
   { id: "seo", label: "站点 SEO", icon: Globe },
   { id: "security", label: "安全验证", icon: Shield },
@@ -318,6 +326,8 @@ export default function AdminSettingsPage() {
           </div>
         </SettingsSection>
       )}
+
+      {activeTab === "payment" && <PaymentSettingsPanel />}
 
       {activeTab === "email" && (
         <div className="space-y-6">
@@ -598,6 +608,262 @@ function RadioGroup({
       </div>
     </div>
   )
+}
+
+type PaymentProviderType = "epay" | "stripe" | "paypal" | "nowpayments" | "creem"
+
+type PaymentProviderForm = {
+  id?: number
+  name: string
+  displayName: string
+  providerType: PaymentProviderType
+  enabled: boolean
+  sort: number
+  config: Record<string, string>
+}
+
+const paymentProviderTemplates: {
+  name: string
+  displayName: string
+  providerType: PaymentProviderType
+  description: string
+  sort: number
+  fields: { key: string; label: string; placeholder?: string; type?: string; hint?: string }[]
+}[] = [
+  {
+    name: "epay",
+    displayName: "易支付",
+    providerType: "epay",
+    description: "适合支付宝、微信、QQ 钱包等聚合支付网关。",
+    sort: 10,
+    fields: [
+      { key: "api_url", label: "网关地址", placeholder: "https://pay.example.com" },
+      { key: "pid", label: "商户 ID", placeholder: "1001" },
+      { key: "secret_key", label: "商户密钥", type: "password" },
+    ],
+  },
+  {
+    name: "stripe",
+    displayName: "Stripe",
+    providerType: "stripe",
+    description: "使用 Stripe Checkout 创建收银台链接，并通过 webhook 确认支付。",
+    sort: 20,
+    fields: [
+      { key: "secret_key", label: "Secret Key", type: "password", placeholder: "sk_live_..." },
+      { key: "webhook_secret", label: "Webhook Secret", type: "password", placeholder: "whsec_..." },
+      { key: "api_url", label: "API 地址", placeholder: "https://api.stripe.com", hint: "通常保持默认，测试代理或私有网关时再修改。" },
+    ],
+  },
+  {
+    name: "paypal",
+    displayName: "PayPal",
+    providerType: "paypal",
+    description: "使用 Orders v2 创建订单，用户批准返回后自动 capture。",
+    sort: 30,
+    fields: [
+      { key: "client_id", label: "Client ID", placeholder: "PayPal REST App Client ID" },
+      { key: "client_secret", label: "Client Secret", type: "password" },
+      { key: "webhook_id", label: "Webhook ID", placeholder: "WH-...", hint: "建议配置，用于异步回调校验；只靠返回 capture 时可先留空。" },
+      { key: "api_url", label: "API 地址", placeholder: "https://api-m.paypal.com / https://api-m.sandbox.paypal.com" },
+    ],
+  },
+  {
+    name: "nowpayments",
+    displayName: "NOWPayments",
+    providerType: "nowpayments",
+    description: "加密货币支付，默认使用 USDT TRC20，可通过付款类型扩展币种。",
+    sort: 40,
+    fields: [
+      { key: "api_key", label: "API Key", type: "password" },
+      { key: "ipn_secret", label: "IPN Secret", type: "password" },
+      { key: "api_url", label: "API 地址", placeholder: "https://api.nowpayments.io" },
+    ],
+  },
+  {
+    name: "creem",
+    displayName: "Creem.io",
+    providerType: "creem",
+    description: "使用 Creem Checkout 创建支付链接，并通过 webhook 完成订阅激活。",
+    sort: 50,
+    fields: [
+      { key: "api_key", label: "API Key", type: "password" },
+      { key: "webhook_secret", label: "Webhook Secret", type: "password" },
+      { key: "api_url", label: "API 地址", placeholder: "https://api.creem.io" },
+    ],
+  },
+]
+
+function PaymentSettingsPanel() {
+  const [forms, setForms] = useState<Record<string, PaymentProviderForm>>({})
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const res = await adminGetPaymentProviders()
+      const rows = res.items || []
+      const next: Record<string, PaymentProviderForm> = {}
+      for (const tpl of paymentProviderTemplates) {
+        const row = rows.find((item: any) => item.name === tpl.name || item.provider_type === tpl.providerType)
+        next[tpl.name] = {
+          id: row?.id,
+          name: row?.name || tpl.name,
+          displayName: row?.display_name || tpl.displayName,
+          providerType: tpl.providerType,
+          enabled: row ? Number(row.enabled) === 1 : false,
+          sort: row?.sort ?? tpl.sort,
+          config: { ...defaultPaymentConfig(tpl.providerType), ...parseConfig(row?.config_json) },
+        }
+      }
+      setForms(next)
+    } catch (err: any) {
+      setNotice(err?.message || "加载支付设置失败")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [])
+
+  const updateForm = (name: string, patch: Partial<PaymentProviderForm>) => {
+    setForms((current) => ({ ...current, [name]: { ...current[name], ...patch } }))
+  }
+
+  const updateConfig = (name: string, key: string, value: string) => {
+    setForms((current) => ({
+      ...current,
+      [name]: {
+        ...current[name],
+        config: { ...current[name].config, [key]: value },
+      },
+    }))
+  }
+
+  const saveProvider = async (tpl: (typeof paymentProviderTemplates)[number]) => {
+    const form = forms[tpl.name]
+    if (!form) return
+    setSaving(tpl.name)
+    setNotice(null)
+    try {
+      const payload = {
+        name: tpl.name,
+        display_name: form.displayName || tpl.displayName,
+        provider_type: tpl.providerType,
+        config_json: JSON.stringify(compactConfig(form.config)),
+        enabled: form.enabled ? 1 : 0,
+        sort: form.sort,
+      }
+      if (form.id) {
+        await adminUpdatePaymentProvider(form.id, payload)
+      } else {
+        await adminCreatePaymentProvider(payload)
+      }
+      setNotice(`${tpl.displayName} 支付配置已保存`)
+      await load()
+    } catch (err: any) {
+      setNotice(err?.message || "保存支付配置失败")
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  if (loading) {
+    return <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">正在加载支付设置...</div>
+  }
+
+  return (
+    <SettingsSection icon={CreditCard} title="支付设置" subtitle="配置用户购买套餐和重置流量时可用的支付渠道">
+      <div className="space-y-5">
+        {notice && <div className="rounded-lg border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">{notice}</div>}
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          {paymentProviderTemplates.map((tpl) => {
+            const form = forms[tpl.name]
+            if (!form) return null
+            return (
+              <div key={tpl.name} className="rounded-lg border bg-background p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-semibold">{tpl.displayName}</h3>
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{tpl.providerType}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">{tpl.description}</p>
+                  </div>
+                  <Switch checked={form.enabled} onCheckedChange={(checked) => updateForm(tpl.name, { enabled: checked })} />
+                </div>
+
+                <div className="mt-4 space-y-4">
+                  <Grid>
+                    <Field label="显示名称">
+                      <Input value={form.displayName} onChange={(e) => updateForm(tpl.name, { displayName: e.target.value })} />
+                    </Field>
+                    <Field label="排序">
+                      <Input type="number" value={form.sort} onChange={(e) => updateForm(tpl.name, { sort: Number(e.target.value) || tpl.sort })} />
+                    </Field>
+                  </Grid>
+                  <Grid>
+                    {tpl.fields.map((field) => (
+                      <Field key={field.key} label={field.label} hint={field.hint}>
+                        <Input
+                          type={field.type || "text"}
+                          value={form.config[field.key] || ""}
+                          placeholder={field.placeholder}
+                          autoComplete={field.type === "password" ? "new-password" : undefined}
+                          onChange={(e) => updateConfig(tpl.name, field.key, e.target.value)}
+                        />
+                      </Field>
+                    ))}
+                  </Grid>
+                </div>
+
+                <div className="mt-4 flex justify-end">
+                  <Button onClick={() => saveProvider(tpl)} disabled={saving === tpl.name}>
+                    <Save className="w-4 h-4" />
+                    {saving === tpl.name ? "保存中..." : "保存渠道"}
+                  </Button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </SettingsSection>
+  )
+}
+
+function defaultPaymentConfig(type: PaymentProviderType): Record<string, string> {
+  switch (type) {
+    case "stripe":
+      return { api_url: "https://api.stripe.com", secret_key: "", webhook_secret: "" }
+    case "paypal":
+      return { api_url: "https://api-m.paypal.com", client_id: "", client_secret: "", webhook_id: "" }
+    case "nowpayments":
+      return { api_url: "https://api.nowpayments.io", api_key: "", ipn_secret: "" }
+    case "creem":
+      return { api_url: "https://api.creem.io", api_key: "", webhook_secret: "" }
+    case "epay":
+    default:
+      return { api_url: "", pid: "", secret_key: "" }
+  }
+}
+
+function parseConfig(raw?: string): Record<string, string> {
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}
+    return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, String(value ?? "")]))
+  } catch {
+    return {}
+  }
+}
+
+function compactConfig(config: Record<string, string>) {
+  return Object.fromEntries(Object.entries(config).map(([key, value]) => [key, String(value ?? "").trim()]))
 }
 
 type CaptchaProvider = "none" | "turnstile" | "recaptcha" | "hcaptcha"

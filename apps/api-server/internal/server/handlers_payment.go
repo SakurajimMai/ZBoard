@@ -1,8 +1,11 @@
 package server
 
 import (
+	"context"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zboard/api-server/internal/httpx"
@@ -10,6 +13,10 @@ import (
 	"github.com/zboard/api-server/internal/payment/registry"
 	"github.com/zboard/api-server/internal/store"
 )
+
+type paypalCapturer interface {
+	CaptureOrder(ctx context.Context, orderID string) (*payment.CallbackData, error)
+}
 
 // paymentCallback dispatches provider webhooks and completes the paid order.
 // Plan orders activate subscriptions; traffic-reset orders clear used traffic.
@@ -77,6 +84,60 @@ func paymentCallback(d Deps) gin.HandlerFunc {
 	}
 }
 
+// paypalReturn captures an approved PayPal order after the user returns from
+// the PayPal approval page. Webhooks may also complete the order; this route
+// makes the browser redirect path deterministic for smaller deployments.
+func paypalReturn(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := c.Query("token")
+		if token == "" {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "缺少 PayPal token"))
+			return
+		}
+		providerName := strings.TrimSpace(c.DefaultQuery("provider", "paypal"))
+		if providerName == "" {
+			providerName = "paypal"
+		}
+		prov, err := d.Payments.Get(providerName)
+		if err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "unknown_provider", err.Error()))
+			return
+		}
+		capturer, ok := prov.(paypalCapturer)
+		if !ok {
+			httpx.Fail(c, httpx.NewError(http.StatusInternalServerError, "bad_provider", "PayPal provider 不支持 capture"))
+			return
+		}
+		data, err := capturer.CaptureOrder(c.Request.Context(), token)
+		if err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadGateway, "paypal_capture_failed", err.Error()))
+			return
+		}
+		eventID := data.ProviderOrderNo
+		if eventID == "" {
+			eventID = token
+		}
+		cbID, dup, err := d.Store.CreatePaymentCallback(c.Request.Context(), providerName, eventID, data.OrderNo, "", data.RawBody)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		if dup {
+			c.Redirect(http.StatusFound, frontendReturnURL(c, d))
+			return
+		}
+		if data.Status == "success" && data.OrderNo != "" {
+			if err := d.Biz.ActivateByCallback(c.Request.Context(), data.OrderNo, providerName, data.ProviderOrderNo); err != nil {
+				_ = d.Store.MarkCallbackProcessed(c.Request.Context(), cbID, err.Error())
+				httpx.Fail(c, err)
+				return
+			}
+		}
+		_ = d.Store.MarkCallbackProcessed(c.Request.Context(), cbID, "")
+		c.Redirect(http.StatusFound, frontendReturnURL(c, d))
+	}
+}
+
 // respondCallback sends the provider-expected success response.
 // EasyPay expects plain text "success"; others accept JSON.
 func respondCallback(c *gin.Context, provider string) {
@@ -127,14 +188,14 @@ func createPaymentWithProvider(d Deps, reg *registry.Registry) gin.HandlerFunc {
 			return
 		}
 
-		// Build callback URLs from the request host.
-		scheme := "https"
-		if c.Request.TLS == nil {
-			scheme = "http"
-		}
-		baseURL := scheme + "://" + c.Request.Host
+		// Build callback URLs from the API host. User-facing return URLs prefer
+		// the configured site_url so split frontend/API deployments work.
+		baseURL := apiBaseURL(c)
 		notifyURL := baseURL + "/api/v1/payments/" + providerName + "/callback"
-		returnURL := baseURL + "/dashboard"
+		returnURL := frontendReturnURL(c, d)
+		if providerName == "paypal" || paymentProviderType(c.Request.Context(), d.Store, providerName) == "paypal" {
+			returnURL = baseURL + "/api/v1/payments/paypal/return?provider=" + url.QueryEscape(providerName)
+		}
 
 		resp, err := prov.CreatePayment(c.Request.Context(), payment.CreateRequest{
 			OrderNo:   o.OrderNo,
@@ -144,6 +205,7 @@ func createPaymentWithProvider(d Deps, reg *registry.Registry) gin.HandlerFunc {
 			PayType:   payType,
 			NotifyURL: notifyURL,
 			ReturnURL: returnURL,
+			CancelURL: frontendReturnURL(c, d),
 			ClientIP:  c.ClientIP(),
 			UserID:    uid,
 		})
@@ -182,4 +244,36 @@ func createPaymentWithProvider(d Deps, reg *registry.Registry) gin.HandlerFunc {
 			"payment_id": resp.ProviderOrderNo,
 		})
 	}
+}
+
+func paymentProviderType(ctx context.Context, st *store.Store, providerName string) string {
+	if st == nil || strings.TrimSpace(providerName) == "" {
+		return ""
+	}
+	row, err := st.FindPaymentProviderByName(ctx, providerName)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(row.ProviderType)
+}
+
+func apiBaseURL(c *gin.Context) string {
+	scheme := "https"
+	if c.Request.TLS == nil {
+		scheme = "http"
+	}
+	return scheme + "://" + c.Request.Host
+}
+
+func frontendReturnURL(c *gin.Context, d Deps) string {
+	base := ""
+	if d.Store != nil {
+		if value, err := d.Store.GetSetting(c.Request.Context(), "site_url", ""); err == nil {
+			base = strings.TrimRight(strings.TrimSpace(value), "/")
+		}
+	}
+	if base == "" {
+		base = apiBaseURL(c)
+	}
+	return base + "/dashboard"
 }

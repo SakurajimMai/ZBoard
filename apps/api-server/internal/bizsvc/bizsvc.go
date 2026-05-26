@@ -511,8 +511,58 @@ func (s *Service) completeTrafficResetOrder(ctx context.Context, o *store.Order)
 	if err := s.Store.ResetUserTraffic(ctx, o.UserID); err != nil {
 		return err
 	}
+	if err := s.restoreNodeUsersAfterTrafficReset(ctx, o.UserID); err != nil {
+		return err
+	}
 	s.Store.NotifyUser(ctx, o.UserID, "traffic_reset",
 		"流量重置成功", "您的流量重置订单 "+o.OrderNo+" 已支付成功，已用流量已清零。",
 		"/dashboard")
+	return nil
+}
+
+func (s *Service) restoreNodeUsersAfterTrafficReset(ctx context.Context, userID int64) error {
+	u, err := s.Store.FindUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if u.Status != "active" || u.PlanID == nil || *u.PlanID == 0 {
+		return nil
+	}
+	if u.ExpiredAt != nil && !u.ExpiredAt.After(time.Now().UTC()) {
+		return nil
+	}
+	plan, err := s.Store.FindPlanByID(ctx, *u.PlanID)
+	if err != nil {
+		if store.IsNoRows(err) {
+			return nil
+		}
+		return err
+	}
+	clientID := ""
+	existing, err := s.Store.ListNodeUsersByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, nu := range existing {
+		if strings.TrimSpace(nu.ClientID) != "" {
+			clientID = nu.ClientID
+			break
+		}
+	}
+	if clientID == "" {
+		clientID, err = newClientID()
+		if err != nil {
+			return err
+		}
+	}
+	nodes, err := s.Store.ListActiveNodes(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range nodes {
+		if err := s.Store.EnsureNodeUserWithLimits(ctx, userID, n.ID, clientID, n.Protocol, 0, plan.DeviceLimit); err != nil {
+			return err
+		}
+	}
 	return nil
 }

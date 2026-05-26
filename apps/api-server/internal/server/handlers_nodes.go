@@ -102,7 +102,7 @@ func adminCreateNode(d Deps) gin.HandlerFunc {
 		}
 		// Backfill node_users for currently active users so new nodes light up
 		// in their subscription immediately.
-		ids, err := d.Store.ListUserIDsActive(c.Request.Context())
+		ids, err := d.Store.ListUserIDsProvisionable(c.Request.Context())
 		if err == nil {
 			for _, uid := range ids {
 				cid, _ := newClientIDForServer()

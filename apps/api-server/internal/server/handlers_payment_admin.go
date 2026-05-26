@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zboard/api-server/internal/httpx"
@@ -61,10 +62,10 @@ func adminCreatePaymentProvider(d Deps) gin.HandlerFunc {
 		}
 		// Validate provider_type is known.
 		switch body.ProviderType {
-		case "epay", "creem", "nowpayments":
+		case "epay", "stripe", "paypal", "nowpayments", "creem":
 		default:
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request",
-				"provider_type 必须是 epay / creem / nowpayments"))
+				"provider_type 必须是 epay / stripe / paypal / nowpayments / creem"))
 			return
 		}
 		enabled := 1
@@ -123,11 +124,17 @@ func adminUpdatePaymentProvider(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "config_json 不是合法 JSON"))
 			return
 		}
+		configJSON := body.ConfigJSON
+		if configJSON != "" {
+			if existing, err := d.Store.FindPaymentProviderByID(c.Request.Context(), id); err == nil {
+				configJSON = preserveMaskedConfig(existing.ConfigJSON, configJSON)
+			}
+		}
 		enabled := 1
 		if body.Enabled != nil {
 			enabled = *body.Enabled
 		}
-		if err := d.Store.UpdatePaymentProvider(c.Request.Context(), id, body.DisplayName, body.ConfigJSON, enabled, body.Sort); err != nil {
+		if err := d.Store.UpdatePaymentProvider(c.Request.Context(), id, body.DisplayName, configJSON, enabled, body.Sort); err != nil {
 			httpx.Fail(c, err)
 			return
 		}
@@ -175,7 +182,7 @@ func maskConfig(raw string) string {
 		return "{}"
 	}
 	for k, v := range obj {
-		if s, ok := v.(string); ok && len(s) > 4 {
+		if s, ok := v.(string); ok && len(s) > 4 && isSensitiveConfigKey(k) {
 			obj[k] = s[:2] + "****" + s[len(s)-2:]
 		}
 	}
@@ -183,10 +190,49 @@ func maskConfig(raw string) string {
 	return string(b)
 }
 
+func preserveMaskedConfig(existingRaw, incomingRaw string) string {
+	var existing map[string]any
+	var incoming map[string]any
+	if err := json.Unmarshal([]byte(existingRaw), &existing); err != nil {
+		return incomingRaw
+	}
+	if err := json.Unmarshal([]byte(incomingRaw), &incoming); err != nil {
+		return incomingRaw
+	}
+	for k, v := range incoming {
+		s, ok := v.(string)
+		if !ok {
+			continue
+		}
+		if old, hasOld := existing[k]; isSensitiveConfigKey(k) && hasOld && old != "" && (s == "" || strings.Contains(s, "****")) {
+			incoming[k] = old
+		}
+	}
+	b, _ := json.Marshal(incoming)
+	return string(b)
+}
+
+func isSensitiveConfigKey(key string) bool {
+	key = strings.ToLower(key)
+	return strings.Contains(key, "secret") ||
+		strings.Contains(key, "key") ||
+		strings.Contains(key, "token") ||
+		strings.Contains(key, "password")
+}
+
 // ===== User-facing: list available payment methods =====
 
 func listAvailablePaymentMethods(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if d.Payments != nil {
+			_ = d.Payments.Reload(c.Request.Context())
+		}
+		available := map[string]bool{}
+		if d.Payments != nil {
+			for _, name := range d.Payments.List() {
+				available[name] = true
+			}
+		}
 		rows, err := d.Store.ListEnabledPaymentProviders(c.Request.Context())
 		if err != nil {
 			httpx.Fail(c, err)
@@ -194,6 +240,9 @@ func listAvailablePaymentMethods(d Deps) gin.HandlerFunc {
 		}
 		methods := make([]gin.H, 0, len(rows))
 		for _, r := range rows {
+			if d.Payments != nil && !available[r.Name] {
+				continue
+			}
 			methods = append(methods, gin.H{
 				"name":          r.Name,
 				"display_name":  r.DisplayName,

@@ -7,15 +7,16 @@ import "context"
 
 // CreateRequest is the input to Provider.CreatePayment.
 type CreateRequest struct {
-	OrderNo     string  // internal order number
-	Amount      string  // decimal string, e.g. "9.90"
-	Currency    string  // CNY / USD / USDT / BTC etc.
-	Subject     string  // display name shown to user
-	PayType     string  // provider-specific: alipay / wxpay / card / crypto
-	NotifyURL   string  // async webhook callback URL
-	ReturnURL   string  // user redirect after payment
-	ClientIP    string  // payer IP (some gateways require)
-	UserID      int64   // internal user id for reference
+	OrderNo   string // internal order number
+	Amount    string // decimal string, e.g. "9.90"
+	Currency  string // CNY / USD / USDT / BTC etc.
+	Subject   string // display name shown to user
+	PayType   string // provider-specific: alipay / wxpay / card / crypto
+	NotifyURL string // async webhook callback URL
+	ReturnURL string // user redirect after payment
+	CancelURL string // user redirect after cancelling payment
+	ClientIP  string // payer IP (some gateways require)
+	UserID    int64  // internal user id for reference
 }
 
 // CreateResponse is what Provider.CreatePayment returns.

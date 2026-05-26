@@ -8,9 +8,9 @@ import (
 // PaymentProvider is a DB-managed payment gateway configuration.
 type PaymentProvider struct {
 	ID           int64     `db:"id" json:"id"`
-	Name         string    `db:"name" json:"name"`                   // unique slug: "epay", "creem", "nowpayments"
+	Name         string    `db:"name" json:"name"`                   // unique slug: "epay", "stripe", "paypal"
 	DisplayName  string    `db:"display_name" json:"display_name"`   // 显示名称
-	ProviderType string    `db:"provider_type" json:"provider_type"` // "epay" | "creem" | "nowpayments"
+	ProviderType string    `db:"provider_type" json:"provider_type"` // "epay" | "stripe" | "paypal" | "nowpayments" | "creem"
 	ConfigJSON   string    `db:"config_json" json:"config_json"`     // JSON blob with provider-specific keys
 	Enabled      int       `db:"enabled" json:"enabled"`
 	Sort         int       `db:"sort" json:"sort"`
@@ -43,6 +43,16 @@ func (s *Store) FindPaymentProviderByName(ctx context.Context, name string) (*Pa
 		FROM payment_providers WHERE name = ?`)
 	var p PaymentProvider
 	if err := s.DB.GetContext(ctx, &p, q, name); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (s *Store) FindPaymentProviderByID(ctx context.Context, id int64) (*PaymentProvider, error) {
+	q := s.Rebind(`SELECT id, name, display_name, provider_type, config_json, enabled, sort, created_at, updated_at
+		FROM payment_providers WHERE id = ?`)
+	var p PaymentProvider
+	if err := s.DB.GetContext(ctx, &p, q, id); err != nil {
 		return nil, err
 	}
 	return &p, nil
