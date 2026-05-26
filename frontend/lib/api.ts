@@ -95,10 +95,10 @@ export async function resetPassword(email: string, newPassword: string, code: st
   })
 }
 
-export async function register(email: string, password: string) {
+export async function register(email: string, password: string, captchaToken?: string) {
   return request<{ user_id: number }>('/api/v1/auth/register', {
     method: 'POST',
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, captcha_token: captchaToken || '' }),
   })
 }
 
@@ -184,10 +184,10 @@ export async function getPlans() {
   return request<{ items: any[] }>('/api/v1/plans')
 }
 
-export async function createOrder(planId: number) {
+export async function createOrder(planId: number, period: 'monthly' | 'quarterly' | 'yearly' = 'monthly') {
   return request<{ order: any; existing: boolean }>('/api/v1/orders', {
     method: 'POST',
-    body: JSON.stringify({ plan_id: planId }),
+    body: JSON.stringify({ plan_id: planId, period }),
   })
 }
 
@@ -458,8 +458,11 @@ export async function adminUpdateSettings(settings: Record<string, string>) {
   })
 }
 
-export async function adminSendTestEmail() {
-  return adminRequest<{ ok: boolean }>('/api/admin/v1/settings/test-email', { method: 'POST' })
+export async function adminSendTestEmail(email?: string) {
+  return adminRequest<{ ok: boolean }>('/api/admin/v1/settings/test-email', {
+    method: 'POST',
+    body: JSON.stringify({ email: email || '' }),
+  })
 }
 
 export async function adminGetAnnouncements(params?: PageQuery) {

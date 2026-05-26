@@ -1,12 +1,24 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { Zap, Send, MessageCircle } from "lucide-react"
 import { useI18n } from "@/lib/i18n/context"
+import { getPublicSettings } from "@/lib/api"
 
 export default function Footer() {
   const { t } = useI18n()
   const { footer } = t
+  const [settings, setSettings] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    getPublicSettings()
+      .then((res) => setSettings(res.settings || {}))
+      .catch(() => {})
+  }, [])
+
+  const tgLink = settings.support_telegram || ""
+  const dsLink = settings.support_discord || ""
 
   return (
     <footer className="border-t border-border bg-card py-12 sm:py-16 px-4 sm:px-6 lg:px-8">
@@ -21,14 +33,33 @@ export default function Footer() {
               <span className="font-bold text-xl text-foreground">Zboard</span>
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed mb-4">{footer.desc}</p>
-            <div className="flex items-center gap-3">
-              <Link href="#" className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center hover:bg-primary/10 hover:text-primary transition-colors" aria-label="Telegram">
-                <Send className="w-4 h-4" />
-              </Link>
-              <Link href="#" className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center hover:bg-primary/10 hover:text-primary transition-colors" aria-label="Discord">
-                <MessageCircle className="w-4 h-4" />
-              </Link>
-            </div>
+
+            {(tgLink || dsLink) && (
+              <div className="flex items-center gap-3">
+                {tgLink && (
+                  <a
+                    href={tgLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center hover:bg-primary/10 hover:text-primary transition-colors"
+                    aria-label="Telegram"
+                  >
+                    <Send className="w-4 h-4" />
+                  </a>
+                )}
+                {dsLink && (
+                  <a
+                    href={dsLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center hover:bg-primary/10 hover:text-primary transition-colors"
+                    aria-label="Discord"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                  </a>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Product */}

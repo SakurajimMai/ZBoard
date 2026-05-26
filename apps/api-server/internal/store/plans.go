@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -51,6 +52,8 @@ type Plan struct {
 	ID                int64      `db:"id" json:"id"`
 	Name              string     `db:"name" json:"name"`
 	Price             string     `db:"price" json:"price"`
+	QuarterlyPrice    string     `db:"quarterly_price" json:"quarterly_price"`
+	YearlyPrice       string     `db:"yearly_price" json:"yearly_price"`
 	ResetTrafficPrice string     `db:"reset_traffic_price" json:"reset_traffic_price"`
 	DurationDays      int        `db:"duration_days" json:"duration_days"`
 	TrafficLimit      int64      `db:"traffic_limit" json:"traffic_limit"`
@@ -67,6 +70,8 @@ type Plan struct {
 type CreatePlanInput struct {
 	Name              string
 	Price             string
+	QuarterlyPrice    string
+	YearlyPrice       string
 	ResetTrafficPrice string
 	DurationDays      int
 	TrafficLimit      int64
@@ -80,6 +85,8 @@ type CreatePlanInput struct {
 type UpdatePlanInput struct {
 	Name              string
 	Price             string
+	QuarterlyPrice    string
+	YearlyPrice       string
 	ResetTrafficPrice string
 	DurationDays      int
 	TrafficLimit      int64
@@ -92,25 +99,36 @@ type UpdatePlanInput struct {
 }
 
 func (s *Store) CreatePlan(ctx context.Context, in CreatePlanInput) (int64, error) {
-	if in.ResetTrafficPrice == "" {
-		in.ResetTrafficPrice = "0.00"
-	}
+	normalizePlanPrices(&in.Price, &in.QuarterlyPrice, &in.YearlyPrice, &in.ResetTrafficPrice)
 	return s.InsertReturningID(ctx,
-		`INSERT INTO plans(name, price, reset_traffic_price, duration_days, traffic_limit, device_limit,
-			speed_limit, features_json, node_group_id, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		in.Name, in.Price, in.ResetTrafficPrice, in.DurationDays, in.TrafficLimit, in.DeviceLimit,
+		`INSERT INTO plans(name, price, quarterly_price, yearly_price, reset_traffic_price, duration_days, traffic_limit, device_limit,
+			speed_limit, features_json, node_group_id, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		in.Name, in.Price, in.QuarterlyPrice, in.YearlyPrice, in.ResetTrafficPrice, in.DurationDays, in.TrafficLimit, in.DeviceLimit,
 		0, StringList(in.Features), in.NodeGroupID, in.Sort,
 	)
 }
 
-func (s *Store) UpdatePlan(ctx context.Context, id int64, in UpdatePlanInput) error {
-	if in.ResetTrafficPrice == "" {
-		in.ResetTrafficPrice = "0.00"
+func normalizePlanPrices(price, quarterlyPrice, yearlyPrice, resetTrafficPrice *string) {
+	*price = normalizeMoneyText(*price)
+	*quarterlyPrice = normalizeMoneyText(*quarterlyPrice)
+	*yearlyPrice = normalizeMoneyText(*yearlyPrice)
+	*resetTrafficPrice = normalizeMoneyText(*resetTrafficPrice)
+}
+
+func normalizeMoneyText(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "0.00"
 	}
-	q := s.Rebind(`UPDATE plans SET name = ?, price = ?, reset_traffic_price = ?, duration_days = ?,
+	return value
+}
+
+func (s *Store) UpdatePlan(ctx context.Context, id int64, in UpdatePlanInput) error {
+	normalizePlanPrices(&in.Price, &in.QuarterlyPrice, &in.YearlyPrice, &in.ResetTrafficPrice)
+	q := s.Rebind(`UPDATE plans SET name = ?, price = ?, quarterly_price = ?, yearly_price = ?, reset_traffic_price = ?, duration_days = ?,
 		traffic_limit = ?, device_limit = ?, speed_limit = ?, features_json = ?,
 		node_group_id = ?, status = ?, sort = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-	if _, err := s.DB.ExecContext(ctx, q, in.Name, in.Price, in.ResetTrafficPrice, in.DurationDays,
+	if _, err := s.DB.ExecContext(ctx, q, in.Name, in.Price, in.QuarterlyPrice, in.YearlyPrice, in.ResetTrafficPrice, in.DurationDays,
 		in.TrafficLimit, in.DeviceLimit, 0, StringList(in.Features),
 		in.NodeGroupID, in.Status, in.Sort, id); err != nil {
 		return err
@@ -119,7 +137,7 @@ func (s *Store) UpdatePlan(ctx context.Context, id int64, in UpdatePlanInput) er
 }
 
 func (s *Store) ListActivePlans(ctx context.Context) ([]Plan, error) {
-	q := `SELECT id, name, price, reset_traffic_price, duration_days, traffic_limit, device_limit,
+	q := `SELECT id, name, price, quarterly_price, yearly_price, reset_traffic_price, duration_days, traffic_limit, device_limit,
 		speed_limit, features_json, node_group_id, status, sort, created_at, updated_at
 		FROM plans WHERE status = 'active' ORDER BY sort ASC, id ASC`
 	var rows []Plan
@@ -140,7 +158,7 @@ func (s *Store) ListAllPlansPage(ctx context.Context, p PageParams) ([]Plan, int
 	if err := s.DB.GetContext(ctx, &total, `SELECT COUNT(*) FROM plans`); err != nil {
 		return nil, 0, err
 	}
-	q := s.Rebind(`SELECT id, name, price, reset_traffic_price, duration_days, traffic_limit, device_limit,
+	q := s.Rebind(`SELECT id, name, price, quarterly_price, yearly_price, reset_traffic_price, duration_days, traffic_limit, device_limit,
 		speed_limit, features_json, node_group_id, status, sort, created_at, updated_at
 		FROM plans ORDER BY sort ASC, id ASC LIMIT ? OFFSET ?`)
 	var rows []Plan
@@ -151,7 +169,7 @@ func (s *Store) ListAllPlansPage(ctx context.Context, p PageParams) ([]Plan, int
 }
 
 func (s *Store) FindPlanByID(ctx context.Context, id int64) (*Plan, error) {
-	q := s.Rebind(`SELECT id, name, price, reset_traffic_price, duration_days, traffic_limit, device_limit,
+	q := s.Rebind(`SELECT id, name, price, quarterly_price, yearly_price, reset_traffic_price, duration_days, traffic_limit, device_limit,
 		speed_limit, features_json, node_group_id, status, sort, created_at, updated_at
 		FROM plans WHERE id = ?`)
 	var p Plan

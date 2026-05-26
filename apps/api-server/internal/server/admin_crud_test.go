@@ -531,8 +531,8 @@ func TestEmailVerifySettingDoesNotAffectLogin(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(`{"email":"need-code@example.com","password":"secret123"}`))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden || !bytes.Contains(w.Body.Bytes(), []byte("email_verify_required")) {
-		t.Fatalf("register should require code, code=%d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("register should not require email code when SMTP is unavailable, code=%d body=%s", w.Code, w.Body.String())
 	}
 
 	w = httptest.NewRecorder()
@@ -966,6 +966,44 @@ func TestAdminSendTestEmailRequiresMailerConfig(t *testing.T) {
 	}
 	if !bytes.Contains(resp.Body.Bytes(), []byte("mailer_not_configured")) {
 		t.Fatalf("test email should report missing mailer, body=%s", resp.Body.String())
+	}
+}
+
+func TestResolveTestEmailRecipientAllowsCustomAddress(t *testing.T) {
+	admin := &store.AdminUser{Email: "admin@example.com"}
+
+	got, err := resolveTestEmailRecipient(testEmailBody{Email: " tester@example.com "}, admin)
+	if err != nil {
+		t.Fatalf("resolve custom recipient: %v", err)
+	}
+	if got != "tester@example.com" {
+		t.Fatalf("recipient=%q, want tester@example.com", got)
+	}
+
+	got, err = resolveTestEmailRecipient(testEmailBody{}, admin)
+	if err != nil {
+		t.Fatalf("resolve fallback recipient: %v", err)
+	}
+	if got != "admin@example.com" {
+		t.Fatalf("fallback recipient=%q, want admin@example.com", got)
+	}
+
+	if _, err := resolveTestEmailRecipient(testEmailBody{Email: "not-an-email"}, admin); err == nil {
+		t.Fatalf("invalid custom recipient should fail")
+	}
+}
+
+func TestAdminSendTestEmailRejectsInvalidCustomAddress(t *testing.T) {
+	r, _, token := setupAdminCRUDRouter(t)
+
+	resp := adminJSON(t, r, token, http.MethodPost, "/api/admin/v1/settings/test-email", map[string]any{
+		"email": "not-an-email",
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("test email status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if !bytes.Contains(resp.Body.Bytes(), []byte("invalid_test_email")) {
+		t.Fatalf("test email should report invalid address, body=%s", resp.Body.String())
 	}
 }
 

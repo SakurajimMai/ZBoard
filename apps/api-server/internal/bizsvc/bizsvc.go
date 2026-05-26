@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -65,7 +66,7 @@ type OrderResult struct {
 // CreateOrder creates a pending order with optional Idempotency-Key support.
 // When idempotencyKey is non-empty, the same key returns the same order; a
 // different request body with the same key returns a 409.
-func (s *Service) CreateOrder(ctx context.Context, userID, planID int64, idempotencyKey string) (*OrderResult, error) {
+func (s *Service) CreateOrder(ctx context.Context, userID, planID int64, period, idempotencyKey string) (*OrderResult, error) {
 	plan, err := s.Store.FindPlanByID(ctx, planID)
 	if err != nil {
 		if store.IsNoRows(err) {
@@ -76,8 +77,9 @@ func (s *Service) CreateOrder(ctx context.Context, userID, planID int64, idempot
 	if plan.Status != "active" {
 		return nil, httpx.NewError(http.StatusBadRequest, "plan_inactive", "套餐已下架")
 	}
+	period = store.NormalizeBillingPeriod(period)
 
-	requestHash := hashRequest(map[string]any{"user_id": userID, "plan_id": planID})
+	requestHash := hashRequest(map[string]any{"user_id": userID, "plan_id": planID, "period": period})
 	scope := "orders.create"
 
 	if idempotencyKey != "" {
@@ -98,7 +100,7 @@ func (s *Service) CreateOrder(ctx context.Context, userID, planID int64, idempot
 			}
 			return nil, httpx.NewError(http.StatusConflict, "idempotency_in_progress", "请求处理中，请稍后重试")
 		}
-		o, err := s.insertOrder(ctx, userID, plan)
+		o, err := s.insertOrder(ctx, userID, plan, period)
 		if err != nil {
 			return nil, err
 		}
@@ -107,25 +109,36 @@ func (s *Service) CreateOrder(ctx context.Context, userID, planID int64, idempot
 		return &OrderResult{Order: o}, nil
 	}
 
-	o, err := s.insertOrder(ctx, userID, plan)
+	o, err := s.insertOrder(ctx, userID, plan, period)
 	if err != nil {
 		return nil, err
 	}
 	return &OrderResult{Order: o}, nil
 }
 
-func (s *Service) insertOrder(ctx context.Context, userID int64, plan *store.Plan) (*store.Order, error) {
+func (s *Service) insertOrder(ctx context.Context, userID int64, plan *store.Plan, period string) (*store.Order, error) {
+	price, credit, err := s.calculatePlanOrderAmount(ctx, userID, plan, period)
+	if err != nil {
+		return nil, err
+	}
+	amount := price - credit
+	if amount < 0 {
+		amount = 0
+	}
 	orderNo := newOrderNo()
 	expiresAt := time.Now().UTC().Add(30 * time.Minute)
 	o := &store.Order{
-		OrderNo:   orderNo,
-		UserID:    userID,
-		PlanID:    plan.ID,
-		Kind:      store.OrderKindPlan,
-		Amount:    plan.Price,
-		Currency:  "CNY",
-		Status:    "pending",
-		ExpiredAt: &expiresAt,
+		OrderNo:        orderNo,
+		UserID:         userID,
+		PlanID:         plan.ID,
+		Kind:           store.OrderKindPlan,
+		BillingPeriod:  period,
+		Amount:         centsToMoney(amount),
+		OriginalAmount: centsToMoney(price),
+		CreditAmount:   centsToMoney(credit),
+		Currency:       "CNY",
+		Status:         "pending",
+		ExpiredAt:      &expiresAt,
 	}
 	id, err := s.Store.CreateOrder(ctx, o)
 	if err != nil {
@@ -133,6 +146,129 @@ func (s *Service) insertOrder(ctx context.Context, userID int64, plan *store.Pla
 	}
 	o.ID = id
 	return s.Store.FindOrderByNo(ctx, orderNo)
+}
+
+func (s *Service) calculatePlanOrderAmount(ctx context.Context, userID int64, plan *store.Plan, period string) (int64, int64, error) {
+	priceCents, err := planPeriodPriceCents(plan, period)
+	if err != nil {
+		return 0, 0, httpx.NewError(http.StatusBadRequest, "bad_price", "套餐价格不合法")
+	}
+	u, err := s.Store.FindUserByID(ctx, userID)
+	if err != nil {
+		return 0, 0, err
+	}
+	creditCents, err := s.calculateUpgradeCreditCents(ctx, u, plan)
+	if err != nil {
+		return 0, 0, err
+	}
+	if creditCents > priceCents {
+		creditCents = priceCents
+	}
+	return priceCents, creditCents, nil
+}
+
+func (s *Service) calculateUpgradeCreditCents(ctx context.Context, u *store.User, targetPlan *store.Plan) (int64, error) {
+	now := time.Now().UTC()
+	if u.PlanID == nil || *u.PlanID == 0 || *u.PlanID == targetPlan.ID || u.ExpiredAt == nil || !u.ExpiredAt.After(now) {
+		return 0, nil
+	}
+	currentPlan, err := s.Store.FindPlanByID(ctx, *u.PlanID)
+	if err != nil {
+		if store.IsNoRows(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	currentPeriod := store.NormalizeBillingPeriod(u.PlanPeriod)
+	currentPrice, err := planPeriodPriceCents(currentPlan, currentPeriod)
+	if err != nil {
+		return 0, nil
+	}
+	totalSeconds := int64(store.PlanDurationDays(currentPlan, currentPeriod)) * 24 * 60 * 60
+	if totalSeconds <= 0 {
+		return 0, nil
+	}
+	remainingSeconds := int64(math.Ceil(u.ExpiredAt.Sub(now).Seconds()))
+	if remainingSeconds <= 0 {
+		return 0, nil
+	}
+	if remainingSeconds > totalSeconds {
+		remainingSeconds = totalSeconds
+	}
+	unusedTraffic := u.TrafficLimit - u.TrafficUsed
+	if unusedTraffic < 0 {
+		unusedTraffic = 0
+	}
+	if u.TrafficLimit <= 0 {
+		return currentPrice * remainingSeconds / totalSeconds, nil
+	}
+	return currentPrice * remainingSeconds * unusedTraffic / totalSeconds / u.TrafficLimit, nil
+}
+
+func planPeriodPriceCents(plan *store.Plan, period string) (int64, error) {
+	monthly, err := moneyToCents(plan.Price)
+	if err != nil {
+		return 0, err
+	}
+	switch store.NormalizeBillingPeriod(period) {
+	case store.BillingPeriodQuarterly:
+		price, err := moneyToCents(plan.QuarterlyPrice)
+		if err == nil && price > 0 {
+			return price, nil
+		}
+		return monthly * 3, nil
+	case store.BillingPeriodYearly:
+		price, err := moneyToCents(plan.YearlyPrice)
+		if err == nil && price > 0 {
+			return price, nil
+		}
+		return monthly * 12, nil
+	default:
+		return monthly, nil
+	}
+}
+
+func moneyToCents(value string) (int64, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	negative := false
+	if strings.HasPrefix(value, "-") {
+		negative = true
+		value = strings.TrimPrefix(value, "-")
+	}
+	parts := strings.SplitN(value, ".", 2)
+	yuan, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	var cents int64
+	if len(parts) == 2 {
+		frac := parts[1]
+		if len(frac) > 2 {
+			frac = frac[:2]
+		}
+		for len(frac) < 2 {
+			frac += "0"
+		}
+		cents, err = strconv.ParseInt(frac, 10, 64)
+		if err != nil {
+			return 0, err
+		}
+	}
+	total := yuan*100 + cents
+	if negative {
+		return -total, nil
+	}
+	return total, nil
+}
+
+func centsToMoney(cents int64) string {
+	if cents < 0 {
+		return "-" + centsToMoney(-cents)
+	}
+	return fmt.Sprintf("%d.%02d", cents/100, cents%100)
 }
 
 // CreateTrafficResetOrder creates a payable order for resetting the current
@@ -303,7 +439,7 @@ func (s *Service) HandleMockCallback(ctx context.Context, eventID, orderNo, paym
 	if err != nil {
 		return err
 	}
-	if err := s.Store.ActivateUserPlan(ctx, o.UserID, plan); err != nil {
+	if err := s.Store.ActivateUserPlanPeriod(ctx, o.UserID, plan, o.BillingPeriod); err != nil {
 		return err
 	}
 	// Provision node_users for every currently active node so the new
@@ -348,7 +484,7 @@ func (s *Service) ActivateByCallback(ctx context.Context, orderNo, provider, pro
 	if err != nil {
 		return err
 	}
-	if err := s.Store.ActivateUserPlan(ctx, o.UserID, plan); err != nil {
+	if err := s.Store.ActivateUserPlanPeriod(ctx, o.UserID, plan, o.BillingPeriod); err != nil {
 		return err
 	}
 	nodes, err := s.Store.ListActiveNodes(ctx)

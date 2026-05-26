@@ -20,7 +20,7 @@ import {
   getMe, getSubscription, resetSubscriptionToken,
   getPublicSettings,
   resetMyTraffic, resetMyUUID,
-  getPaymentMethods, payOrder,
+  getPaymentMethods, payOrder, getPlans, createOrder,
   buildSubscriptionUrl,
   buildSubscriptionUrlFromBase,
 } from "@/lib/api"
@@ -48,8 +48,34 @@ function formatBytes(bytes: number): { value: string; unit: string } {
   return { value: bytes.toString(), unit: "B" }
 }
 
+function bytesToGB(value: number | null | undefined) {
+  return String(Number(((value || 0) / 1073741824).toFixed(1)).toString())
+}
+
+type BillingPeriod = "monthly" | "quarterly" | "yearly"
+
+const billingPeriods: { value: BillingPeriod; label: string }[] = [
+  { value: "monthly", label: "月付" },
+  { value: "quarterly", label: "季付" },
+  { value: "yearly", label: "年付" },
+]
+
+function periodPrice(plan: any, period: BillingPeriod) {
+  const monthly = Number(plan.price || 0)
+  if (period === "quarterly") {
+    const quarterly = Number(plan.quarterly_price || 0)
+    return (quarterly > 0 ? quarterly : monthly * 3).toFixed(2)
+  }
+  if (period === "yearly") {
+    const yearly = Number(plan.yearly_price || 0)
+    return (yearly > 0 ? yearly : monthly * 12).toFixed(2)
+  }
+  return monthly.toFixed(2)
+}
+
 export default function Overview() {
   const [user, setUser] = useState<any>(null)
+  const [plans, setPlans] = useState<any[]>([])
   const [subToken, setSubToken] = useState("")
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
@@ -57,6 +83,7 @@ export default function Overview() {
   const [clientType, setClientType] = useState("general")
   const [resettingTraffic, setResettingTraffic] = useState(false)
   const [resettingUUID, setResettingUUID] = useState(false)
+  const [buyingPlanKey, setBuyingPlanKey] = useState<string | null>(null)
   const [trafficDialogOpen, setTrafficDialogOpen] = useState(false)
   const [uuidDialogOpen, setUUIDDialogOpen] = useState(false)
   const [notice, setNotice] = useState<{ type: "success" | "error"; message: string } | null>(null)
@@ -65,11 +92,13 @@ export default function Overview() {
     Promise.all([
       getMe(),
       getSubscription(),
+      getPlans().catch(() => ({ items: [] })),
       getPublicSettings().catch(() => ({ settings: {} })),
     ])
-      .then(([meRes, subRes, settingsRes]) => {
+      .then(([meRes, subRes, plansRes, settingsRes]) => {
         setUser(meRes.user)
         setSubToken(subRes.token)
+        setPlans(plansRes.items || [])
         setSettings(settingsRes.settings)
       })
       .catch(console.error)
@@ -165,6 +194,35 @@ export default function Overview() {
       setNotice({ type: "error", message: e?.message || "重置 UUID 失败" })
     } finally {
       setResettingUUID(false)
+    }
+  }
+
+  const handleBuyPlan = async (plan: any, period: BillingPeriod) => {
+    const key = `${plan.id}:${period}`
+    if (buyingPlanKey) return
+    setBuyingPlanKey(key)
+    setNotice(null)
+    try {
+      const methodsRes = await getPaymentMethods()
+      const method = methodsRes.methods?.[0]
+      if (!method?.name) {
+        throw new Error("站点尚未配置可用支付方式，请联系管理员。")
+      }
+      const orderRes = await createOrder(Number(plan.id), period)
+      const orderNo = orderRes.order?.order_no
+      if (!orderNo) {
+        throw new Error("订阅订单创建失败，请稍后重试。")
+      }
+      const payType = method.provider_type === "epay" ? "alipay" : undefined
+      const payRes = await payOrder(orderNo, method.name, payType)
+      if (!payRes.pay_url) {
+        throw new Error("支付网关未返回支付地址，请联系管理员检查支付配置。")
+      }
+      window.location.href = payRes.pay_url
+    } catch (e: any) {
+      setNotice({ type: "error", message: e?.message || "创建订阅订单失败" })
+    } finally {
+      setBuyingPlanKey(null)
     }
   }
 
@@ -270,6 +328,52 @@ export default function Overview() {
             </div>
             <p className="text-xs text-muted-foreground mt-2">若流量超过方案限制，将自动停用。</p>
           </div>
+
+          {plans.length > 0 && (
+            <div className="rounded-xl border bg-card p-5 space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">订阅升级</h3>
+                  <p className="text-xs text-muted-foreground mt-1">选择月付、季付或年付；升级时会按剩余时间和未用流量自动抵扣。</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {plans.map((plan) => (
+                  <div key={plan.id} className="rounded-lg border p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold">{plan.name}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {bytesToGB(plan.traffic_limit)} GB / 月，{plan.device_limit || 3} 台设备
+                        </div>
+                      </div>
+                      {user.plan_id === plan.id && (
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">当前套餐</span>
+                      )}
+                    </div>
+                    <div className="mt-4 grid grid-cols-3 gap-2">
+                      {billingPeriods.map((item) => {
+                        const buttonKey = `${plan.id}:${item.value}`
+                        return (
+                          <Button
+                            key={item.value}
+                            variant={item.value === "yearly" ? "default" : "outline"}
+                            className="h-auto flex-col items-start gap-1 px-3 py-2"
+                            disabled={buyingPlanKey !== null}
+                            onClick={() => handleBuyPlan(plan, item.value)}
+                          >
+                            <span className="text-xs">{item.label}</span>
+                            <span className="text-sm font-semibold">¥{periodPrice(plan, item.value)}</span>
+                            {buyingPlanKey === buttonKey && <span className="text-[10px] opacity-80">创建中...</span>}
+                          </Button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* === 节点配置 === */}
           <div className="rounded-xl border bg-card p-5 space-y-5">

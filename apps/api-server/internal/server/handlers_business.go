@@ -46,6 +46,8 @@ func adminListPlans(d Deps) gin.HandlerFunc {
 type createPlanBody struct {
 	Name              string   `json:"name" binding:"required"`
 	Price             string   `json:"price" binding:"required"`
+	QuarterlyPrice    string   `json:"quarterly_price"`
+	YearlyPrice       string   `json:"yearly_price"`
 	ResetTrafficPrice string   `json:"reset_traffic_price"`
 	DurationDays      int      `json:"duration_days" binding:"required"`
 	TrafficLimit      int64    `json:"traffic_limit"`
@@ -58,6 +60,8 @@ type createPlanBody struct {
 type updatePlanBody struct {
 	Name              string   `json:"name" binding:"required"`
 	Price             string   `json:"price" binding:"required"`
+	QuarterlyPrice    string   `json:"quarterly_price"`
+	YearlyPrice       string   `json:"yearly_price"`
 	ResetTrafficPrice string   `json:"reset_traffic_price"`
 	DurationDays      int      `json:"duration_days" binding:"required"`
 	TrafficLimit      int64    `json:"traffic_limit"`
@@ -81,6 +85,8 @@ func adminCreatePlan(d Deps) gin.HandlerFunc {
 		id, err := d.Biz.CreatePlan(c.Request.Context(), store.CreatePlanInput{
 			Name:              body.Name,
 			Price:             body.Price,
+			QuarterlyPrice:    body.QuarterlyPrice,
+			YearlyPrice:       body.YearlyPrice,
 			ResetTrafficPrice: body.ResetTrafficPrice,
 			DurationDays:      body.DurationDays,
 			TrafficLimit:      body.TrafficLimit,
@@ -129,6 +135,8 @@ func adminUpdatePlan(d Deps) gin.HandlerFunc {
 		if err := d.Store.UpdatePlan(c.Request.Context(), id, store.UpdatePlanInput{
 			Name:              body.Name,
 			Price:             body.Price,
+			QuarterlyPrice:    body.QuarterlyPrice,
+			YearlyPrice:       body.YearlyPrice,
 			ResetTrafficPrice: body.ResetTrafficPrice,
 			DurationDays:      body.DurationDays,
 			TrafficLimit:      body.TrafficLimit,
@@ -166,7 +174,8 @@ func normalizeFeatureList(items []string) []string {
 // ===== Orders =====
 
 type createOrderBody struct {
-	PlanID int64 `json:"plan_id" binding:"required"`
+	PlanID int64  `json:"plan_id" binding:"required"`
+	Period string `json:"period"`
 }
 
 func createOrder(d Deps) gin.HandlerFunc {
@@ -178,7 +187,7 @@ func createOrder(d Deps) gin.HandlerFunc {
 		}
 		uid := c.MustGet(ctxUserIDKey).(int64)
 		key := c.GetHeader("Idempotency-Key")
-		res, err := d.Biz.CreateOrder(c.Request.Context(), uid, body.PlanID, key)
+		res, err := d.Biz.CreateOrder(c.Request.Context(), uid, body.PlanID, body.Period, key)
 		if err != nil {
 			httpx.Fail(c, err)
 			return
@@ -299,6 +308,7 @@ func adminListUsers(d Deps) gin.HandlerFunc {
 				"id":            u.ID,
 				"email":         u.Email,
 				"plan_id":       u.PlanID,
+				"plan_period":   u.PlanPeriod,
 				"expired_at":    u.ExpiredAt,
 				"traffic_limit": u.TrafficLimit,
 				"traffic_used":  u.TrafficUsed,

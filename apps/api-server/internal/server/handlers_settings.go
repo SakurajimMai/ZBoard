@@ -2,6 +2,8 @@ package server
 
 import (
 	"net/http"
+	"net/mail"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zboard/api-server/internal/httpx"
@@ -15,6 +17,7 @@ var publicSettingKeys = map[string]bool{
 	"subscription_domain":        true,
 	"support_email":              true,
 	"support_telegram":           true,
+	"support_discord":            true,
 	"seo_title":                  true,
 	"seo_description":            true,
 	"seo_keywords":               true,
@@ -27,6 +30,7 @@ var publicSettingKeys = map[string]bool{
 	"seo_structured_data":        true,
 	"allow_register":             true,
 	"require_email_verify":       true,
+	"default_language":           true,
 	"captcha_provider":           true,
 	"captcha_site_key":           true,
 	"captcha_enabled_register":   true,
@@ -53,6 +57,12 @@ func publicSettings(d Deps) gin.HandlerFunc {
 			if publicSettingKeys[key] {
 				out[key] = value
 			}
+		}
+		if !emailVerifyAvailable(c.Request.Context(), d) {
+			out["email_verify_available"] = "0"
+			out["require_email_verify"] = "0"
+		} else {
+			out["email_verify_available"] = "1"
 		}
 		httpx.OK(c, gin.H{"settings": out})
 	}
@@ -96,16 +106,47 @@ func adminUpdateSettings(d Deps) gin.HandlerFunc {
 	}
 }
 
+type testEmailBody struct {
+	Email string `json:"email"`
+}
+
+func resolveTestEmailRecipient(body testEmailBody, admin *store.AdminUser) (string, error) {
+	email := strings.TrimSpace(body.Email)
+	if email == "" && admin != nil {
+		email = strings.TrimSpace(admin.Email)
+	}
+	if email == "" {
+		return "", httpx.NewError(http.StatusBadRequest, "test_email_required", "请输入测试邮箱")
+	}
+	addr, err := mail.ParseAddress(email)
+	if err != nil || addr.Address != email {
+		return "", httpx.NewError(http.StatusBadRequest, "invalid_test_email", "测试邮箱格式不正确")
+	}
+	return email, nil
+}
+
 func adminSendTestEmail(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if d.Auth == nil {
 			httpx.Fail(c, httpx.NewError(http.StatusInternalServerError, "auth_not_configured", "认证服务未初始化"))
 			return
 		}
+		var body testEmailBody
+		if c.Request.Body != nil && c.Request.ContentLength != 0 {
+			if err := c.ShouldBindJSON(&body); err != nil {
+				httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
+				return
+			}
+		}
 		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
+		to, err := resolveTestEmailRecipient(body, a)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
 		subject := "Zboard SMTP 测试邮件"
-		body := "这是一封来自 Zboard 管理后台的 SMTP 测试邮件。收到此邮件说明邮件服务器配置可用。"
-		if err := d.Auth.SendAdminEmail(c.Request.Context(), a.Email, subject, body); err != nil {
+		content := "这是一封来自 Zboard 管理后台的 SMTP 测试邮件。收到此邮件说明邮件服务器配置可用。"
+		if err := d.Auth.SendAdminEmail(c.Request.Context(), to, subject, content); err != nil {
 			httpx.Fail(c, err)
 			return
 		}
@@ -126,6 +167,7 @@ func defaultPublicSettings() map[string]string {
 		"subscription_domain":        "",
 		"support_email":              "",
 		"support_telegram":           "",
+		"support_discord":            "",
 		"seo_title":                  "Zboard",
 		"seo_description":            "",
 		"seo_keywords":               "",
@@ -138,6 +180,8 @@ func defaultPublicSettings() map[string]string {
 		"seo_structured_data":        "1",
 		"allow_register":             "1",
 		"require_email_verify":       "0",
+		"default_language":           "auto",
+		"email_verify_available":     "0",
 		"backup_subscription_domain": "",
 	}
 }
@@ -145,7 +189,7 @@ func defaultPublicSettings() map[string]string {
 func defaultAdminSettings() map[string]string {
 	settings := defaultPublicSettings()
 	for key, value := range map[string]string{
-		"default_language":                     "zh-CN",
+		"default_language":                     "auto",
 		"trial_traffic_gb":                     "0",
 		"trial_days":                           "0",
 		"user_default_device_limit":            "3",

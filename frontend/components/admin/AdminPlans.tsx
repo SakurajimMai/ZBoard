@@ -15,6 +15,8 @@ import { adminCreatePlan, adminGetPlans, adminUpdatePlan } from "@/lib/api"
 type PlanForm = {
   name: string
   price: string
+  quarterly_price: string
+  yearly_price: string
   reset_traffic_price: string
   duration_days: string
   traffic_limit_gb: string
@@ -27,6 +29,8 @@ type PlanForm = {
 const emptyForm: PlanForm = {
   name: "",
   price: "9.90",
+  quarterly_price: "26.90",
+  yearly_price: "99.00",
   reset_traffic_price: "0.00",
   duration_days: "30",
   traffic_limit_gb: "100",
@@ -71,6 +75,8 @@ export default function AdminPlans() {
     setForm({
       name: p.name || "",
       price: p.price || "0.00",
+      quarterly_price: p.quarterly_price || "0.00",
+      yearly_price: p.yearly_price || "0.00",
       reset_traffic_price: p.reset_traffic_price || "0.00",
       duration_days: String(p.duration_days || 30),
       traffic_limit_gb: bytesToGB(p.traffic_limit),
@@ -92,6 +98,8 @@ export default function AdminPlans() {
   const payload = () => ({
     name: form.name.trim(),
     price: form.price.trim(),
+    quarterly_price: form.quarterly_price.trim() || "0.00",
+    yearly_price: form.yearly_price.trim() || "0.00",
     reset_traffic_price: form.reset_traffic_price.trim() || "0.00",
     duration_days: Number(form.duration_days || 0),
     traffic_limit: gbToBytes(form.traffic_limit_gb),
@@ -157,8 +165,12 @@ export default function AdminPlans() {
                   {p.status === "active" ? "上架" : "下架"}
                 </span>
               </div>
-              <div className="text-2xl font-bold">¥{p.price}</div>
-              <div className="text-sm text-muted-foreground mt-1">{p.duration_days} 天</div>
+              <div className="grid grid-cols-3 gap-2 mt-3">
+                <PricePill label="月付" price={p.price} />
+                <PricePill label="季付" price={periodPrice(p, "quarterly")} />
+                <PricePill label="年付" price={periodPrice(p, "yearly")} />
+              </div>
+              <div className="text-sm text-muted-foreground mt-3">月周期 {p.duration_days} 天，季付/年付自动折算周期与流量</div>
               <div className="mt-3 text-xs text-muted-foreground space-y-1">
                 <p>流量: {bytesToGB(p.traffic_limit)} GB</p>
                 <p>设备: {p.device_limit} 台</p>
@@ -202,7 +214,7 @@ export default function AdminPlans() {
               <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="价格">
+              <Field label="月付价格">
                 <Input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
               </Field>
               <Field label="状态">
@@ -213,6 +225,14 @@ export default function AdminPlans() {
                     <SelectItem value="inactive">下架</SelectItem>
                   </SelectContent>
                 </Select>
+              </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="季付价格">
+                <Input type="number" min="0" step="0.01" value={form.quarterly_price} onChange={(e) => setForm({ ...form, quarterly_price: e.target.value })} />
+              </Field>
+              <Field label="年付价格">
+                <Input type="number" min="0" step="0.01" value={form.yearly_price} onChange={(e) => setForm({ ...form, yearly_price: e.target.value })} />
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -267,6 +287,22 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {children}
     </div>
   )
+}
+
+function PricePill({ label, price }: { label: string; price: string }) {
+  return (
+    <div className="rounded-md border bg-secondary/30 px-3 py-2">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className="text-sm font-semibold">¥{price}</div>
+    </div>
+  )
+}
+
+function periodPrice(plan: any, period: "quarterly" | "yearly") {
+  const monthly = Number(plan.price || 0)
+  const value = period === "quarterly" ? Number(plan.quarterly_price || 0) : Number(plan.yearly_price || 0)
+  if (value > 0) return value.toFixed(2)
+  return (monthly * (period === "quarterly" ? 3 : 12)).toFixed(2)
 }
 
 function bytesToGB(value: number | null | undefined) {

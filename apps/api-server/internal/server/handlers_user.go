@@ -26,7 +26,7 @@ func registerUser(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "register_disabled", "当前站点已关闭用户注册"))
 			return
 		}
-		requireEmailVerify, err := d.Store.BoolSetting(c.Request.Context(), "require_email_verify", false)
+		requireEmailVerify, err := requireEmailVerifyEffective(c.Request.Context(), d)
 		if err != nil {
 			httpx.Fail(c, err)
 			return
@@ -163,6 +163,7 @@ func userView(u *store.User) gin.H {
 		"email":         u.Email,
 		"balance":       u.Balance,
 		"plan_id":       u.PlanID,
+		"plan_period":   u.PlanPeriod,
 		"expired_at":    u.ExpiredAt,
 		"traffic_limit": u.TrafficLimit,
 		"traffic_used":  u.TrafficUsed,

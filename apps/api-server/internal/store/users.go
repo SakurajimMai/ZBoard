@@ -13,6 +13,7 @@ type User struct {
 	PasswordHash string     `db:"password_hash"`
 	Balance      string     `db:"balance"`
 	PlanID       *int64     `db:"plan_id"`
+	PlanPeriod   string     `db:"plan_period"`
 	ExpiredAt    *time.Time `db:"expired_at"`
 	TrafficLimit int64      `db:"traffic_limit"`
 	TrafficUsed  int64      `db:"traffic_used"`
@@ -33,6 +34,7 @@ type AdminCreateUserInput struct {
 	PasswordHash string
 	Balance      string
 	PlanID       *int64
+	PlanPeriod   string
 	ExpiredAt    *time.Time
 	TrafficLimit int64
 	TrafficUsed  int64
@@ -46,17 +48,20 @@ func (s *Store) AdminCreateUser(ctx context.Context, in AdminCreateUserInput) (i
 	if strings.TrimSpace(in.Status) == "" {
 		in.Status = "active"
 	}
+	if strings.TrimSpace(in.PlanPeriod) == "" {
+		in.PlanPeriod = BillingPeriodMonthly
+	}
 	return s.InsertReturningID(ctx,
-		`INSERT INTO users(email, password_hash, balance, plan_id, expired_at,
+		`INSERT INTO users(email, password_hash, balance, plan_id, plan_period, expired_at,
 			traffic_limit, traffic_used, status)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		in.Email, in.PasswordHash, in.Balance, in.PlanID, in.ExpiredAt,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		in.Email, in.PasswordHash, in.Balance, in.PlanID, in.PlanPeriod, in.ExpiredAt,
 		in.TrafficLimit, in.TrafficUsed, in.Status,
 	)
 }
 
 func (s *Store) FindUserByEmail(ctx context.Context, email string) (*User, error) {
-	q := s.Rebind(`SELECT id, email, password_hash, balance, plan_id, expired_at,
+	q := s.Rebind(`SELECT id, email, password_hash, balance, plan_id, plan_period, expired_at,
 		traffic_limit, traffic_used, status, created_at, updated_at
 		FROM users WHERE email = ?`)
 	var u User
@@ -67,7 +72,7 @@ func (s *Store) FindUserByEmail(ctx context.Context, email string) (*User, error
 }
 
 func (s *Store) FindUserByID(ctx context.Context, id int64) (*User, error) {
-	q := s.Rebind(`SELECT id, email, password_hash, balance, plan_id, expired_at,
+	q := s.Rebind(`SELECT id, email, password_hash, balance, plan_id, plan_period, expired_at,
 		traffic_limit, traffic_used, status, created_at, updated_at
 		FROM users WHERE id = ?`)
 	var u User
@@ -81,19 +86,25 @@ func (s *Store) FindUserByID(ctx context.Context, id int64) (*User, error) {
 // max(now, current expiry) and resets traffic limit / used. The status is set
 // to 'active'.
 func (s *Store) ActivateUserPlan(ctx context.Context, userID int64, plan *Plan) error {
+	return s.ActivateUserPlanPeriod(ctx, userID, plan, BillingPeriodMonthly)
+}
+
+func (s *Store) ActivateUserPlanPeriod(ctx context.Context, userID int64, plan *Plan, period string) error {
 	u, err := s.FindUserByID(ctx, userID)
 	if err != nil {
 		return err
 	}
+	period = NormalizeBillingPeriod(period)
 	base := time.Now().UTC()
-	if u.ExpiredAt != nil && u.ExpiredAt.After(base) {
+	if u.PlanID != nil && *u.PlanID == plan.ID && u.ExpiredAt != nil && u.ExpiredAt.After(base) {
 		base = *u.ExpiredAt
 	}
-	newExpiry := base.AddDate(0, 0, plan.DurationDays)
+	newExpiry := base.AddDate(0, 0, PlanDurationDays(plan, period))
+	trafficLimit := PlanTrafficLimit(plan, period)
 
-	q := s.Rebind(`UPDATE users SET plan_id = ?, expired_at = ?, traffic_limit = ?,
+	q := s.Rebind(`UPDATE users SET plan_id = ?, plan_period = ?, expired_at = ?, traffic_limit = ?,
 		traffic_used = 0, status = 'active' WHERE id = ?`)
-	if _, err = s.DB.ExecContext(ctx, q, plan.ID, newExpiry, plan.TrafficLimit, userID); err != nil {
+	if _, err = s.DB.ExecContext(ctx, q, plan.ID, period, newExpiry, trafficLimit, userID); err != nil {
 		return err
 	}
 	return s.ApplyPlanLimitsToNodeUsers(ctx, userID, plan)
@@ -110,6 +121,7 @@ type AdminUpdateUserInput struct {
 	Email        string
 	Balance      string
 	PlanID       *int64
+	PlanPeriod   string
 	ExpiredAt    *time.Time
 	TrafficLimit int64
 	TrafficUsed  int64
@@ -117,9 +129,17 @@ type AdminUpdateUserInput struct {
 }
 
 func (s *Store) AdminUpdateUser(ctx context.Context, userID int64, in AdminUpdateUserInput) error {
+	if strings.TrimSpace(in.PlanPeriod) == "" {
+		if existing, err := s.FindUserByID(ctx, userID); err == nil && strings.TrimSpace(existing.PlanPeriod) != "" {
+			in.PlanPeriod = existing.PlanPeriod
+		} else {
+			in.PlanPeriod = BillingPeriodMonthly
+		}
+	}
 	q := s.Rebind(`UPDATE users SET email = ?, balance = ?, plan_id = ?, expired_at = ?,
-		traffic_limit = ?, traffic_used = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+		plan_period = ?, traffic_limit = ?, traffic_used = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
 	_, err := s.DB.ExecContext(ctx, q, in.Email, in.Balance, in.PlanID, in.ExpiredAt,
+		in.PlanPeriod,
 		in.TrafficLimit, in.TrafficUsed, in.Status, userID)
 	return err
 }
@@ -153,7 +173,7 @@ func (s *Store) ListUsersPageFiltered(ctx context.Context, p PageParams, f UserF
 		return nil, 0, err
 	}
 	args = append(args, p.PageSize, p.Offset())
-	q := s.Rebind(`SELECT id, email, password_hash, balance, plan_id, expired_at,
+	q := s.Rebind(`SELECT id, email, password_hash, balance, plan_id, plan_period, expired_at,
 		traffic_limit, traffic_used, status, created_at, updated_at
 		FROM users` + where + ` ORDER BY id DESC LIMIT ? OFFSET ?`)
 	var rows []User

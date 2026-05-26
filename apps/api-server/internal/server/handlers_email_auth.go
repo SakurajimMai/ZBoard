@@ -32,6 +32,10 @@ func sendEmailCode(d Deps) gin.HandlerFunc {
 				return
 			}
 		}
+		if !emailVerifyAvailable(c.Request.Context(), d) {
+			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "email_verify_unavailable", "邮件服务未配置"))
+			return
+		}
 		scene := captchasvc.SceneRegister
 		if body.Purpose == "reset_password" {
 			scene = captchasvc.SceneForgot
@@ -51,7 +55,7 @@ func sendEmailCode(d Deps) gin.HandlerFunc {
 type registerWithCodeBody struct {
 	Email        string `json:"email" binding:"required"`
 	Password     string `json:"password" binding:"required"`
-	Code         string `json:"code" binding:"required"`
+	Code         string `json:"code"`
 	CaptchaToken string `json:"captcha_token"`
 }
 
@@ -73,6 +77,15 @@ func registerUserWithCode(d Deps) gin.HandlerFunc {
 		}
 		if err := d.Captcha.Verify(c.Request.Context(), captchasvc.SceneRegister, body.CaptchaToken, c.ClientIP()); err != nil {
 			httpx.Fail(c, err)
+			return
+		}
+		if !emailVerifyAvailable(c.Request.Context(), d) {
+			id, err := d.Auth.RegisterUser(c.Request.Context(), body.Email, body.Password)
+			if err != nil {
+				httpx.Fail(c, err)
+				return
+			}
+			httpx.Created(c, gin.H{"user_id": id})
 			return
 		}
 		id, err := d.Auth.RegisterUserWithCode(c.Request.Context(), body.Email, body.Password, body.Code)

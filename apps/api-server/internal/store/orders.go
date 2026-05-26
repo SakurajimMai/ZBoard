@@ -6,39 +6,55 @@ import (
 )
 
 type Order struct {
-	ID          int64      `db:"id" json:"id"`
-	OrderNo     string     `db:"order_no" json:"order_no"`
-	UserID      int64      `db:"user_id" json:"user_id"`
-	PlanID      int64      `db:"plan_id" json:"plan_id"`
-	Kind        string     `db:"kind" json:"kind"`
-	Amount      string     `db:"amount" json:"amount"`
-	Currency    string     `db:"currency" json:"currency"`
-	Status      string     `db:"status" json:"status"`
-	PaidAt      *time.Time `db:"paid_at" json:"paid_at"`
-	CancelledAt *time.Time `db:"cancelled_at" json:"cancelled_at"`
-	ExpiredAt   *time.Time `db:"expired_at" json:"expired_at"`
-	CreatedAt   time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time  `db:"updated_at" json:"updated_at"`
+	ID             int64      `db:"id" json:"id"`
+	OrderNo        string     `db:"order_no" json:"order_no"`
+	UserID         int64      `db:"user_id" json:"user_id"`
+	PlanID         int64      `db:"plan_id" json:"plan_id"`
+	Kind           string     `db:"kind" json:"kind"`
+	BillingPeriod  string     `db:"billing_period" json:"billing_period"`
+	Amount         string     `db:"amount" json:"amount"`
+	OriginalAmount string     `db:"original_amount" json:"original_amount"`
+	CreditAmount   string     `db:"credit_amount" json:"credit_amount"`
+	Currency       string     `db:"currency" json:"currency"`
+	Status         string     `db:"status" json:"status"`
+	PaidAt         *time.Time `db:"paid_at" json:"paid_at"`
+	CancelledAt    *time.Time `db:"cancelled_at" json:"cancelled_at"`
+	ExpiredAt      *time.Time `db:"expired_at" json:"expired_at"`
+	CreatedAt      time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt      time.Time  `db:"updated_at" json:"updated_at"`
 }
 
 const (
 	OrderKindPlan         = "plan"
 	OrderKindTrafficReset = "traffic_reset"
+
+	BillingPeriodMonthly   = "monthly"
+	BillingPeriodQuarterly = "quarterly"
+	BillingPeriodYearly    = "yearly"
 )
 
 func (s *Store) CreateOrder(ctx context.Context, o *Order) (int64, error) {
 	if o.Kind == "" {
 		o.Kind = OrderKindPlan
 	}
+	if o.BillingPeriod == "" {
+		o.BillingPeriod = BillingPeriodMonthly
+	}
+	if o.OriginalAmount == "" {
+		o.OriginalAmount = o.Amount
+	}
+	if o.CreditAmount == "" {
+		o.CreditAmount = "0.00"
+	}
 	return s.InsertReturningID(ctx,
-		`INSERT INTO orders(order_no, user_id, plan_id, kind, amount, currency, status, expired_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		o.OrderNo, o.UserID, o.PlanID, o.Kind, o.Amount, o.Currency, o.Status, o.ExpiredAt,
+		`INSERT INTO orders(order_no, user_id, plan_id, kind, billing_period, amount, original_amount, credit_amount, currency, status, expired_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		o.OrderNo, o.UserID, o.PlanID, o.Kind, o.BillingPeriod, o.Amount, o.OriginalAmount, o.CreditAmount, o.Currency, o.Status, o.ExpiredAt,
 	)
 }
 
 func (s *Store) FindOrderByNo(ctx context.Context, orderNo string) (*Order, error) {
-	q := s.Rebind(`SELECT id, order_no, user_id, plan_id, kind, amount, currency, status,
+	q := s.Rebind(`SELECT id, order_no, user_id, plan_id, kind, billing_period, amount, original_amount, credit_amount, currency, status,
 		paid_at, cancelled_at, expired_at, created_at, updated_at
 		FROM orders WHERE order_no = ?`)
 	var o Order
@@ -58,7 +74,7 @@ func (s *Store) ListOrdersByUser(ctx context.Context, userID int64, limit int) (
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	q := s.Rebind(`SELECT id, order_no, user_id, plan_id, kind, amount, currency, status,
+	q := s.Rebind(`SELECT id, order_no, user_id, plan_id, kind, billing_period, amount, original_amount, credit_amount, currency, status,
 		paid_at, cancelled_at, expired_at, created_at, updated_at
 		FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT ?`)
 	var rows []Order
@@ -82,7 +98,7 @@ func (s *Store) ListAllOrdersPage(ctx context.Context, p PageParams) ([]Order, i
 	if err := s.DB.GetContext(ctx, &total, `SELECT COUNT(*) FROM orders`); err != nil {
 		return nil, 0, err
 	}
-	q := s.Rebind(`SELECT id, order_no, user_id, plan_id, kind, amount, currency, status,
+	q := s.Rebind(`SELECT id, order_no, user_id, plan_id, kind, billing_period, amount, original_amount, credit_amount, currency, status,
 		paid_at, cancelled_at, expired_at, created_at, updated_at
 		FROM orders ORDER BY id DESC LIMIT ? OFFSET ?`)
 	var rows []Order

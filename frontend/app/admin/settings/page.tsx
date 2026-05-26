@@ -22,7 +22,8 @@ const defaults: SettingMap = {
   backup_subscription_domain: "",
   support_email: "",
   support_telegram: "",
-  default_language: "zh-CN",
+  support_discord: "",
+  default_language: "auto",
   allow_register: "1",
   require_email_verify: "0",
   trial_traffic_gb: "0",
@@ -122,6 +123,7 @@ export default function AdminSettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>("basic")
   const [settings, setSettings] = useState<SettingMap>(defaults)
   const [templateId, setTemplateId] = useState<(typeof emailTemplates)[number]["id"]>("register")
+  const [testEmail, setTestEmail] = useState("")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testingEmail, setTestingEmail] = useState(false)
@@ -168,7 +170,7 @@ export default function AdminSettingsPage() {
     setTestingEmail(true)
     try {
       await persistSettings()
-      await adminSendTestEmail()
+      await adminSendTestEmail(testEmail.trim() || undefined)
       alert("测试邮件已发送到当前管理员邮箱")
     } catch (err: any) {
       alert(err.message || "发送测试邮件失败")
@@ -209,6 +211,7 @@ export default function AdminSettingsPage() {
       </div>
 
       {activeTab === "basic" && (
+        <>
         <SettingsSection icon={Settings} title="注册与用户设置" subtitle="配置用户注册、试用等相关选项">
           <div className="space-y-6">
             <SwitchRow label="允许新用户注册" desc="关闭后仅能通过管理员创建账号" checked={bool("allow_register")} onCheckedChange={(v) => setBool("allow_register", v)} />
@@ -241,6 +244,7 @@ export default function AdminSettingsPage() {
                 <Select value={settings.default_language} onValueChange={(v) => setValue("default_language", v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="auto">跟随浏览器</SelectItem>
                     <SelectItem value="zh-CN">简体中文</SelectItem>
                     <SelectItem value="zh-TW">繁体中文</SelectItem>
                     <SelectItem value="en">English</SelectItem>
@@ -250,6 +254,23 @@ export default function AdminSettingsPage() {
             </Grid>
           </div>
         </SettingsSection>
+
+        <SettingsSection icon={Mail} title="联系方式与支持" subtitle="配置在用户端呈现的客服、社群与联络方式">
+          <div className="space-y-6">
+            <Grid>
+              <Field label="客服支持邮箱" hint="配置后展示在页面工单及服务联系入口">
+                <Input value={settings.support_email} onChange={(e) => setValue("support_email", e.target.value)} placeholder="support@example.com" />
+              </Field>
+              <Field label="Telegram 频道/客服链接" hint="配置后展示在前台页脚的纸飞机按钮上">
+                <Input value={settings.support_telegram} onChange={(e) => setValue("support_telegram", e.target.value)} placeholder="https://t.me/your_channel" />
+              </Field>
+              <Field label="Discord 邀请链接" hint="配置后展示在前台页脚的 Discord 气泡按钮上">
+                <Input value={settings.support_discord} onChange={(e) => setValue("support_discord", e.target.value)} placeholder="https://discord.gg/your_server" />
+              </Field>
+            </Grid>
+          </div>
+        </SettingsSection>
+        </>
       )}
 
       {activeTab === "subscription" && (
@@ -341,6 +362,12 @@ export default function AdminSettingsPage() {
 
               <SwitchRow label="启用 SMTP 认证" desc="使用用户名密码进行 SMTP 认证" checked={bool("smtp_auth_enabled")} onCheckedChange={(v) => setBool("smtp_auth_enabled", v)} />
               <SwitchRow label="验证 SSL 证书" desc="验证服务器 SSL 证书有效性" checked={bool("smtp_ssl_verify_enabled")} onCheckedChange={(v) => setBool("smtp_ssl_verify_enabled", v)} />
+
+              <Grid>
+                <Field label="测试收件邮箱" hint="留空时默认发送到当前管理员邮箱">
+                  <Input type="email" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} placeholder="tester@example.com" />
+                </Field>
+              </Grid>
 
               <div className="flex flex-wrap justify-end gap-3">
                 <Button variant="outline" onClick={sendTestEmail} disabled={testingEmail}>
