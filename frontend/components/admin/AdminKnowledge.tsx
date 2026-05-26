@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
-import { BookOpen, Edit3, GripVertical, Plus, Search, Trash2 } from "lucide-react"
+import { BookOpen, Edit3, Eye, GripVertical, Pencil, Plus, Search, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { AdminPager } from "@/components/admin/AdminPager"
+import MarkdownRenderer from "@/components/MarkdownRenderer"
 import {
   adminCreateKnowledge,
   adminDeleteKnowledge,
@@ -49,6 +50,7 @@ export default function AdminKnowledge() {
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [keyword, setKeyword] = useState("")
+  const [editorTab, setEditorTab] = useState<"edit" | "preview">("edit")
 
   const load = useCallback(() => {
     setLoading(true)
@@ -82,6 +84,7 @@ export default function AdminKnowledge() {
   const openCreate = () => {
     setEditing(null)
     setForm(emptyForm)
+    setEditorTab("edit")
     setDialogOpen(true)
   }
 
@@ -95,6 +98,7 @@ export default function AdminKnowledge() {
       sort: String(item.sort ?? 0),
       status: item.status === "inactive" ? "inactive" : "active",
     })
+    setEditorTab("edit")
     setDialogOpen(true)
   }
 
@@ -266,7 +270,7 @@ export default function AdminKnowledge() {
       />
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); else setDialogOpen(true) }}>
-        <DialogContent className="sm:max-w-3xl">
+        <DialogContent className="sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle>{editing ? "编辑教程" : "新增教程"}</DialogTitle>
           </DialogHeader>
@@ -294,9 +298,46 @@ export default function AdminKnowledge() {
             <Field label="摘要">
               <Input value={form.summary} onChange={(e) => setForm({ ...form, summary: e.target.value })} placeholder="用于用户端列表展示" />
             </Field>
-            <Field label="教程内容">
-              <Textarea className="min-h-72 font-mono text-sm" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder="支持纯文本、步骤说明和 Markdown 风格内容" />
-            </Field>
+
+            {/* 编辑 / 预览切换 */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>教程内容</Label>
+                <div className="flex rounded-lg border bg-muted p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditorTab("edit")}
+                    className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${editorTab === "edit" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    <Pencil className="h-3.5 w-3.5" /> 编辑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditorTab("preview")}
+                    className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${editorTab === "preview" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    <Eye className="h-3.5 w-3.5" /> 预览
+                  </button>
+                </div>
+              </div>
+
+              {editorTab === "edit" ? (
+                <Textarea
+                  className="min-h-80 font-mono text-sm"
+                  value={form.content}
+                  onChange={(e) => setForm({ ...form, content: e.target.value })}
+                  placeholder={"支持 Markdown 语法，例如：\n\n## 标题\n\n**粗体** 和 *斜体*\n\n- 列表项一\n- 列表项二\n\n```\n代码块\n```"}
+                />
+              ) : (
+                <div className="min-h-80 rounded-md border bg-card p-5 overflow-y-auto">
+                  {form.content.trim() ? (
+                    <MarkdownRenderer content={form.content} />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">暂无内容可以预览，请切换到编辑模式输入 Markdown 内容</p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={closeDialog} disabled={saving}>取消</Button>

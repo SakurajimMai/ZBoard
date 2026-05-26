@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { BookOpen, ChevronRight, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import MarkdownRenderer from "@/components/MarkdownRenderer"
 import { getKnowledge, getKnowledgeArticle } from "@/lib/api"
 
 export default function KnowledgePage() {
@@ -123,8 +124,8 @@ export default function KnowledgePage() {
               </div>
               <h2 className="text-2xl font-bold tracking-tight">{selected.title}</h2>
               {selected.summary && <p className="mt-3 text-sm text-muted-foreground">{selected.summary}</p>}
-              <div className="mt-6 whitespace-pre-wrap break-words rounded-lg bg-muted/35 p-5 text-sm leading-7 text-foreground">
-                {selected.content}
+              <div className="mt-6 rounded-lg bg-muted/35 p-5">
+                <MarkdownRenderer content={selected.content || ""} />
               </div>
             </div>
           ) : (
