@@ -1,7 +1,9 @@
 import type { Metadata } from 'next'
+import { cookies, headers } from 'next/headers'
 import { Inter } from 'next/font/google'
-import { Analytics } from '@vercel/analytics/next'
 import { I18nProvider } from '@/lib/i18n/context'
+import { LOCALES } from '@/lib/i18n/locales'
+import { LOCALE_COOKIE_KEY, detectAcceptLanguageLocale, normalizeLocale } from '@/lib/i18n/resolve'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin', 'cyrillic'], variable: '--font-sans' })
@@ -12,18 +14,32 @@ export const metadata: Metadata = {
   generator: 'Zboard',
 }
 
-export default function RootLayout({
+function analyticsEnabled() {
+  return process.env.NEXT_PUBLIC_VERCEL_ANALYTICS === '1' || process.env.NEXT_PUBLIC_VERCEL_ANALYTICS === 'true'
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const cookieStore = await cookies()
+  const requestHeaders = await headers()
+  const initialLocale =
+    normalizeLocale(cookieStore.get(LOCALE_COOKIE_KEY)?.value) ||
+    detectAcceptLanguageLocale(requestHeaders.get('accept-language'))
+  const dir = LOCALES.find((l) => l.code === initialLocale)?.dir ?? 'ltr'
+  const Analytics = analyticsEnabled()
+    ? (await import('@vercel/analytics/next')).Analytics
+    : null
+
   return (
-    <html lang="zh-CN" className={`${inter.variable} bg-background`}>
+    <html lang={initialLocale} dir={dir} className={`${inter.variable} bg-background`} suppressHydrationWarning>
       <body className="font-sans antialiased">
-        <I18nProvider>
+        <I18nProvider initialLocale={initialLocale}>
           {children}
         </I18nProvider>
-        {process.env.NODE_ENV === 'production' && <Analytics />}
+        {Analytics ? <Analytics /> : null}
       </body>
     </html>
   )

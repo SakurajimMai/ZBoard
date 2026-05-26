@@ -3,6 +3,14 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
 import { getPublicSettings } from "@/lib/api"
 import { type Locale, type TranslationDict, translations, LOCALES } from "./locales"
+import {
+  DEFAULT_LOCALE,
+  LEGACY_LOCALE_STORAGE_KEY,
+  LOCALE_COOKIE_KEY,
+  MANUAL_LOCALE_STORAGE_KEY,
+  normalizeLocale,
+  resolvePreferredLocale,
+} from "./resolve"
 
 interface I18nContextValue {
   locale: Locale
@@ -13,59 +21,36 @@ interface I18nContextValue {
 
 const I18nContext = createContext<I18nContextValue | null>(null)
 
-const LEGACY_STORAGE_KEY = "zboard-locale"
-const MANUAL_STORAGE_KEY = "zboard-locale-manual"
-const DEFAULT_LOCALE: Locale = "en"
-
-function normalizeLocale(value?: string | null): Locale | null {
-  if (!value || value === "auto") return null
-  if (value in translations) return value as Locale
-  if (value.startsWith("zh-TW") || value.startsWith("zh-HK")) return "zh-TW"
-  if (value.startsWith("zh")) return "zh-CN"
-  if (value.startsWith("ja")) return "ja"
-  if (value.startsWith("ko")) return "ko"
-  if (value.startsWith("vi")) return "vi"
-  if (value.startsWith("fa")) return "fa"
-  if (value.startsWith("ru")) return "ru"
-  if (value.startsWith("en")) return "en"
-  return null
-}
-
-function detectBrowserLocale(): Locale {
-  if (typeof window === "undefined") return DEFAULT_LOCALE
-  const browser = navigator.language
-  if (browser.startsWith("zh-TW") || browser.startsWith("zh-HK")) return "zh-TW"
-  if (browser.startsWith("zh")) return "zh-CN"
-  if (browser.startsWith("ja")) return "ja"
-  if (browser.startsWith("ko")) return "ko"
-  if (browser.startsWith("vi")) return "vi"
-  if (browser.startsWith("fa")) return "fa"
-  if (browser.startsWith("ru")) return "ru"
-  if (browser.startsWith("en")) return "en"
-  return DEFAULT_LOCALE
-}
-
-function resolvePreferredLocale(defaultLanguage?: string): Locale {
+function resolveClientLocale(defaultLanguage?: string | null): Locale {
   if (typeof window === "undefined") return normalizeLocale(defaultLanguage) || DEFAULT_LOCALE
-  const manual = normalizeLocale(localStorage.getItem(MANUAL_STORAGE_KEY))
-  if (manual) return manual
-  const browser = detectBrowserLocale()
-  if (browser) return browser
-  return normalizeLocale(defaultLanguage) || DEFAULT_LOCALE
+  return resolvePreferredLocale({
+    manual: localStorage.getItem(MANUAL_LOCALE_STORAGE_KEY),
+    browser: navigator.language,
+    defaultLanguage,
+  })
 }
 
-export function I18nProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(DEFAULT_LOCALE)
+function persistLocaleCookie(locale: Locale) {
+  if (typeof document === "undefined") return
+  document.cookie = `${LOCALE_COOKIE_KEY}=${encodeURIComponent(locale)}; Path=/; Max-Age=31536000; SameSite=Lax`
+}
+
+export function I18nProvider({ children, initialLocale = DEFAULT_LOCALE }: { children: ReactNode; initialLocale?: Locale }) {
+  const [locale, setLocaleState] = useState<Locale>(initialLocale)
 
   useEffect(() => {
     let cancelled = false
-    setLocaleState(resolvePreferredLocale())
+    const firstLocale = resolveClientLocale()
+    setLocaleState(firstLocale)
+    if (normalizeLocale(localStorage.getItem(MANUAL_LOCALE_STORAGE_KEY))) {
+      persistLocaleCookie(firstLocale)
+    }
     getPublicSettings()
       .then((res) => {
-        if (!cancelled) setLocaleState(resolvePreferredLocale(res.settings?.default_language))
+        if (!cancelled) setLocaleState(resolveClientLocale(res.settings?.default_language))
       })
       .catch(() => {
-        if (!cancelled) setLocaleState(resolvePreferredLocale())
+        if (!cancelled) setLocaleState(firstLocale)
       })
     return () => {
       cancelled = true
@@ -80,8 +65,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const setLocale = (next: Locale) => {
     if (typeof window !== "undefined") {
-      localStorage.setItem(MANUAL_STORAGE_KEY, next)
-      localStorage.removeItem(LEGACY_STORAGE_KEY)
+      localStorage.setItem(MANUAL_LOCALE_STORAGE_KEY, next)
+      localStorage.removeItem(LEGACY_LOCALE_STORAGE_KEY)
+      persistLocaleCookie(next)
     }
     setLocaleState(next)
   }
