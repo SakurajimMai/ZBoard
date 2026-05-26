@@ -40,6 +40,10 @@ func registerUser(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
 			return
 		}
+		if err := requireEmailDomainAllowed(c.Request.Context(), d, body.Email); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
 		if err := d.Captcha.Verify(c.Request.Context(), captchasvc.SceneRegister, body.CaptchaToken, c.ClientIP()); err != nil {
 			httpx.Fail(c, err)
 			return

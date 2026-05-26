@@ -496,8 +496,12 @@ export default function AdminSettingsPage() {
                 <Input value={settings.admin_path} onChange={(e) => setValue("admin_path", e.target.value)} />
               </Field>
             </Grid>
-            <Field label="邮箱域名白名单">
-              <Textarea value={settings.email_domain_whitelist} onChange={(e) => setValue("email_domain_whitelist", e.target.value)} placeholder="每行一个域名，例如 gmail.com" />
+            <Field label="邮箱域名白名单" hint="支持英文逗号、中文逗号、空格或换行分隔；留空表示不限制邮箱域名">
+              <Textarea
+                value={settings.email_domain_whitelist}
+                onChange={(e) => setValue("email_domain_whitelist", e.target.value)}
+                placeholder="gmail.com,qq.com,163.com,yahoo.com,sina.com,126.com,outlook.com,yeah.net,foxmail.com"
+              />
             </Field>
           </div>
         </SettingsSection>

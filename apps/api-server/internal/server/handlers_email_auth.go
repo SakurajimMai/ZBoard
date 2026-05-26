@@ -22,6 +22,10 @@ func sendEmailCode(d Deps) gin.HandlerFunc {
 			return
 		}
 		if body.Purpose == "register" {
+			if err := requireEmailDomainAllowed(c.Request.Context(), d, body.Email); err != nil {
+				httpx.Fail(c, err)
+				return
+			}
 			allowRegister, err := d.Store.BoolSetting(c.Request.Context(), "allow_register", true)
 			if err != nil {
 				httpx.Fail(c, err)
@@ -73,6 +77,10 @@ func registerUserWithCode(d Deps) gin.HandlerFunc {
 		var body registerWithCodeBody
 		if err := c.ShouldBindJSON(&body); err != nil {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
+			return
+		}
+		if err := requireEmailDomainAllowed(c.Request.Context(), d, body.Email); err != nil {
+			httpx.Fail(c, err)
 			return
 		}
 		if err := d.Captcha.Verify(c.Request.Context(), captchasvc.SceneRegister, body.CaptchaToken, c.ClientIP()); err != nil {
