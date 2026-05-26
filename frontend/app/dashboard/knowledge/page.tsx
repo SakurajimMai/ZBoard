@@ -6,8 +6,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import MarkdownRenderer from "@/components/MarkdownRenderer"
 import { getKnowledge, getKnowledgeArticle } from "@/lib/api"
+import { useI18n } from "@/lib/i18n/context"
+import { dashboardCopy } from "@/lib/i18n/dashboard"
 
 export default function KnowledgePage() {
+  const { locale } = useI18n()
+  const d = dashboardCopy(locale)
   const [items, setItems] = useState<any[]>([])
   const [selected, setSelected] = useState<any | null>(null)
   const [category, setCategory] = useState("all")
@@ -53,7 +57,7 @@ export default function KnowledgePage() {
     }
   }
 
-  if (loading) return <div className="text-muted-foreground p-8">加载中...</div>
+  if (loading) return <div className="text-muted-foreground p-8">{d.common.loading}</div>
 
   return (
     <div className="space-y-6">
@@ -63,8 +67,8 @@ export default function KnowledgePage() {
             <BookOpen className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">使用教程</h1>
-            <p className="text-sm text-muted-foreground">查看客户端导入、节点配置和常见问题处理指南</p>
+            <h1 className="text-2xl font-bold">{d.knowledge.title}</h1>
+            <p className="text-sm text-muted-foreground">{d.knowledge.subtitle}</p>
           </div>
         </div>
       </div>
@@ -74,11 +78,11 @@ export default function KnowledgePage() {
           <div className="rounded-xl border bg-card p-4">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} className="pl-9" placeholder="搜索教程" />
+              <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} className="pl-9" placeholder={d.knowledge.searchPlaceholder} />
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button size="sm" variant={category === "all" ? "default" : "outline"} onClick={() => setCategory("all")}>
-                全部
+                {d.knowledge.all}
               </Button>
               {categories.map((item) => (
                 <Button key={item} size="sm" variant={category === item ? "default" : "outline"} onClick={() => setCategory(item)}>
@@ -90,7 +94,7 @@ export default function KnowledgePage() {
 
           <div className="rounded-xl border bg-card overflow-hidden">
             {filtered.length === 0 ? (
-              <div className="px-4 py-10 text-center text-sm text-muted-foreground">暂无教程</div>
+              <div className="px-4 py-10 text-center text-sm text-muted-foreground">{d.knowledge.noArticles}</div>
             ) : filtered.map((item) => {
               const active = selected?.slug === item.slug
               return (
@@ -117,9 +121,9 @@ export default function KnowledgePage() {
           {selected ? (
             <div className="p-5 sm:p-7">
               <div className="mb-5 flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{selected.category || "通用教程"}</span>
+                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{selected.category || d.knowledge.all}</span>
                 <span className="text-xs text-muted-foreground">
-                  {selected.updated_at ? new Date(selected.updated_at).toLocaleString("zh-CN") : ""}
+                  {selected.updated_at ? new Date(selected.updated_at).toLocaleString(locale) : ""}
                 </span>
               </div>
               <h2 className="text-2xl font-bold tracking-tight">{selected.title}</h2>
@@ -131,7 +135,7 @@ export default function KnowledgePage() {
           ) : (
             <div className="flex h-full min-h-[520px] flex-col items-center justify-center p-8 text-center text-muted-foreground">
               <BookOpen className="mb-3 h-10 w-10" />
-              <p>暂无可用教程</p>
+              <p>{d.knowledge.noArticlesAvailable}</p>
             </div>
           )}
         </article>

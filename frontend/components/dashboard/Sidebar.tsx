@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
 import { useI18n } from "@/lib/i18n/context"
+import { dashboardCopy } from "@/lib/i18n/dashboard"
 import { cn } from "@/lib/utils"
 
 type SidebarProps = {
@@ -29,13 +30,14 @@ type SidebarProps = {
 export default function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
+  const d = dashboardCopy(locale)
   const userEmail = user?.email || ""
 
   const navItems = [
     { href: "/dashboard", label: t.dash.overview, icon: LayoutDashboard },
     { href: "/dashboard/subscription", label: t.dash.subscription, icon: Globe },
-    { href: "/dashboard/knowledge", label: "使用教程", icon: BookOpen },
+    { href: "/dashboard/knowledge", label: d.sidebar.knowledge, icon: BookOpen },
     { href: "/dashboard/ticket", label: t.dash.ticket, icon: Ticket },
     { href: "/dashboard/settings", label: t.dash.settings, icon: Settings },
   ]
@@ -107,7 +109,7 @@ export default function Sidebar({ user }: SidebarProps) {
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
             className="p-2 rounded-xl hover:bg-accent transition-colors"
-            aria-label={mobileOpen ? "关闭菜单" : "打开菜单"}
+            aria-label={mobileOpen ? d.sidebar.menuClose : d.sidebar.menuOpen}
           >
             {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>

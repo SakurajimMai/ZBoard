@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { changeMyPassword, deleteMyAccount, getMe, logout } from "@/lib/api"
+import { useI18n } from "@/lib/i18n/context"
+import { dashboardCopy } from "@/lib/i18n/dashboard"
 
 type UserProfile = {
   email?: string
@@ -15,6 +17,8 @@ type UserProfile = {
 
 export default function SettingsPage() {
   const router = useRouter()
+  const { locale } = useI18n()
+  const d = dashboardCopy(locale)
   const [user, setUser] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [passwordForm, setPasswordForm] = useState({
@@ -45,11 +49,11 @@ export default function SettingsPage() {
     clearNotice()
 
     if (passwordForm.newPassword.length < 6) {
-      setError("新密码至少需要 6 位")
+      setError(d.settings.passwordMinLength)
       return
     }
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setError("两次输入的新密码不一致")
+      setError(d.settings.passwordMismatch)
       return
     }
 
@@ -57,9 +61,9 @@ export default function SettingsPage() {
     try {
       await changeMyPassword(passwordForm.currentPassword, passwordForm.newPassword)
       setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" })
-      setMessage("密码已更新")
+      setMessage(d.settings.passwordUpdated)
     } catch (err: any) {
-      setError(err.message || "更新密码失败")
+      setError(err.message || d.settings.passwordUpdateFailed)
     } finally {
       setSavingPassword(false)
     }
@@ -70,10 +74,10 @@ export default function SettingsPage() {
     clearNotice()
 
     if (!deletePassword) {
-      setError("请输入当前密码后再注销账户")
+      setError(d.settings.deletePasswordRequired)
       return
     }
-    if (!window.confirm("确认注销账户？注销后所有会话会失效，账户将无法继续使用。")) {
+    if (!window.confirm(d.settings.deleteConfirm)) {
       return
     }
 
@@ -83,20 +87,20 @@ export default function SettingsPage() {
       logout()
       router.replace("/login")
     } catch (err: any) {
-      setError(err.message || "注销账户失败")
+      setError(err.message || d.settings.deleteFailed)
       setDeletingAccount(false)
     }
   }
 
   if (loading) {
-    return <div className="p-8 text-muted-foreground">加载中...</div>
+    return <div className="p-8 text-muted-foreground">{d.common.loading}</div>
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">账户设置</h1>
-        <p className="mt-1 text-sm text-muted-foreground">管理个人账户信息和安全设置。</p>
+        <h1 className="text-2xl font-bold text-foreground">{d.settings.title}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{d.settings.subtitle}</p>
       </div>
 
       {(message || error) && (
@@ -115,16 +119,16 @@ export default function SettingsPage() {
         <div className="mb-5 flex items-center gap-4">
           <CircleUserRound className="h-12 w-12 flex-shrink-0 text-foreground/80" strokeWidth={1.8} />
           <div>
-            <h2 className="font-semibold text-foreground">基本信息</h2>
-            <p className="text-sm text-muted-foreground">当前登录账户</p>
+            <h2 className="font-semibold text-foreground">{d.settings.basicInfo}</h2>
+            <p className="text-sm text-muted-foreground">{d.settings.currentAccount}</p>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Field label="邮箱地址">
+          <Field label={d.settings.email}>
             <Input value={user?.email || ""} readOnly className="bg-secondary border-border" />
           </Field>
-          <Field label="账户状态">
-            <Input value={user?.status === "active" ? "正常" : user?.status || "-"} readOnly className="bg-secondary border-border" />
+          <Field label={d.settings.accountStatus}>
+            <Input value={user?.status === "active" ? d.settings.statusNormal : user?.status || "-"} readOnly className="bg-secondary border-border" />
           </Field>
         </div>
       </section>
@@ -132,11 +136,11 @@ export default function SettingsPage() {
       <section className="rounded-xl border border-border bg-card p-6">
         <div className="mb-5 flex items-center gap-3">
           <KeyRound className="h-5 w-5 text-primary" />
-          <h2 className="font-semibold text-foreground">修改密码</h2>
+          <h2 className="font-semibold text-foreground">{d.settings.changePassword}</h2>
         </div>
         <form onSubmit={handlePasswordSubmit} className="space-y-4">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field label="当前密码">
+            <Field label={d.settings.currentPassword}>
               <Input
                 type="password"
                 value={passwordForm.currentPassword}
@@ -145,7 +149,7 @@ export default function SettingsPage() {
                 required
               />
             </Field>
-            <Field label="新密码">
+            <Field label={d.settings.newPassword}>
               <Input
                 type="password"
                 value={passwordForm.newPassword}
@@ -154,7 +158,7 @@ export default function SettingsPage() {
                 required
               />
             </Field>
-            <Field label="确认新密码">
+            <Field label={d.settings.confirmNewPassword}>
               <Input
                 type="password"
                 value={passwordForm.confirmPassword}
@@ -165,7 +169,7 @@ export default function SettingsPage() {
             </Field>
           </div>
           <Button type="submit" disabled={savingPassword}>
-            {savingPassword ? "更新中..." : "更新密码"}
+            {savingPassword ? d.settings.updating : d.settings.updatePassword}
           </Button>
         </form>
       </section>
@@ -174,12 +178,12 @@ export default function SettingsPage() {
         <div className="mb-5 flex items-center gap-3">
           <Trash2 className="h-5 w-5 text-destructive" />
           <div>
-            <h2 className="font-semibold text-foreground">危险区域</h2>
-            <p className="text-sm text-muted-foreground">注销账户后，所有会话会失效，节点访问也会被停用。</p>
+            <h2 className="font-semibold text-foreground">{d.settings.dangerZone}</h2>
+            <p className="text-sm text-muted-foreground">{d.settings.dangerDesc}</p>
           </div>
         </div>
         <form onSubmit={handleDeleteAccount} className="space-y-4">
-          <Field label="当前密码">
+          <Field label={d.settings.currentPassword}>
             <Input
               type="password"
               value={deletePassword}
@@ -189,7 +193,7 @@ export default function SettingsPage() {
             />
           </Field>
           <Button type="submit" variant="destructive" disabled={deletingAccount}>
-            {deletingAccount ? "注销中..." : "注销账户"}
+            {deletingAccount ? d.settings.deleting : d.settings.deleteAccount}
           </Button>
         </form>
       </section>
