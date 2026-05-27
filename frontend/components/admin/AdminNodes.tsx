@@ -515,7 +515,7 @@ export default function AdminNodes() {
             <DialogTitle className="text-lg">{editing ? "编辑节点" : "新建节点"}</DialogTitle>
             <p className="text-xs text-muted-foreground mt-1">
               {editing
-                ? "修改后立即生效，可在节点列表中触发同步使 Agent 拉取最新配置。"
+                ? "保存后会自动下发配置；也可在节点列表中手动重新同步。"
                 : "创建后将返回一次性节点密钥，请立即记录并填入 Agent 配置。"}
             </p>
           </DialogHeader>

@@ -9,12 +9,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -54,6 +56,9 @@ func (s *Supervisor) TryBootExisting(ctx context.Context) bool {
 	if s.cmd != nil {
 		return false
 	}
+	if inferred, ok := inferRuntimeType(data); ok && inferred != s.RuntimeType {
+		s.setRuntimeType(inferred)
+	}
 	sum := sha256.Sum256(data)
 	s.configSum = hex.EncodeToString(sum[:])
 	if err := s.restartLocked(ctx); err != nil {
@@ -68,6 +73,9 @@ func (s *Supervisor) TryBootExisting(ctx context.Context) bool {
 func (s *Supervisor) Apply(ctx context.Context, configJSON []byte) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if inferred, ok := inferRuntimeType(configJSON); ok && inferred != s.RuntimeType {
+		s.setRuntimeType(inferred)
+	}
 	sum := sha256.Sum256(configJSON)
 	hash := hex.EncodeToString(sum[:])
 	if hash == s.configSum && s.cmd != nil {
@@ -147,4 +155,52 @@ func (s *Supervisor) runArgs() []string {
 	default:
 		return []string{"run", "-config", s.ConfigFile}
 	}
+}
+
+func (s *Supervisor) setRuntimeType(runtimeType string) {
+	s.RuntimeType = runtimeType
+	s.Binary = runtimeBinaryForType(s.Binary, runtimeType)
+}
+
+func runtimeBinaryForType(current, runtimeType string) string {
+	target := "xray"
+	switch runtimeType {
+	case "sing-box", "singbox":
+		target = "sing-box"
+	}
+	if current == "" {
+		return filepath.Join("/usr/local/bin", target)
+	}
+	base := filepath.Base(current)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	switch name {
+	case "xray", "sing-box":
+		return strings.TrimSuffix(current, base) + target + ext
+	default:
+		return current
+	}
+}
+
+func inferRuntimeType(configJSON []byte) (string, bool) {
+	if len(configJSON) == 0 {
+		return "", false
+	}
+	var doc struct {
+		Inbounds []struct {
+			Type     string `json:"type"`
+			Protocol string `json:"protocol"`
+		} `json:"inbounds"`
+	}
+	if err := json.Unmarshal(configJSON, &doc); err != nil || len(doc.Inbounds) == 0 {
+		return "", false
+	}
+	first := doc.Inbounds[0]
+	if first.Type != "" {
+		return "sing-box", true
+	}
+	if first.Protocol != "" {
+		return "xray", true
+	}
+	return "", false
 }

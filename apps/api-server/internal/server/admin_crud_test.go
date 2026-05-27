@@ -626,6 +626,65 @@ func TestAdminCanUpdatePlanAndNode(t *testing.T) {
 	}
 }
 
+func TestAdminCreateAndUpdateNodeAutoEnqueuesSyncTask(t *testing.T) {
+	r, st, token := setupAdminCRUDRouter(t)
+	ctx := context.Background()
+
+	nodeCreate := adminJSON(t, r, token, http.MethodPost, "/api/admin/v1/nodes", map[string]any{
+		"name":         "US-01",
+		"host":         "us.example.com",
+		"port":         20925,
+		"protocol":     "hysteria2",
+		"runtime_type": "sing-box",
+		"security":     "tls",
+	})
+	if nodeCreate.Code != http.StatusCreated {
+		t.Fatalf("create node status=%d body=%s", nodeCreate.Code, nodeCreate.Body.String())
+	}
+	var created struct {
+		NodeID     int64  `json:"node_id"`
+		SyncTaskID string `json:"sync_task_id"`
+	}
+	if err := json.Unmarshal(nodeCreate.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if created.SyncTaskID == "" {
+		t.Fatalf("create node should return sync_task_id, body=%s", nodeCreate.Body.String())
+	}
+	assertPendingSyncTasks := func(want int) {
+		t.Helper()
+		var count int
+		if err := st.DB.GetContext(ctx, &count, st.Rebind(
+			`SELECT COUNT(*) FROM node_tasks WHERE node_id = ? AND task_type = 'sync_config' AND status = 'pending'`),
+			created.NodeID); err != nil {
+			t.Fatalf("count sync tasks: %v", err)
+		}
+		if count != want {
+			t.Fatalf("pending sync task count=%d, want %d", count, want)
+		}
+	}
+	assertPendingSyncTasks(1)
+
+	nodeUpdate := adminJSON(t, r, token, http.MethodPut, "/api/admin/v1/nodes/"+strconv.FormatInt(created.NodeID, 10), map[string]any{
+		"name":         "US-01",
+		"region":       "US",
+		"host":         "117.55.226.11",
+		"port":         20925,
+		"protocol":     "hysteria2",
+		"runtime_type": "sing-box",
+		"security":     "tls",
+		"status":       "active",
+		"port_range":   "21000-22000",
+	})
+	if nodeUpdate.Code != http.StatusOK {
+		t.Fatalf("update node status=%d body=%s", nodeUpdate.Code, nodeUpdate.Body.String())
+	}
+	if !bytes.Contains(nodeUpdate.Body.Bytes(), []byte("sync_task_id")) {
+		t.Fatalf("update active node should return sync_task_id, body=%s", nodeUpdate.Body.String())
+	}
+	assertPendingSyncTasks(2)
+}
+
 func TestAdminCreateNodeBackfillsOnlyProvisionableUsers(t *testing.T) {
 	r, st, token := setupAdminCRUDRouter(t)
 	ctx := context.Background()

@@ -42,8 +42,9 @@ func (s *Service) GenerateSyncTask(ctx context.Context, nodeID int64) (string, s
 	// Build payload: always include version + hash; add port_hopping metadata
 	// when the node has a port_range configured (Hysteria2 port jumping).
 	payloadMap := map[string]any{
-		"version":     version,
-		"config_hash": hash,
+		"version":      version,
+		"config_hash":  hash,
+		"runtime_type": node.RuntimeType,
 	}
 	if phMeta := runtime.PortHoppingMeta(node); phMeta != nil {
 		payloadMap["port_hopping"] = phMeta

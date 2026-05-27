@@ -122,10 +122,19 @@ func adminCreateNode(d Deps) gin.HandlerFunc {
 			Action: "node.create", ResourceType: "node", ResourceID: strconv.FormatInt(nodeID, 10),
 			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
 		})
-		httpx.Created(c, gin.H{
+		resp := gin.H{
 			"node_id":     nodeID,
 			"node_secret": secret, // returned ONCE; only the hash is persisted
-		})
+		}
+		if d.Nodes != nil {
+			if taskID, version, err := d.Nodes.GenerateSyncTask(c.Request.Context(), nodeID); err == nil {
+				resp["sync_task_id"] = taskID
+				resp["sync_version"] = version
+			} else {
+				resp["sync_error"] = err.Error()
+			}
+		}
+		httpx.Created(c, resp)
 	}
 }
 
@@ -191,7 +200,16 @@ func adminUpdateNode(d Deps) gin.HandlerFunc {
 			Action: "node.update", ResourceType: "node", ResourceID: strconv.FormatInt(id, 10),
 			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
 		})
-		httpx.OK(c, gin.H{"ok": true})
+		resp := gin.H{"ok": true}
+		if status == "active" && d.Nodes != nil {
+			if taskID, version, err := d.Nodes.GenerateSyncTask(c.Request.Context(), id); err == nil {
+				resp["sync_task_id"] = taskID
+				resp["sync_version"] = version
+			} else {
+				resp["sync_error"] = err.Error()
+			}
+		}
+		httpx.OK(c, resp)
 	}
 }
 

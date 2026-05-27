@@ -12,6 +12,9 @@ services:
     image: sakurajiamai/zboard-agent:latest
     container_name: zboard-agent
     network_mode: host
+    cap_add:
+      # Hysteria2 端口跳跃需要写入 iptables/ip6tables NAT 规则。
+      - NET_ADMIN
     env_file: ./agent.env
     environment:
       - TZ=Asia/Shanghai
