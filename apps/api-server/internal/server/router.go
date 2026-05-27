@@ -8,6 +8,7 @@ import (
 	"github.com/zboard/api-server/internal/agentauth"
 	"github.com/zboard/api-server/internal/authsvc"
 	"github.com/zboard/api-server/internal/bizsvc"
+	"github.com/zboard/api-server/internal/buildinfo"
 	"github.com/zboard/api-server/internal/captchasvc"
 	"github.com/zboard/api-server/internal/nodesvc"
 	"github.com/zboard/api-server/internal/payment/registry"
@@ -42,7 +43,7 @@ func New(d Deps) *gin.Engine {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "down", "error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "commit": buildinfo.Commit})
 	})
 
 	api := r.Group("/api/v1")

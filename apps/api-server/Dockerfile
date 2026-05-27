@@ -6,13 +6,14 @@ RUN apk add --no-cache git ca-certificates
 
 ARG TARGETOS
 ARG TARGETARCH
+ARG GIT_COMMIT=dev
 
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
 RUN test -n "${TARGETOS}" && test -n "${TARGETARCH}" && \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w" -o /out/zboard-api ./cmd/server
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w -X github.com/zboard/api-server/internal/buildinfo.Commit=${GIT_COMMIT}" -o /out/zboard-api ./cmd/server
 
 # Runtime stage
 FROM alpine:3.20
