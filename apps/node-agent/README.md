@@ -77,17 +77,20 @@ from the next config push.
 
 ## Per-user traffic accounting
 
-The control plane's `internal/runtime` package builds Xray / sing-box configs
-that expose a stats gRPC API on `127.0.0.1:10085`:
+The control plane's `internal/runtime` package builds Xray configs that expose
+a stats gRPC API on `127.0.0.1:10085`:
 
 - **Xray**: `stats: {}` + `api: {tag, services: [StatsService]}` +
   `policy.levels.0.statsUserUplink/Downlink: true` + a `dokodemo-door`
   inbound tagged `api` that the `routing.rules` block routes to the api
   outbound. Each client carries `email: u<user_id>@zboard`, so Xray emits
   stats named `user>>>u<id>@zboard>>>traffic>>>{uplink,downlink}`.
-- **sing-box**: `experimental.v2ray_api` with `stats.enabled: true` and the
-  full user-name list. sing-box exposes the same `StatsService` wire format
-  Xray uses, so the agent reuses one client.
+- **sing-box**: bundled release binaries do not include the `with_v2ray_api`
+  build tag. Zboard therefore does not emit `experimental.v2ray_api` by
+  default, because that block prevents common sing-box builds from starting.
+  Sing-box nodes can still run normally, but per-user traffic scraping is
+  skipped unless you replace the runtime with a compatible custom build and
+  enable a matching stats path.
 
 Each `traffic_report` cycle the agent calls
 `StatsService/QueryStats(pattern="user>>>", reset=true)` over gRPC, parses

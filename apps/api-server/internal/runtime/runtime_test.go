@@ -151,7 +151,7 @@ func TestXrayConfigExposesStatsAPI(t *testing.T) {
 	}
 }
 
-func TestSingBoxConfigExposesV2RayAPI(t *testing.T) {
+func TestSingBoxConfigDoesNotRequireV2RayAPI(t *testing.T) {
 	node := &store.Node{
 		ID: 1, Name: "T", Host: "h", Port: 443,
 		Protocol: "vless", Transport: "tcp", Security: "tls",
@@ -169,21 +169,10 @@ func TestSingBoxConfigExposesV2RayAPI(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &doc); err != nil {
 		t.Fatalf("not valid JSON: %v\n%s", err, body)
 	}
-	exp, ok := doc["experimental"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected experimental block")
-	}
-	v2, ok := exp["v2ray_api"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected v2ray_api block: %#v", exp)
-	}
-	stats, _ := v2["stats"].(map[string]any)
-	if stats == nil || stats["enabled"] != true {
-		t.Fatalf("expected stats.enabled=true: %#v", stats)
-	}
-	usersList, _ := stats["users"].([]any)
-	if len(usersList) != 2 {
-		t.Fatalf("expected 2 stats users, got %d", len(usersList))
+	if exp, ok := doc["experimental"].(map[string]any); ok {
+		if _, ok := exp["v2ray_api"]; ok {
+			t.Fatalf("sing-box runtime config must not require v2ray_api build tag: %#v", exp)
+		}
 	}
 }
 

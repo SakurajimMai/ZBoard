@@ -237,6 +237,10 @@ func prepareRuntimeConfig(configJSON []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	prepared, err = stripUnsupportedSingBoxV2RayAPI(prepared)
+	if err != nil {
+		return nil, err
+	}
 	if err := ensureRuntimeAssets(prepared); err != nil {
 		return nil, err
 	}
@@ -285,6 +289,35 @@ func normalizeQUICCertificatePaths(configJSON []byte) ([]byte, error) {
 	}
 	if !changed {
 		return configJSON, nil
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("encode runtime config: %w", err)
+	}
+	return out, nil
+}
+
+func stripUnsupportedSingBoxV2RayAPI(configJSON []byte) ([]byte, error) {
+	var doc map[string]any
+	if err := json.Unmarshal(configJSON, &doc); err != nil {
+		return nil, fmt.Errorf("parse runtime config: %w", err)
+	}
+	if _, ok := inferRuntimeType(configJSON); !ok {
+		return configJSON, nil
+	}
+	if runtimeType, _ := inferRuntimeType(configJSON); runtimeType != "sing-box" {
+		return configJSON, nil
+	}
+	exp, ok := doc["experimental"].(map[string]any)
+	if !ok {
+		return configJSON, nil
+	}
+	if _, ok := exp["v2ray_api"]; !ok {
+		return configJSON, nil
+	}
+	delete(exp, "v2ray_api")
+	if len(exp) == 0 {
+		delete(doc, "experimental")
 	}
 	out, err := json.Marshal(doc)
 	if err != nil {

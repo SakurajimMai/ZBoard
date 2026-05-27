@@ -1,7 +1,7 @@
-// Package stats reads per-user uplink/downlink counters from the local
-// Xray/sing-box runtime via the StatsService gRPC API. Both engines expose the
-// same wire format on 127.0.0.1:10085 (Xray's xray.app.stats.command,
-// sing-box's experimental.v2ray_api), so one client handles both.
+// Package stats reads per-user uplink/downlink counters from a local
+// StatsService-compatible runtime API, currently enabled by Zboard's generated
+// Xray configs. Sing-box's v2ray_api requires a non-default build tag, so
+// bundled sing-box configs intentionally avoid depending on it.
 //
 // We hand-roll the protobuf encoding for QueryStatsRequest/Response with
 // google.golang.org/protobuf/encoding/protowire to avoid pulling in xray-core
@@ -19,8 +19,8 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
-// QueryStatsMethod is the fully-qualified gRPC method path. Both Xray and
-// sing-box's v2ray_api advertise it under the same name.
+// QueryStatsMethod is the fully-qualified gRPC method path used by Xray's
+// StatsService and compatible v2ray_api implementations.
 const QueryStatsMethod = "/xray.app.stats.command.StatsService/QueryStats"
 
 // UserDelta is the per-user traffic delta returned by QueryAndReset.

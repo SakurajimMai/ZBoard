@@ -1,7 +1,7 @@
 // Package runtime builds minimal viable Xray / sing-box configurations from a
 // node + its enabled node_users. Both runtimes are configured to expose a
-// per-user stats gRPC API on 127.0.0.1:10085 so the Node Agent can scrape
-// uplink/downlink counters with reset-on-read semantics.
+// per-user stats gRPC API on 127.0.0.1:10085 for Xray so the Node Agent can
+// scrape uplink/downlink counters with reset-on-read semantics.
 package runtime
 
 import (
@@ -18,7 +18,8 @@ import (
 // StatsAPIPort is the local-only port the runtime exposes for per-user stats.
 // The Node Agent dials 127.0.0.1:StatsAPIPort over gRPC. We use the Xray
 // `xray.app.stats.command.StatsService` API; sing-box exposes the same wire
-// protocol via `experimental.v2ray_api`.
+// sing-box's v2ray_api requires a non-default build tag, so bundled sing-box
+// configs deliberately omit it to keep runtime startup portable.
 const StatsAPIPort = 10085
 
 const (
@@ -302,12 +303,10 @@ func httpTransportSettings(node *store.Node) map[string]any {
 }
 
 // singBoxUserName is the canonical user name we set on every sing-box user.
-// sing-box's v2ray_api exposes stats keyed by this name.
 func singBoxUserName(userID int64) string { return fmt.Sprintf("u%d", userID) }
 
 func singBox(node *store.Node, users []store.NodeUser) map[string]any {
 	users2 := make([]map[string]any, 0, len(users))
-	names := make([]string, 0, len(users))
 	for _, u := range users {
 		if u.Enabled == 0 {
 			continue
@@ -324,7 +323,6 @@ func singBox(node *store.Node, users []store.NodeUser) map[string]any {
 			entry["password"] = u.ClientID
 		}
 		users2 = append(users2, entry)
-		names = append(names, name)
 	}
 	inbound := map[string]any{
 		"type":        node.Protocol,
@@ -393,15 +391,6 @@ func singBox(node *store.Node, users []store.NodeUser) map[string]any {
 			map[string]any{"type": "direct", "tag": "direct"},
 			map[string]any{"type": "block", "tag": "block"},
 		},
-		"experimental": map[string]any{
-			"v2ray_api": map[string]any{
-				"listen": fmt.Sprintf("127.0.0.1:%d", StatsAPIPort),
-				"stats": map[string]any{
-					"enabled": true,
-					"users":   names,
-				},
-			},
-		},
 	}
 }
 
@@ -432,7 +421,6 @@ func quicTLSBlock(node *store.Node) map[string]any {
 
 func singBoxHysteria2(node *store.Node, users []store.NodeUser) map[string]any {
 	users2 := make([]map[string]any, 0, len(users))
-	names := make([]string, 0, len(users))
 	for _, u := range users {
 		if u.Enabled == 0 {
 			continue
@@ -442,7 +430,6 @@ func singBoxHysteria2(node *store.Node, users []store.NodeUser) map[string]any {
 			"name":     name,
 			"password": u.ClientID, // Hysteria2 user password = per-user secret
 		})
-		names = append(names, name)
 	}
 	inbound := map[string]any{
 		"type":        "hysteria2",
@@ -472,12 +459,6 @@ func singBoxHysteria2(node *store.Node, users []store.NodeUser) map[string]any {
 		"outbounds": []any{
 			map[string]any{"type": "direct", "tag": "direct"},
 			map[string]any{"type": "block", "tag": "block"},
-		},
-		"experimental": map[string]any{
-			"v2ray_api": map[string]any{
-				"listen": fmt.Sprintf("127.0.0.1:%d", StatsAPIPort),
-				"stats":  map[string]any{"enabled": true, "users": names},
-			},
 		},
 	}
 
@@ -541,7 +522,6 @@ func parsePortRange(raw string) (int, int, error) {
 
 func singBoxTUIC(node *store.Node, users []store.NodeUser) map[string]any {
 	users2 := make([]map[string]any, 0, len(users))
-	names := make([]string, 0, len(users))
 	for _, u := range users {
 		if u.Enabled == 0 {
 			continue
@@ -559,7 +539,6 @@ func singBoxTUIC(node *store.Node, users []store.NodeUser) map[string]any {
 			"uuid":     u.ClientID,
 			"password": password,
 		})
-		names = append(names, name)
 	}
 	inbound := map[string]any{
 		"type":               "tuic",
@@ -576,12 +555,6 @@ func singBoxTUIC(node *store.Node, users []store.NodeUser) map[string]any {
 		"outbounds": []any{
 			map[string]any{"type": "direct", "tag": "direct"},
 			map[string]any{"type": "block", "tag": "block"},
-		},
-		"experimental": map[string]any{
-			"v2ray_api": map[string]any{
-				"listen": fmt.Sprintf("127.0.0.1:%d", StatsAPIPort),
-				"stats":  map[string]any{"enabled": true, "users": names},
-			},
 		},
 	}
 }

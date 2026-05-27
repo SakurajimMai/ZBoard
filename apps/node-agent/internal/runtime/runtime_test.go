@@ -153,6 +153,46 @@ func TestPrepareRuntimeConfigAddsDefaultQUICCertificatePaths(t *testing.T) {
 	}
 }
 
+func TestPrepareRuntimeConfigStripsUnsupportedSingBoxV2RayAPI(t *testing.T) {
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "server.crt")
+	keyPath := filepath.Join(dir, "server.key")
+
+	prepared, err := prepareRuntimeConfig([]byte(`{
+		"inbounds": [{
+			"type": "hysteria2",
+			"tls": {
+				"enabled": true,
+				"server_name": "us1.example.com",
+				"certificate_path": "` + filepath.ToSlash(certPath) + `",
+				"key_path": "` + filepath.ToSlash(keyPath) + `"
+			}
+		}],
+		"experimental": {
+			"cache_file": {"enabled": true},
+			"v2ray_api": {
+				"listen": "127.0.0.1:10085",
+				"stats": {"enabled": true, "users": ["u1"]}
+			}
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("prepareRuntimeConfig: %v", err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(prepared, &doc); err != nil {
+		t.Fatalf("unmarshal prepared config: %v", err)
+	}
+	exp, _ := doc["experimental"].(map[string]any)
+	if _, ok := exp["v2ray_api"]; ok {
+		t.Fatalf("v2ray_api should be stripped for bundled sing-box compatibility: %#v", exp)
+	}
+	if _, ok := exp["cache_file"]; !ok {
+		t.Fatalf("non-v2ray experimental settings should be preserved: %#v", exp)
+	}
+}
+
 func TestTryBootExistingRewritesLegacyQUICConfig(t *testing.T) {
 	dir := t.TempDir()
 	certPath := filepath.Join(dir, "tls", "server.crt")
