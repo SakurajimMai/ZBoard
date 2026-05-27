@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -216,7 +217,7 @@ func (a *Agent) reportTraffic(ctx context.Context) error {
 		DownloadDelta int64 `json:"download_delta"`
 	}
 	out := []item{}
-	if a.Stats != nil && a.Supervisor.IsRunning() {
+	if a.Stats != nil && a.Supervisor.IsRunning() && supportsStatsAPI(a.Supervisor.Type()) {
 		qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		deltas, err := a.Stats.QueryAndReset(qctx)
 		cancel()
@@ -237,4 +238,13 @@ func (a *Agent) reportTraffic(ctx context.Context) error {
 	}
 	body := map[string]any{"items": out}
 	return a.Client.Do(ctx, "/api/agent/v1/traffic/report", body, nil)
+}
+
+func supportsStatsAPI(runtimeType string) bool {
+	switch strings.ToLower(strings.TrimSpace(runtimeType)) {
+	case "sing-box", "singbox":
+		return false
+	default:
+		return true
+	}
 }

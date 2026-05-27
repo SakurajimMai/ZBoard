@@ -13,18 +13,19 @@ import (
 )
 
 type Config struct {
-	APIBaseURL        string        // e.g. https://control.example.com
+	APIBaseURL        string // e.g. https://control.example.com
 	NodeID            int64
-	NodeSecret        string        // plaintext; library only stores sha256
+	NodeSecret        string // plaintext; library only stores sha256
 	HeartbeatInterval time.Duration
 	PullInterval      time.Duration
 	TrafficInterval   time.Duration
-	RuntimeBinary     string        // path to xray or sing-box
-	RuntimeType       string        // "xray" | "sing-box"
-	ConfigFile        string        // where to write the runtime config
-	WorkDir           string        // working directory for the runtime process
+	RuntimeBinary     string // path to xray or sing-box
+	RuntimeType       string // "xray" | "sing-box"
+	ConfigFile        string // where to write the runtime config
+	WorkDir           string // working directory for the runtime process
 	AgentVersion      string
-	StatsAPIAddr      string        // host:port of the runtime's stats gRPC API; empty disables stats scraping
+	StatsAPIAddr      string // host:port of the runtime's stats gRPC API; empty disables stats scraping
+	statsExplicit     bool
 }
 
 // Default returns a Config seeded with sensible defaults.
@@ -144,6 +145,7 @@ func applyKV(c *Config, k, v string) {
 		c.AgentVersion = v
 	case "ZBOARD_AGENT_STATS_API_ADDR", "STATS_API_ADDR":
 		c.StatsAPIAddr = v
+		c.statsExplicit = true
 	}
 }
 
@@ -157,6 +159,29 @@ func (c *Config) validate() error {
 	if c.NodeSecret == "" {
 		return fmt.Errorf("node_secret is required")
 	}
+	if !c.statsExplicit && isSingBoxRuntime(c.RuntimeType, c.RuntimeBinary) {
+		c.StatsAPIAddr = ""
+	}
 	c.APIBaseURL = strings.TrimRight(c.APIBaseURL, "/")
 	return nil
+}
+
+func isSingBoxRuntime(runtimeType, runtimeBinary string) bool {
+	t := strings.ToLower(strings.TrimSpace(runtimeType))
+	if t == "sing-box" || t == "singbox" {
+		return true
+	}
+	b := strings.ToLower(filepathBase(runtimeBinary))
+	return b == "sing-box" || b == "singbox"
+}
+
+func filepathBase(path string) string {
+	path = strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	if path == "" {
+		return ""
+	}
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		return path[i+1:]
+	}
+	return path
 }

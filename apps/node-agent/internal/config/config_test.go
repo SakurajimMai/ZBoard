@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -60,5 +61,52 @@ func TestLoad_FilePresent_OverlayedByEnv(t *testing.T) {
 	}
 	if cfg.NodeSecret != "env-wins" {
 		t.Errorf("env should overlay file, got NodeSecret = %q", cfg.NodeSecret)
+	}
+}
+
+func TestLoad_SingBoxDisablesDefaultStatsAPI(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "agent.env")
+	content := strings.Join([]string{
+		"ZBOARD_AGENT_API_BASE_URL=https://panel.example.com",
+		"ZBOARD_AGENT_NODE_ID=1",
+		"ZBOARD_AGENT_NODE_SECRET=file-secret",
+		"ZBOARD_AGENT_RUNTIME_TYPE=sing-box",
+		"ZBOARD_AGENT_RUNTIME_BINARY=/usr/local/bin/sing-box",
+	}, "\n")
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.StatsAPIAddr != "" {
+		t.Fatalf("sing-box should disable default stats API, got %q", cfg.StatsAPIAddr)
+	}
+}
+
+func TestLoad_SingBoxKeepsExplicitStatsAPI(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "agent.env")
+	content := strings.Join([]string{
+		"ZBOARD_AGENT_API_BASE_URL=https://panel.example.com",
+		"ZBOARD_AGENT_NODE_ID=1",
+		"ZBOARD_AGENT_NODE_SECRET=file-secret",
+		"ZBOARD_AGENT_RUNTIME_TYPE=sing-box",
+		"ZBOARD_AGENT_RUNTIME_BINARY=/usr/local/bin/sing-box",
+		"ZBOARD_AGENT_STATS_API_ADDR=127.0.0.1:20085",
+	}, "\n")
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.StatsAPIAddr != "127.0.0.1:20085" {
+		t.Fatalf("explicit sing-box stats API should be preserved, got %q", cfg.StatsAPIAddr)
 	}
 }

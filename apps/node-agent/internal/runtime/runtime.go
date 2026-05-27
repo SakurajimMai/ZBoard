@@ -133,6 +133,12 @@ func (s *Supervisor) IsRunning() bool {
 	return true
 }
 
+func (s *Supervisor) Type() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.RuntimeType
+}
+
 func (s *Supervisor) restartLocked(ctx context.Context) error {
 	_ = s.stopLocked()
 	args := s.runArgs()
