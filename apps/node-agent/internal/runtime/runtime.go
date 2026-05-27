@@ -58,6 +58,12 @@ func (s *Supervisor) TryBootExisting(ctx context.Context) bool {
 	if err != nil || len(data) == 0 {
 		return false
 	}
+	prepared, err := prepareRuntimeConfig(data)
+	if err != nil {
+		return false
+	}
+	data = prepared
+	_ = os.WriteFile(s.ConfigFile, data, 0o600)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cmd != nil {
@@ -80,6 +86,11 @@ func (s *Supervisor) TryBootExisting(ctx context.Context) bool {
 func (s *Supervisor) Apply(ctx context.Context, configJSON []byte) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	prepared, err := prepareRuntimeConfig(configJSON)
+	if err != nil {
+		return false, err
+	}
+	configJSON = prepared
 	if inferred, ok := inferRuntimeType(configJSON); ok && inferred != s.RuntimeType {
 		s.setRuntimeType(inferred)
 	}
@@ -93,9 +104,6 @@ func (s *Supervisor) Apply(ctx context.Context, configJSON []byte) (bool, error)
 	}
 	if err := os.WriteFile(s.ConfigFile, configJSON, 0o600); err != nil {
 		return false, fmt.Errorf("write config: %w", err)
-	}
-	if err := ensureRuntimeAssets(configJSON); err != nil {
-		return false, err
 	}
 	if err := s.restartLocked(ctx); err != nil {
 		return false, err
@@ -222,6 +230,81 @@ func ensureRuntimeAssets(configJSON []byte) error {
 		}
 	}
 	return nil
+}
+
+func prepareRuntimeConfig(configJSON []byte) ([]byte, error) {
+	prepared, err := normalizeQUICCertificatePaths(configJSON)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureRuntimeAssets(prepared); err != nil {
+		return nil, err
+	}
+	return prepared, nil
+}
+
+func normalizeQUICCertificatePaths(configJSON []byte) ([]byte, error) {
+	var doc map[string]any
+	if err := json.Unmarshal(configJSON, &doc); err != nil {
+		return nil, fmt.Errorf("parse runtime config: %w", err)
+	}
+	inbounds, ok := doc["inbounds"].([]any)
+	if !ok {
+		return configJSON, nil
+	}
+	changed := false
+	certPath := defaultQUICCertificatePath()
+	keyPath := defaultQUICKeyPath()
+	for _, item := range inbounds {
+		in, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		protocol, _ := in["type"].(string)
+		if protocol != "hysteria2" && protocol != "tuic" {
+			continue
+		}
+		tls, ok := in["tls"].(map[string]any)
+		if !ok {
+			tls = map[string]any{}
+			in["tls"] = tls
+			changed = true
+		}
+		if tls["enabled"] == nil {
+			tls["enabled"] = true
+			changed = true
+		}
+		if strings.TrimSpace(fmt.Sprint(tls["certificate_path"])) == "" || tls["certificate_path"] == nil {
+			tls["certificate_path"] = certPath
+			changed = true
+		}
+		if strings.TrimSpace(fmt.Sprint(tls["key_path"])) == "" || tls["key_path"] == nil {
+			tls["key_path"] = keyPath
+			changed = true
+		}
+	}
+	if !changed {
+		return configJSON, nil
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("encode runtime config: %w", err)
+	}
+	return out, nil
+}
+
+func defaultQUICCertificatePath() string {
+	if v := strings.TrimSpace(os.Getenv("ZBOARD_QUIC_CERT_PATH")); v != "" {
+		return v
+	}
+	return "/etc/zboard-agent/tls/server.crt"
+}
+
+func defaultQUICKeyPath() string {
+	if v := strings.TrimSpace(os.Getenv("ZBOARD_QUIC_KEY_PATH")); v != "" {
+		return v
+	}
+	return "/etc/zboard-agent/tls/server.key"
 }
 
 type tlsCertPair struct {
