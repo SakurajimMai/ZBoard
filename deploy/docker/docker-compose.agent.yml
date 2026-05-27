@@ -15,6 +15,8 @@ services:
     cap_add:
       # Hysteria2 端口跳跃需要写入 iptables/ip6tables NAT 规则。
       - NET_ADMIN
+    # 如果宿主机或 Podman 仍拒绝写 iptables NAT，请启用下一行。
+    # privileged: true
     env_file: ./agent.env
     environment:
       - TZ=Asia/Shanghai

@@ -7,12 +7,19 @@ package runtime
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,6 +93,9 @@ func (s *Supervisor) Apply(ctx context.Context, configJSON []byte) (bool, error)
 	}
 	if err := os.WriteFile(s.ConfigFile, configJSON, 0o600); err != nil {
 		return false, fmt.Errorf("write config: %w", err)
+	}
+	if err := ensureRuntimeAssets(configJSON); err != nil {
+		return false, err
 	}
 	if err := s.restartLocked(ctx); err != nil {
 		return false, err
@@ -203,4 +213,129 @@ func inferRuntimeType(configJSON []byte) (string, bool) {
 		return "xray", true
 	}
 	return "", false
+}
+
+func ensureRuntimeAssets(configJSON []byte) error {
+	for _, pair := range tlsCertificatePairs(configJSON) {
+		if err := ensureSelfSignedCertificate(pair.CertPath, pair.KeyPath, pair.ServerName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type tlsCertPair struct {
+	CertPath   string
+	KeyPath    string
+	ServerName string
+}
+
+func tlsCertificatePairs(configJSON []byte) []tlsCertPair {
+	var doc struct {
+		Inbounds []struct {
+			TLS struct {
+				Enabled         bool   `json:"enabled"`
+				ServerName      string `json:"server_name"`
+				CertificatePath string `json:"certificate_path"`
+				KeyPath         string `json:"key_path"`
+			} `json:"tls"`
+		} `json:"inbounds"`
+	}
+	if err := json.Unmarshal(configJSON, &doc); err != nil {
+		return nil
+	}
+	pairs := make([]tlsCertPair, 0, len(doc.Inbounds))
+	seen := map[string]bool{}
+	for _, in := range doc.Inbounds {
+		if !in.TLS.Enabled || in.TLS.CertificatePath == "" || in.TLS.KeyPath == "" {
+			continue
+		}
+		key := in.TLS.CertificatePath + "\x00" + in.TLS.KeyPath
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		pairs = append(pairs, tlsCertPair{
+			CertPath:   in.TLS.CertificatePath,
+			KeyPath:    in.TLS.KeyPath,
+			ServerName: in.TLS.ServerName,
+		})
+	}
+	return pairs
+}
+
+func ensureSelfSignedCertificate(certPath, keyPath, serverName string) error {
+	if certPath == "" || keyPath == "" {
+		return nil
+	}
+	if fileExists(certPath) && fileExists(keyPath) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(certPath), 0o755); err != nil {
+		return fmt.Errorf("mkdir cert dir: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
+		return fmt.Errorf("mkdir key dir: %w", err)
+	}
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return fmt.Errorf("generate tls key: %w", err)
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return fmt.Errorf("generate tls serial: %w", err)
+	}
+	if strings.TrimSpace(serverName) == "" {
+		serverName = "zboard-agent.local"
+	}
+	now := time.Now().UTC()
+	tmpl := x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName: serverName,
+		},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.AddDate(10, 0, 0),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	if ip := net.ParseIP(serverName); ip != nil {
+		tmpl.IPAddresses = []net.IP{ip}
+	} else {
+		tmpl.DNSNames = []string{serverName}
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		return fmt.Errorf("create tls certificate: %w", err)
+	}
+	certFile, err := os.OpenFile(certPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("write cert: %w", err)
+	}
+	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: der}); err != nil {
+		_ = certFile.Close()
+		return fmt.Errorf("encode cert: %w", err)
+	}
+	if err := certFile.Close(); err != nil {
+		return fmt.Errorf("close cert: %w", err)
+	}
+	keyFile, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("write key: %w", err)
+	}
+	keyDER := x509.MarshalPKCS1PrivateKey(priv)
+	if err := pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyDER}); err != nil {
+		_ = keyFile.Close()
+		return fmt.Errorf("encode key: %w", err)
+	}
+	if err := keyFile.Close(); err != nil {
+		return fmt.Errorf("close key: %w", err)
+	}
+	return nil
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }

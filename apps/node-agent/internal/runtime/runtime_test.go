@@ -1,6 +1,10 @@
 package runtime
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestInferRuntimeType(t *testing.T) {
 	tests := []struct {
@@ -71,5 +75,32 @@ func TestRuntimeBinaryForType(t *testing.T) {
 				t.Fatalf("runtimeBinaryForType()=%q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestEnsureDefaultTLSCertificate(t *testing.T) {
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "server.crt")
+	keyPath := filepath.Join(dir, "server.key")
+
+	configJSON := []byte(`{
+		"inbounds": [{
+			"type": "hysteria2",
+			"tls": {
+				"enabled": true,
+				"server_name": "hy.example.com",
+				"certificate_path": "` + filepath.ToSlash(certPath) + `",
+				"key_path": "` + filepath.ToSlash(keyPath) + `"
+			}
+		}]
+	}`)
+	if err := ensureRuntimeAssets(configJSON); err != nil {
+		t.Fatalf("ensureRuntimeAssets: %v", err)
+	}
+	if _, err := os.Stat(certPath); err != nil {
+		t.Fatalf("certificate was not created: %v", err)
+	}
+	if _, err := os.Stat(keyPath); err != nil {
+		t.Fatalf("private key was not created: %v", err)
 	}
 }

@@ -36,6 +36,9 @@ func applyPortHopping(taskPayload []byte) error {
 	// Setup — any failure is fatal.
 	for _, cmd := range ph.SetupCmds {
 		if err := runShell(cmd, false); err != nil {
+			if strings.Contains(err.Error(), "Permission denied") || strings.Contains(err.Error(), "must be root") {
+				return fmt.Errorf("port-hopping requires root and NET_ADMIN/privileged container permissions; restart the agent with cap_add NET_ADMIN or privileged: true: %w", err)
+			}
 			return fmt.Errorf("port-hopping setup failed: %s -> %w", cmd, err)
 		}
 	}

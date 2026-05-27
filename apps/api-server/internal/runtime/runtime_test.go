@@ -499,6 +499,12 @@ func TestHysteria2Inbound(t *testing.T) {
 	if tls["server_name"] != "hy.example.com" {
 		t.Errorf("tls.server_name = %v", tls["server_name"])
 	}
+	if tls["certificate_path"] != "/etc/zboard-agent/tls/server.crt" {
+		t.Errorf("tls.certificate_path = %v", tls["certificate_path"])
+	}
+	if tls["key_path"] != "/etc/zboard-agent/tls/server.key" {
+		t.Errorf("tls.key_path = %v", tls["key_path"])
+	}
 	alpn := tls["alpn"].([]any)
 	if len(alpn) != 1 || alpn[0] != "h3" {
 		t.Errorf("expected default alpn=[h3], got %#v", alpn)
@@ -552,6 +558,12 @@ func TestTUICInbound(t *testing.T) {
 		t.Errorf("user[0] = %#v", u0)
 	}
 	tls := in["tls"].(map[string]any)
+	if tls["certificate_path"] != "/etc/zboard-agent/tls/server.crt" {
+		t.Errorf("tls.certificate_path = %v", tls["certificate_path"])
+	}
+	if tls["key_path"] != "/etc/zboard-agent/tls/server.key" {
+		t.Errorf("tls.key_path = %v", tls["key_path"])
+	}
 	if alpn := tls["alpn"].([]any); len(alpn) != 1 || alpn[0] != "h3" {
 		t.Errorf("alpn = %#v", alpn)
 	}

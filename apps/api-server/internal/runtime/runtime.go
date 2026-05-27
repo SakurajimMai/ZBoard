@@ -21,6 +21,11 @@ import (
 // protocol via `experimental.v2ray_api`.
 const StatsAPIPort = 10085
 
+const (
+	defaultQUICCertificatePath = "/etc/zboard-agent/tls/server.crt"
+	defaultQUICKeyPath         = "/etc/zboard-agent/tls/server.key"
+)
+
 // Build returns (configJSON, sha256, version) for the given runtime type.
 func Build(node *store.Node, users []store.NodeUser, version string) (string, string, error) {
 	if err := ValidateNode(node); err != nil {
@@ -412,8 +417,10 @@ func defaultStr(v, fallback string) string {
 // defaults to ["h3"].
 func quicTLSBlock(node *store.Node) map[string]any {
 	tls := map[string]any{
-		"enabled":     true,
-		"server_name": defaultStr(node.SNI, node.Host),
+		"enabled":          true,
+		"server_name":      defaultStr(node.SNI, node.Host),
+		"certificate_path": defaultQUICCertificatePath,
+		"key_path":         defaultQUICKeyPath,
 	}
 	alpn := splitALPN(node.ALPN)
 	if len(alpn) == 0 {

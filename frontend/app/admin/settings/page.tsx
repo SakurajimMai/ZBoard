@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
-import { Bell, CreditCard, FileText, Globe, Mail, Save, Send, Settings, Shield } from "lucide-react"
+import { Bell, CreditCard, Eye, EyeOff, FileText, Globe, Mail, Save, Send, Settings, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -130,6 +130,7 @@ const emailTemplates = [
 export default function AdminSettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>("basic")
   const [settings, setSettings] = useState<SettingMap>(defaults)
+  const [revealedSecrets, setRevealedSecrets] = useState<Record<string, boolean>>({})
   const [templateId, setTemplateId] = useState<(typeof emailTemplates)[number]["id"]>("register")
   const [testEmail, setTestEmail] = useState("")
   const [loading, setLoading] = useState(true)
@@ -344,7 +345,13 @@ export default function AdminSettingsPage() {
                   <Input value={settings.smtp_user} onChange={(e) => setValue("smtp_user", e.target.value)} placeholder="noreply@example.com" />
                 </Field>
                 <Field label="SMTP 密码">
-                  <Input type="password" value={settings.smtp_pass} onChange={(e) => setValue("smtp_pass", e.target.value)} placeholder="请输入 SMTP 密码" autoComplete="new-password" />
+                  <SecretInput
+                    revealed={!!revealedSecrets.smtp_pass}
+                    onToggle={() => setRevealedSecrets((current) => ({ ...current, smtp_pass: !current.smtp_pass }))}
+                    value={settings.smtp_pass}
+                    onChange={(e) => setValue("smtp_pass", e.target.value)}
+                    placeholder="请输入 SMTP 密码"
+                  />
                 </Field>
                 <Field label="发件人名称">
                   <Input value={settings.smtp_from_name} onChange={(e) => setValue("smtp_from_name", e.target.value)} />
@@ -551,6 +558,45 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   )
 }
 
+function SecretInput({
+  value,
+  onChange,
+  placeholder,
+  revealed,
+  onToggle,
+}: {
+  value: string
+  onChange: (event: React.ChangeEvent<HTMLInputElement>) => void
+  placeholder?: string
+  revealed?: boolean
+  onToggle?: () => void
+}) {
+  const [localRevealed, setLocalRevealed] = useState(false)
+  const isRevealed = revealed ?? localRevealed
+  const toggle = onToggle ?? (() => setLocalRevealed((current) => !current))
+  return (
+    <div className="relative">
+      <Input
+        type={isRevealed ? "text" : "password"}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        autoComplete="new-password"
+        className="pr-10"
+      />
+      <button
+        type="button"
+        onClick={toggle}
+        className="absolute inset-y-0 right-0 inline-flex w-10 items-center justify-center text-muted-foreground transition hover:text-foreground"
+        title={isRevealed ? "隐藏" : "显示"}
+        aria-label={isRevealed ? "隐藏" : "显示"}
+      >
+        {isRevealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  )
+}
+
 function Divider() {
   return <div className="h-px bg-border" />
 }
@@ -695,6 +741,7 @@ const paymentProviderTemplates: {
 
 function PaymentSettingsPanel() {
   const [forms, setForms] = useState<Record<string, PaymentProviderForm>>({})
+  const [revealedSecrets, setRevealedSecrets] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -808,13 +855,26 @@ function PaymentSettingsPanel() {
                   <Grid>
                     {tpl.fields.map((field) => (
                       <Field key={field.key} label={field.label} hint={field.hint}>
-                        <Input
-                          type={field.type || "text"}
-                          value={form.config[field.key] || ""}
-                          placeholder={field.placeholder}
-                          autoComplete={field.type === "password" ? "new-password" : undefined}
-                          onChange={(e) => updateConfig(tpl.name, field.key, e.target.value)}
-                        />
+                        {field.type === "password" ? (
+                          <SecretInput
+                            revealed={!!revealedSecrets[`${tpl.name}.${field.key}`]}
+                            onToggle={() =>
+                              setRevealedSecrets((current) => ({
+                                ...current,
+                                [`${tpl.name}.${field.key}`]: !current[`${tpl.name}.${field.key}`],
+                              }))
+                            }
+                            value={form.config[field.key] || ""}
+                            placeholder={field.placeholder}
+                            onChange={(e) => updateConfig(tpl.name, field.key, e.target.value)}
+                          />
+                        ) : (
+                          <Input
+                            value={form.config[field.key] || ""}
+                            placeholder={field.placeholder}
+                            onChange={(e) => updateConfig(tpl.name, field.key, e.target.value)}
+                          />
+                        )}
                       </Field>
                     ))}
                   </Grid>
@@ -925,7 +985,7 @@ function CaptchaPanel(props: {
               <Input value={props.siteKey} onChange={(e) => props.onSiteKeyChange(e.target.value)} placeholder="0x4AAAAAAA..." />
             </Field>
             <Field label="Secret Key">
-              <Input type="password" value={props.secretKey} onChange={(e) => props.onSecretKeyChange(e.target.value)} placeholder="0x4AAAAAAA..." autoComplete="new-password" />
+              <SecretInput value={props.secretKey} onChange={(e) => props.onSecretKeyChange(e.target.value)} placeholder="0x4AAAAAAA..." />
             </Field>
           </Grid>
 
