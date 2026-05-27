@@ -81,6 +81,13 @@ func TestBuildSingBoxWithWS(t *testing.T) {
 	if tls == nil || tls["server_name"] != "cdn.example.com" {
 		t.Fatalf("tls unexpected: %#v", tls)
 	}
+	outs, _ := doc["outbounds"].([]any)
+	for _, raw := range outs {
+		outbound, _ := raw.(map[string]any)
+		if outbound["type"] == "block" {
+			t.Fatalf("sing-box config should not emit legacy block outbound: %#v", outbound)
+		}
+	}
 }
 
 func TestXrayConfigExposesStatsAPI(t *testing.T) {

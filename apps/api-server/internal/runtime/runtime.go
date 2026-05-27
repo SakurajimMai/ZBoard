@@ -389,7 +389,6 @@ func singBox(node *store.Node, users []store.NodeUser) map[string]any {
 		"inbounds": []any{inbound},
 		"outbounds": []any{
 			map[string]any{"type": "direct", "tag": "direct"},
-			map[string]any{"type": "block", "tag": "block"},
 		},
 	}
 }
@@ -458,7 +457,6 @@ func singBoxHysteria2(node *store.Node, users []store.NodeUser) map[string]any {
 		"inbounds": []any{inbound},
 		"outbounds": []any{
 			map[string]any{"type": "direct", "tag": "direct"},
-			map[string]any{"type": "block", "tag": "block"},
 		},
 	}
 
@@ -554,7 +552,6 @@ func singBoxTUIC(node *store.Node, users []store.NodeUser) map[string]any {
 		"inbounds": []any{inbound},
 		"outbounds": []any{
 			map[string]any{"type": "direct", "tag": "direct"},
-			map[string]any{"type": "block", "tag": "block"},
 		},
 	}
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -102,18 +103,9 @@ func adminCreateNode(d Deps) gin.HandlerFunc {
 		}
 		// Backfill node_users for currently active users so new nodes light up
 		// in their subscription immediately.
-		ids, err := d.Store.ListUserIDsProvisionable(c.Request.Context())
-		if err == nil {
-			for _, uid := range ids {
-				cid, _ := newClientIDForServer()
-				deviceLimit := 0
-				if u, err := d.Store.FindUserByID(c.Request.Context(), uid); err == nil && u.PlanID != nil {
-					if plan, err := d.Store.FindPlanByID(c.Request.Context(), *u.PlanID); err == nil {
-						deviceLimit = plan.DeviceLimit
-					}
-				}
-				_ = d.Store.EnsureNodeUserWithLimits(c.Request.Context(), uid, nodeID, cid, protocol, 0, deviceLimit)
-			}
+		if err := backfillNodeUsersForSubscription(c.Request.Context(), d.Store, nodeID, protocol); err != nil {
+			httpx.Fail(c, err)
+			return
 		}
 
 		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
@@ -194,6 +186,12 @@ func adminUpdateNode(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, err)
 			return
 		}
+		if status == "active" {
+			if err := backfillNodeUsersForSubscription(c.Request.Context(), d.Store, id, in.Protocol); err != nil {
+				httpx.Fail(c, err)
+				return
+			}
+		}
 		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
 		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
 			ActorType: "admin", ActorID: ptrInt64(a.ID),
@@ -224,6 +222,29 @@ func validateNodeRuntimeFields(protocol, transport, security, runtimeType, reali
 		RealityPrivateKey: realityPrivateKey,
 		PortRange:         portRange,
 	})
+}
+
+func backfillNodeUsersForSubscription(ctx context.Context, st *store.Store, nodeID int64, protocol string) error {
+	ids, err := st.ListUserIDsProvisionable(ctx)
+	if err != nil {
+		return err
+	}
+	for _, uid := range ids {
+		cid, err := newClientIDForServer()
+		if err != nil {
+			return err
+		}
+		deviceLimit := 0
+		if u, err := st.FindUserByID(ctx, uid); err == nil && u.PlanID != nil {
+			if plan, err := st.FindPlanByID(ctx, *u.PlanID); err == nil {
+				deviceLimit = plan.DeviceLimit
+			}
+		}
+		if err := st.EnsureNodeUserWithLimits(ctx, uid, nodeID, cid, protocol, 0, deviceLimit); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func normalizeNodeCreateRuntimeFields(body createNodeBody) (protocol, transport, security, runtimeType string) {

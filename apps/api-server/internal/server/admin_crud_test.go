@@ -752,6 +752,75 @@ func TestAdminCreateNodeBackfillsOnlyProvisionableUsers(t *testing.T) {
 	}
 }
 
+func TestAdminUpdateNodeActiveBackfillsProvisionableUsers(t *testing.T) {
+	r, st, token := setupAdminCRUDRouter(t)
+	ctx := context.Background()
+	future := time.Now().UTC().Add(24 * time.Hour)
+
+	userID, err := st.AdminCreateUser(ctx, store.AdminCreateUserInput{
+		Email:        "node-update-backfill@example.com",
+		PasswordHash: "hash",
+		ExpiredAt:    &future,
+		TrafficLimit: 100,
+		TrafficUsed:  10,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	nodeID, _, err := st.CreateNode(ctx, store.CreateNodeInput{
+		Name:     "Existing HY2",
+		Host:     "hy.example.com",
+		Port:     20925,
+		Protocol: "hysteria2",
+	})
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if _, err := st.FindNodeUser(ctx, userID, nodeID); !store.IsNoRows(err) {
+		t.Fatalf("test setup should start without node_user mapping, err=%v", err)
+	}
+
+	updateResp := adminJSON(t, r, token, http.MethodPut, "/api/admin/v1/nodes/"+strconv.FormatInt(nodeID, 10), map[string]any{
+		"name":       "Existing HY2",
+		"host":       "hy.example.com",
+		"port":       20925,
+		"protocol":   "hysteria2",
+		"security":   "tls",
+		"status":     "active",
+		"port_range": "21000-22000",
+	})
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("update node status=%d body=%s", updateResp.Code, updateResp.Body.String())
+	}
+	nu, err := st.FindNodeUser(ctx, userID, nodeID)
+	if err != nil {
+		t.Fatalf("active node update should provision user: %v", err)
+	}
+	if nu.Protocol != "hysteria2" || nu.Enabled != 1 {
+		t.Fatalf("unexpected provisioned node user: %+v", nu)
+	}
+
+	tokenValue := "sub-hy2-backfill"
+	if _, err := st.CreateSubToken(ctx, userID, tokenValue, hashSubToken(tokenValue)); err != nil {
+		t.Fatalf("create sub token: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/sub/"+tokenValue+"?target=base64", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("subscription status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	raw, err := base64.StdEncoding.DecodeString(rr.Body.String())
+	if err != nil {
+		t.Fatalf("decode subscription: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("hy2://")) {
+		t.Fatalf("subscription should include hy2 node, got:\n%s", raw)
+	}
+}
+
 func TestAdminNodeListReturnsHealthIndicators(t *testing.T) {
 	r, st, token := setupAdminCRUDRouter(t)
 	ctx := context.Background()
