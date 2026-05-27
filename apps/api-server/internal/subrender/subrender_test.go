@@ -3,6 +3,7 @@ package subrender_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -454,5 +455,27 @@ func TestStage14Base64Hy2TuicURIs(t *testing.T) {
 		if !strings.Contains(uri, want) {
 			t.Errorf("URI list missing %q\n%s", want, uri)
 		}
+	}
+}
+
+func TestHysteria2Base64URIKeepsNumericAuthorityPortWhenPortRangeSet(t *testing.T) {
+	nodes, users := stage14Sample()
+	nodes[0].Port = 20925
+	nodes[0].PortRange = "21000-22000"
+	out := subrender.Base64(subrender.Build(nodes[:1], users[:1]))
+	raw, err := base64.StdEncoding.DecodeString(out)
+	if err != nil {
+		t.Fatalf("base64 decode: %v", err)
+	}
+	line := strings.TrimSpace(string(raw))
+	u, err := url.Parse(line)
+	if err != nil {
+		t.Fatalf("hy2 URI should be parseable, got err=%v uri=%s", err, line)
+	}
+	if u.Port() != "20925" {
+		t.Fatalf("hy2 URI authority port=%q, want listen port 20925: %s", u.Port(), line)
+	}
+	if got := u.Query().Get("mport"); got != "21000-22000" {
+		t.Fatalf("hy2 URI mport=%q, want 21000-22000: %s", got, line)
 	}
 }

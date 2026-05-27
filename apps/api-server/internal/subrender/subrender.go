@@ -227,12 +227,9 @@ func uriFor(it Item) string {
 		return fmt.Sprintf("ss://%s@%s#%s", userInfo, host, url.QueryEscape(it.Name))
 	case "hysteria2":
 		// hy2://password@host:port?...#name
-		// Port hopping: use port_range in the host:port part if set.
-		portStr := strconv.Itoa(it.Port)
-		if it.PortRange != "" {
-			portStr = it.PortRange
-		}
-		host := net.JoinHostPort(it.Host, portStr)
+		// Port hopping must stay in mport. Putting a range in the authority
+		// port makes the URI invalid for clients that use a strict URL parser.
+		host := net.JoinHostPort(it.Host, strconv.Itoa(it.Port))
 		q := url.Values{}
 		sni := it.SNI
 		if sni == "" {

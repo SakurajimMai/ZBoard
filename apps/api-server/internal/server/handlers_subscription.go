@@ -102,13 +102,28 @@ func subRender(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, err)
 			return
 		}
-		if err := checkSubscriptionDeviceLimit(c.Request.Context(), d.Store, t.UserID, nodeUsers, c.ClientIP(), c.Request.UserAgent()); err != nil {
-			_ = d.Store.LogSubAccess(c.Request.Context(), &t.UserID, hash, target, c.ClientIP(), c.Request.UserAgent(), "deny", "device_limit_exceeded")
+		nodes, err := d.Store.ListActiveNodes(c.Request.Context())
+		if err != nil {
 			httpx.Fail(c, err)
 			return
 		}
-		nodes, err := d.Store.ListActiveNodes(c.Request.Context())
-		if err != nil {
+		if healed, err := ensureSubscriptionNodeUsers(c.Request.Context(), d.Store, u, nodes, nodeUsers); err != nil {
+			httpx.Fail(c, err)
+			return
+		} else if healed {
+			nodeUsers, err = d.Store.ListNodeUsersByUser(c.Request.Context(), t.UserID)
+			if err != nil {
+				httpx.Fail(c, err)
+				return
+			}
+			if d.Nodes != nil {
+				for _, n := range nodes {
+					_, _, _ = d.Nodes.GenerateSyncTask(c.Request.Context(), n.ID)
+				}
+			}
+		}
+		if err := checkSubscriptionDeviceLimit(c.Request.Context(), d.Store, t.UserID, nodeUsers, c.ClientIP(), c.Request.UserAgent()); err != nil {
+			_ = d.Store.LogSubAccess(c.Request.Context(), &t.UserID, hash, target, c.ClientIP(), c.Request.UserAgent(), "deny", "device_limit_exceeded")
 			httpx.Fail(c, err)
 			return
 		}
@@ -148,6 +163,53 @@ func subscriptionTargetEnabled(ctx context.Context, st *store.Store, target stri
 	}
 	enabled, err := st.BoolSetting(ctx, key, true)
 	return err == nil && enabled
+}
+
+func ensureSubscriptionNodeUsers(ctx context.Context, st *store.Store, u *store.User, nodes []store.Node, nodeUsers []store.NodeUser) (bool, error) {
+	if u == nil || u.Status != "active" {
+		return false, nil
+	}
+	now := time.Now().UTC()
+	if u.ExpiredAt != nil && !u.ExpiredAt.After(now) {
+		return false, nil
+	}
+	if u.TrafficLimit > 0 && u.TrafficUsed >= u.TrafficLimit {
+		return false, nil
+	}
+	byNode := make(map[int64]store.NodeUser, len(nodeUsers))
+	clientID := ""
+	for _, nu := range nodeUsers {
+		byNode[nu.NodeID] = nu
+		if clientID == "" && nu.ClientID != "" {
+			clientID = nu.ClientID
+		}
+	}
+	if clientID == "" {
+		var err error
+		clientID, err = newClientIDForServer()
+		if err != nil {
+			return false, err
+		}
+	}
+	deviceLimit := 0
+	if u.PlanID != nil {
+		if plan, err := st.FindPlanByID(ctx, *u.PlanID); err == nil {
+			deviceLimit = plan.DeviceLimit
+		} else if !store.IsNoRows(err) {
+			return false, err
+		}
+	}
+	changed := false
+	for _, n := range nodes {
+		if _, ok := byNode[n.ID]; ok {
+			continue
+		}
+		if err := st.EnsureNodeUserWithLimits(ctx, u.ID, n.ID, clientID, n.Protocol, 0, deviceLimit); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	return changed, nil
 }
 
 func checkSubscriptionDeviceLimit(ctx context.Context, st *store.Store, userID int64, nodeUsers []store.NodeUser, ip, ua string) error {

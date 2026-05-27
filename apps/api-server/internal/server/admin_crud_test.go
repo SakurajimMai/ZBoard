@@ -821,6 +821,135 @@ func TestAdminUpdateNodeActiveBackfillsProvisionableUsers(t *testing.T) {
 	}
 }
 
+func TestSubscriptionBackfillsMissingActiveNodeMappingForMigratedUser(t *testing.T) {
+	r, st, _ := setupAdminCRUDRouter(t)
+	ctx := context.Background()
+	future := time.Now().UTC().Add(24 * time.Hour)
+
+	planID, err := st.CreatePlan(ctx, store.CreatePlanInput{
+		Name:         "migrated-plan",
+		Price:        "9.90",
+		DurationDays: 30,
+		TrafficLimit: 1000,
+		DeviceLimit:  2,
+	})
+	if err != nil {
+		t.Fatalf("create plan: %v", err)
+	}
+	userID, err := st.AdminCreateUser(ctx, store.AdminCreateUserInput{
+		Email:        "migrated-hy2@example.com",
+		PasswordHash: "hash",
+		PlanID:       &planID,
+		ExpiredAt:    &future,
+		TrafficLimit: 1000,
+		TrafficUsed:  100,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create migrated user: %v", err)
+	}
+	nodeID, _, err := st.CreateNode(ctx, store.CreateNodeInput{
+		Name:         "HY2 Only",
+		Region:       "US",
+		Host:         "hy2.example.com",
+		Port:         20925,
+		Protocol:     "hysteria2",
+		RuntimeType:  "sing-box",
+		PortRange:    "21000-22000",
+		UpMbps:       100,
+		DownMbps:     200,
+		ObfsPassword: "obfs-secret",
+	})
+	if err != nil {
+		t.Fatalf("create hy2 node: %v", err)
+	}
+	if _, err := st.FindNodeUser(ctx, userID, nodeID); !store.IsNoRows(err) {
+		t.Fatalf("test setup should start without node mapping, err=%v", err)
+	}
+	tokenValue := "sub-migrated-hy2"
+	if _, err := st.CreateSubToken(ctx, userID, tokenValue, hashSubToken(tokenValue)); err != nil {
+		t.Fatalf("create sub token: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sub/"+tokenValue+"?target=base64", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("subscription status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	raw, err := base64.StdEncoding.DecodeString(rr.Body.String())
+	if err != nil {
+		t.Fatalf("decode subscription: %v", err)
+	}
+	if !bytes.Contains(raw, []byte("hy2://")) {
+		t.Fatalf("subscription should self-heal and include hy2 node, got:\n%s", raw)
+	}
+	nu, err := st.FindNodeUser(ctx, userID, nodeID)
+	if err != nil {
+		t.Fatalf("missing node mapping should be created: %v", err)
+	}
+	if nu.Enabled != 1 || nu.Protocol != "hysteria2" || nu.DeviceLimit != 2 {
+		t.Fatalf("unexpected healed node mapping: %+v", nu)
+	}
+}
+
+func TestSubscriptionDoesNotReEnableDisabledNodeMapping(t *testing.T) {
+	r, st, _ := setupAdminCRUDRouter(t)
+	ctx := context.Background()
+	future := time.Now().UTC().Add(24 * time.Hour)
+
+	userID, err := st.AdminCreateUser(ctx, store.AdminCreateUserInput{
+		Email:        "disabled-node-user@example.com",
+		PasswordHash: "hash",
+		ExpiredAt:    &future,
+		TrafficLimit: 1000,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	nodeID, _, err := st.CreateNode(ctx, store.CreateNodeInput{
+		Name:     "disabled mapping node",
+		Host:     "node.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := st.EnsureNodeUserWithLimits(ctx, userID, nodeID, "11111111-1111-4111-8111-111111111111", "vless", 0, 1); err != nil {
+		t.Fatalf("seed node user: %v", err)
+	}
+	if err := st.SetNodeUserEnabledForUser(ctx, userID, 0); err != nil {
+		t.Fatalf("disable node user: %v", err)
+	}
+	tokenValue := "sub-disabled-node"
+	if _, err := st.CreateSubToken(ctx, userID, tokenValue, hashSubToken(tokenValue)); err != nil {
+		t.Fatalf("create sub token: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sub/"+tokenValue+"?target=base64", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("subscription status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	raw, err := base64.StdEncoding.DecodeString(rr.Body.String())
+	if err != nil {
+		t.Fatalf("decode subscription: %v", err)
+	}
+	if len(strings.TrimSpace(string(raw))) != 0 {
+		t.Fatalf("disabled node mapping should stay out of subscription, got:\n%s", raw)
+	}
+	nu, err := st.FindNodeUser(ctx, userID, nodeID)
+	if err != nil {
+		t.Fatalf("find node user: %v", err)
+	}
+	if nu.Enabled != 0 {
+		t.Fatalf("subscription self-heal must not re-enable existing disabled mapping: %+v", nu)
+	}
+}
+
 func TestAdminNodeListReturnsHealthIndicators(t *testing.T) {
 	r, st, token := setupAdminCRUDRouter(t)
 	ctx := context.Background()
