@@ -7,8 +7,10 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -119,7 +121,11 @@ func (a *Agent) taskLoop(ctx context.Context) {
 	defer t.Stop()
 	for {
 		if err := a.pullAndApply(ctx); err != nil {
-			log.Printf("task loop error: %v", err)
+			if isTimeoutError(err) {
+				log.Printf("task loop timeout; will retry next pull: %v", err)
+			} else {
+				log.Printf("task loop error: %v", err)
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -139,8 +145,10 @@ type pullResp struct {
 }
 
 func (a *Agent) pullAndApply(ctx context.Context) error {
+	pullCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	var resp pullResp
-	if err := a.Client.Do(ctx, "/api/agent/v1/tasks/pull", map[string]any{}, &resp); err != nil {
+	if err := a.Client.Do(pullCtx, "/api/agent/v1/tasks/pull", map[string]any{}, &resp); err != nil {
 		return err
 	}
 	for _, t := range resp.Tasks {
@@ -238,6 +246,17 @@ func (a *Agent) reportTraffic(ctx context.Context) error {
 	}
 	body := map[string]any{"items": out}
 	return a.Client.Do(ctx, "/api/agent/v1/traffic/report", body, nil)
+}
+
+func isTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func supportsStatsAPI(runtimeType string) bool {

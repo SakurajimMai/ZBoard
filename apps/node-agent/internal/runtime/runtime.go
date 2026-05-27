@@ -247,6 +247,10 @@ func prepareRuntimeConfig(configJSON []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	prepared, err = stripLegacySingBoxSpecialOutbounds(prepared)
+	if err != nil {
+		return nil, err
+	}
 	if err := ensureRuntimeAssets(prepared); err != nil {
 		return nil, err
 	}
@@ -324,6 +328,50 @@ func stripUnsupportedSingBoxV2RayAPI(configJSON []byte) ([]byte, error) {
 	delete(exp, "v2ray_api")
 	if len(exp) == 0 {
 		delete(doc, "experimental")
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("encode runtime config: %w", err)
+	}
+	return out, nil
+}
+
+func stripLegacySingBoxSpecialOutbounds(configJSON []byte) ([]byte, error) {
+	var doc map[string]any
+	if err := json.Unmarshal(configJSON, &doc); err != nil {
+		return nil, fmt.Errorf("parse runtime config: %w", err)
+	}
+	runtimeType, ok := inferRuntimeType(configJSON)
+	if !ok || runtimeType != "sing-box" {
+		return configJSON, nil
+	}
+	outbounds, ok := doc["outbounds"].([]any)
+	if !ok || len(outbounds) == 0 {
+		return configJSON, nil
+	}
+	next := make([]any, 0, len(outbounds))
+	changed := false
+	for _, raw := range outbounds {
+		out, ok := raw.(map[string]any)
+		if !ok {
+			next = append(next, raw)
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(fmt.Sprint(out["type"]))) {
+		case "block", "dns":
+			changed = true
+			continue
+		default:
+			next = append(next, raw)
+		}
+	}
+	if !changed {
+		return configJSON, nil
+	}
+	if len(next) == 0 {
+		delete(doc, "outbounds")
+	} else {
+		doc["outbounds"] = next
 	}
 	out, err := json.Marshal(doc)
 	if err != nil {

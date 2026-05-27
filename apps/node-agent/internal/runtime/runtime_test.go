@@ -193,6 +193,32 @@ func TestPrepareRuntimeConfigStripsUnsupportedSingBoxV2RayAPI(t *testing.T) {
 	}
 }
 
+func TestPrepareRuntimeConfigStripsLegacySpecialBlockOutbound(t *testing.T) {
+	prepared, err := prepareRuntimeConfig([]byte(`{
+		"inbounds": [{"type": "hysteria2"}],
+		"outbounds": [
+			{"type": "direct", "tag": "direct"},
+			{"type": "block", "tag": "block"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("prepareRuntimeConfig: %v", err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(prepared, &doc); err != nil {
+		t.Fatalf("unmarshal prepared config: %v", err)
+	}
+	outs, _ := doc["outbounds"].([]any)
+	if len(outs) != 1 {
+		t.Fatalf("expected only direct outbound after cleanup, got %#v", outs)
+	}
+	out, _ := outs[0].(map[string]any)
+	if out["type"] != "direct" {
+		t.Fatalf("expected direct outbound to remain, got %#v", out)
+	}
+}
+
 func TestTryBootExistingRewritesLegacyQUICConfig(t *testing.T) {
 	dir := t.TempDir()
 	certPath := filepath.Join(dir, "tls", "server.crt")
