@@ -441,7 +441,7 @@ func TestStage14Base64Hy2TuicURIs(t *testing.T) {
 	}
 	uri := string(raw)
 	for _, want := range []string{
-		"hy2://",
+		"hysteria2://",
 		"hy2-secret",
 		"obfs=salamander",
 		"obfs-password=salty-pwd",
@@ -470,12 +470,15 @@ func TestHysteria2Base64URIKeepsNumericAuthorityPortWhenPortRangeSet(t *testing.
 	line := strings.TrimSpace(string(raw))
 	u, err := url.Parse(line)
 	if err != nil {
-		t.Fatalf("hy2 URI should be parseable, got err=%v uri=%s", err, line)
+		t.Fatalf("hysteria2 URI should be parseable, got err=%v uri=%s", err, line)
+	}
+	if u.Scheme != "hysteria2" {
+		t.Fatalf("hysteria2 URI scheme=%q, want hysteria2: %s", u.Scheme, line)
 	}
 	if u.Port() != "20925" {
-		t.Fatalf("hy2 URI authority port=%q, want listen port 20925: %s", u.Port(), line)
+		t.Fatalf("hysteria2 URI authority port=%q, want listen port 20925: %s", u.Port(), line)
 	}
 	if got := u.Query().Get("mport"); got != "21000-22000" {
-		t.Fatalf("hy2 URI mport=%q, want 21000-22000: %s", got, line)
+		t.Fatalf("hysteria2 URI mport=%q, want 21000-22000: %s", got, line)
 	}
 }

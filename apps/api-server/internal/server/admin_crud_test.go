@@ -816,7 +816,7 @@ func TestAdminUpdateNodeActiveBackfillsProvisionableUsers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode subscription: %v", err)
 	}
-	if !bytes.Contains(raw, []byte("hy2://")) {
+	if !bytes.Contains(raw, []byte("hysteria2://")) {
 		t.Fatalf("subscription should include hy2 node, got:\n%s", raw)
 	}
 }
@@ -881,7 +881,7 @@ func TestSubscriptionBackfillsMissingActiveNodeMappingForMigratedUser(t *testing
 	if err != nil {
 		t.Fatalf("decode subscription: %v", err)
 	}
-	if !bytes.Contains(raw, []byte("hy2://")) {
+	if !bytes.Contains(raw, []byte("hysteria2://")) {
 		t.Fatalf("subscription should self-heal and include hy2 node, got:\n%s", raw)
 	}
 	nu, err := st.FindNodeUser(ctx, userID, nodeID)
