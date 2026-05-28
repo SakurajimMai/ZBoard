@@ -40,6 +40,7 @@ type createNodeBody struct {
 	UpMbps            int    `json:"up_mbps"`
 	DownMbps          int    `json:"down_mbps"`
 	PortRange         string `json:"port_range"`
+	TLSInsecure       *int   `json:"tls_insecure"`
 }
 
 type updateNodeBody struct {
@@ -96,6 +97,8 @@ func adminCreateNode(d Deps) gin.HandlerFunc {
 			UpMbps:            body.UpMbps,
 			DownMbps:          body.DownMbps,
 			PortRange:         body.PortRange,
+			TLSInsecure:       normalizeNodeTLSInsecure(protocol, body.TLSInsecure),
+			TLSInsecureSet:    body.TLSInsecure != nil,
 		})
 		if err != nil {
 			httpx.Fail(c, err)
@@ -289,6 +292,7 @@ func normalizeNodeUpdate(body updateNodeBody) store.UpdateNodeInput {
 		UpMbps:            body.UpMbps,
 		DownMbps:          body.DownMbps,
 		PortRange:         body.PortRange,
+		TLSInsecure:       normalizeNodeTLSInsecure(defaultNodeString(body.Protocol, "vless"), body.TLSInsecure),
 	}
 	if in.Transport == "" {
 		in.Transport = "tcp"
@@ -313,6 +317,9 @@ func normalizeNodeUpdate(body updateNodeBody) store.UpdateNodeInput {
 		if in.CongestionControl == "" {
 			in.CongestionControl = "bbr"
 		}
+		if body.TLSInsecure == nil {
+			in.TLSInsecure = 1
+		}
 	}
 	if in.Protocol == "hysteria2" {
 		if in.UpMbps == 0 {
@@ -330,4 +337,17 @@ func defaultNodeString(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func normalizeNodeTLSInsecure(protocol string, raw *int) int {
+	if raw != nil {
+		if *raw != 0 {
+			return 1
+		}
+		return 0
+	}
+	if protocol == "hysteria2" || protocol == "tuic" {
+		return 1
+	}
+	return 0
 }

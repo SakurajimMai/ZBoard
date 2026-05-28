@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/zboard/api-server/internal/config"
 )
@@ -15,10 +16,28 @@ func (s *Store) CountUserDevices(ctx context.Context, userID int64) (int, error)
 	return n, nil
 }
 
+func (s *Store) CountActiveUserDevices(ctx context.Context, userID int64, since time.Time) (int, error) {
+	q := s.Rebind(`SELECT COUNT(*) FROM user_devices WHERE user_id = ? AND last_seen_at >= ?`)
+	var n int
+	if err := s.DB.GetContext(ctx, &n, q, userID, since); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 func (s *Store) HasUserDevice(ctx context.Context, userID int64, fingerprint string) (bool, error) {
 	q := s.Rebind(`SELECT COUNT(*) FROM user_devices WHERE user_id = ? AND fingerprint = ?`)
 	var n int
 	if err := s.DB.GetContext(ctx, &n, q, userID, fingerprint); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func (s *Store) HasActiveUserDevice(ctx context.Context, userID int64, fingerprint string, since time.Time) (bool, error) {
+	q := s.Rebind(`SELECT COUNT(*) FROM user_devices WHERE user_id = ? AND fingerprint = ? AND last_seen_at >= ?`)
+	var n int
+	if err := s.DB.GetContext(ctx, &n, q, userID, fingerprint, since); err != nil {
 		return false, err
 	}
 	return n > 0, nil

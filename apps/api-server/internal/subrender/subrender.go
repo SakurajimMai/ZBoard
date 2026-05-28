@@ -45,6 +45,7 @@ type Item struct {
 	UpMbps            int      // hysteria2 client-advertised upload bandwidth
 	DownMbps          int      // hysteria2 client-advertised download bandwidth
 	PortRange         string   // hysteria2 port hopping range, e.g. "20000-40000"
+	TLSInsecure       int      // allow self-signed QUIC certificates in clients
 }
 
 // Build merges nodes + node_users into a deduplicated, ordered Item slice.
@@ -112,6 +113,7 @@ func Build(nodes []store.Node, nodeUsers []store.NodeUser) []Item {
 			UpMbps:            n.UpMbps,
 			DownMbps:          n.DownMbps,
 			PortRange:         n.PortRange,
+			TLSInsecure:       n.TLSInsecure,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].NodeID < out[j].NodeID })
@@ -254,6 +256,9 @@ func uriFor(it Item) string {
 		if it.Fingerprint != "" && supportsURIUTLSFingerprint(it.Protocol) {
 			q.Set("fp", it.Fingerprint)
 		}
+		if allowInsecureTLS(it.Protocol, it.TLSInsecure) {
+			q.Set("insecure", "1")
+		}
 		// mport param for clients that support it (redundant with host:port-range
 		// but some clients read mport explicitly).
 		if it.PortRange != "" {
@@ -279,8 +284,11 @@ func uriFor(it Item) string {
 			q.Set("alpn", "h3")
 		}
 		q.Set("congestion_control", defaultStr(it.CongestionControl, "bbr"))
-		if it.Fingerprint != "" {
+		if it.Fingerprint != "" && supportsURIUTLSFingerprint(it.Protocol) {
 			q.Set("fp", it.Fingerprint)
+		}
+		if allowInsecureTLS(it.Protocol, it.TLSInsecure) {
+			q.Set("insecure", "1")
 		}
 		return fmt.Sprintf("tuic://%s:%s@%s?%s#%s",
 			url.QueryEscape(it.UUID), url.QueryEscape(password), host,
@@ -319,6 +327,18 @@ func supportsSingBoxUTLS(protocol string) bool {
 		return false
 	default:
 		return true
+	}
+}
+
+func allowInsecureTLS(protocol string, insecure int) bool {
+	if insecure == 0 {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "hysteria2", "hy2", "tuic":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -413,8 +433,11 @@ func ClashMeta(items []Item) string {
 			if it.SNI != "" {
 				fmt.Fprintf(&b, "    servername: %s\n", it.SNI)
 			}
-			if it.Fingerprint != "" {
+			if it.Fingerprint != "" && supportsURIUTLSFingerprint(it.Protocol) {
 				fmt.Fprintf(&b, "    client-fingerprint: %s\n", it.Fingerprint)
+			}
+			if allowInsecureTLS(it.Protocol, it.TLSInsecure) {
+				b.WriteString("    skip-cert-verify: true\n")
 			}
 			if len(it.ALPN) > 0 {
 				b.WriteString("    alpn:\n")
@@ -535,6 +558,9 @@ func SingBox(items []Item) string {
 			tls := map[string]any{"enabled": true, "server_name": it.SNI}
 			if it.Fingerprint != "" && supportsSingBoxUTLS(it.Protocol) {
 				tls["utls"] = map[string]any{"enabled": true, "fingerprint": it.Fingerprint}
+			}
+			if allowInsecureTLS(it.Protocol, it.TLSInsecure) {
+				tls["insecure"] = true
 			}
 			if len(it.ALPN) > 0 {
 				tls["alpn"] = it.ALPN

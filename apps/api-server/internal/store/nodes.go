@@ -40,6 +40,7 @@ type Node struct {
 	UpMbps            int        `db:"up_mbps" json:"up_mbps"`                       // hysteria2 advertised upload bandwidth
 	DownMbps          int        `db:"down_mbps" json:"down_mbps"`                   // hysteria2 advertised download bandwidth
 	PortRange         string     `db:"port_range" json:"port_range"`                 // hysteria2 port hopping, e.g. "20000-40000"
+	TLSInsecure       int        `db:"tls_insecure" json:"tls_insecure"`             // allow self-signed QUIC certificates in client subscriptions
 }
 
 type NodeView struct {
@@ -82,6 +83,7 @@ type UpdateNodeInput struct {
 	UpMbps            int
 	DownMbps          int
 	PortRange         string
+	TLSInsecure       int
 }
 
 const nodeColumns = `id, node_code, name, region, host, port, protocol, transport, security,
@@ -89,7 +91,7 @@ const nodeColumns = `id, node_code, name, region, host, port, protocol, transpor
 	ws_path, ws_host, grpc_service_name, sni, fingerprint,
 	reality_public_key, reality_short_id, reality_server_name,
 	flow, alpn, mux_enabled, ss_method, reality_private_key, reality_dest,
-	obfs_password, congestion_control, up_mbps, down_mbps, port_range`
+	obfs_password, congestion_control, up_mbps, down_mbps, port_range, tls_insecure`
 
 func (s *Store) ListActiveNodes(ctx context.Context) ([]Node, error) {
 	q := `SELECT ` + nodeColumns + ` FROM nodes WHERE status = 'active' ORDER BY id ASC`
@@ -184,7 +186,7 @@ func prefixedNodeColumns(alias string) string {
 		"ws_path", "ws_host", "grpc_service_name", "sni", "fingerprint",
 		"reality_public_key", "reality_short_id", "reality_server_name",
 		"flow", "alpn", "mux_enabled", "ss_method", "reality_private_key", "reality_dest",
-		"obfs_password", "congestion_control", "up_mbps", "down_mbps", "port_range",
+		"obfs_password", "congestion_control", "up_mbps", "down_mbps", "port_range", "tls_insecure",
 	}
 	out := ""
 	for i, col := range cols {
@@ -227,7 +229,7 @@ func (s *Store) UpdateNode(ctx context.Context, id int64, in UpdateNodeInput) er
 		ws_path = ?, ws_host = ?, grpc_service_name = ?, sni = ?, fingerprint = ?,
 		reality_public_key = ?, reality_short_id = ?, reality_server_name = ?,
 		flow = ?, alpn = ?, mux_enabled = ?, ss_method = ?, reality_private_key = ?, reality_dest = ?,
-		obfs_password = ?, congestion_control = ?, up_mbps = ?, down_mbps = ?, port_range = ?,
+		obfs_password = ?, congestion_control = ?, up_mbps = ?, down_mbps = ?, port_range = ?, tls_insecure = ?,
 		updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
 	region := in.Region
 	_, err := s.DB.ExecContext(ctx, q,
@@ -236,7 +238,7 @@ func (s *Store) UpdateNode(ctx context.Context, id int64, in UpdateNodeInput) er
 		in.WSPath, in.WSHost, in.GRPCServiceName, in.SNI, in.Fingerprint,
 		in.RealityPublicKey, in.RealityShortID, in.RealityServerName,
 		in.Flow, in.ALPN, in.MuxEnabled, in.SSMethod, in.RealityPrivateKey, in.RealityDest,
-		in.ObfsPassword, in.CongestionControl, in.UpMbps, in.DownMbps, in.PortRange,
+		in.ObfsPassword, in.CongestionControl, in.UpMbps, in.DownMbps, in.PortRange, in.TLSInsecure,
 		id,
 	)
 	return err

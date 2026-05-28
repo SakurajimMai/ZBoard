@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { AdminPager } from "@/components/admin/AdminPager"
 import { adminCreateNode, adminGenerateRealityConfig, adminGetNodes, adminSyncAllNodeConfigs, adminSyncNodeConfig, adminUpdateNode } from "@/lib/api"
 
@@ -40,6 +41,7 @@ type NodeForm = {
   up_mbps: string
   down_mbps: string
   port_range: string
+  tls_insecure: string
 }
 
 const emptyForm: NodeForm = {
@@ -71,6 +73,7 @@ const emptyForm: NodeForm = {
   up_mbps: "100",
   down_mbps: "200",
   port_range: "",
+  tls_insecure: "1",
 }
 
 const XRAY_TRANSPORTS = [
@@ -253,6 +256,7 @@ export default function AdminNodes() {
       up_mbps: String(n.up_mbps || 100),
       down_mbps: String(n.down_mbps || 200),
       port_range: n.port_range || "",
+      tls_insecure: String(n.tls_insecure ?? (isQUICProtocol(n.protocol || "") ? 1 : 0)),
     })
     setDialogOpen(true)
   }
@@ -274,13 +278,16 @@ export default function AdminNodes() {
       next.transport = "udp"
       next.security = "tls"
       if (!next.congestion_control) next.congestion_control = "bbr"
+      next.tls_insecure = "1"
     } else if (isShadowsocksProtocol(protocol)) {
       next.security = "none"
       next.transport = "tcp"
+      next.tls_insecure = "0"
       if (!next.ss_method) next.ss_method = "2022-blake3-aes-128-gcm"
     } else {
       if (next.transport === "udp") next.transport = "tcp"
       if (next.security === "none") next.security = "tls"
+      next.tls_insecure = "0"
     }
     next.transport = normalizeTransport(next.protocol, next.security, next.runtime_type, next.transport)
     setForm(next)
@@ -342,6 +349,7 @@ export default function AdminNodes() {
     mux_enabled: Number(form.mux_enabled || 0),
     up_mbps: Number(form.up_mbps || 0),
     down_mbps: Number(form.down_mbps || 0),
+    tls_insecure: Number(form.tls_insecure || 0),
   })
 
   const save = async () => {
@@ -746,6 +754,16 @@ export default function AdminNodes() {
                         </Select>
                       </Field>
                     </Row>
+                    <div className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+                      <div className="space-y-0.5">
+                        <Label className="text-xs font-medium">允许自签证书</Label>
+                        <p className="text-[11px] text-muted-foreground">agent 自动生成证书时需要开启；使用公网 CA 证书时可以关闭</p>
+                      </div>
+                      <Switch
+                        checked={form.tls_insecure !== "0"}
+                        onCheckedChange={(checked) => setForm({ ...form, tls_insecure: checked ? "1" : "0" })}
+                      />
+                    </div>
                     {cap.showHysteria && (
                       <>
                         <Row cols={2}>

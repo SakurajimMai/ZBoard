@@ -362,6 +362,7 @@ func stage14Sample() ([]store.Node, []store.NodeUser) {
 			CongestionControl: "bbr",
 			UpMbps:            100,
 			DownMbps:          200,
+			TLSInsecure:       1,
 		},
 		{
 			ID: 21, NodeCode: "tuic", Name: "TUIC", Region: sptr("JP"),
@@ -371,6 +372,7 @@ func stage14Sample() ([]store.Node, []store.NodeUser) {
 			SNI:               "tuic.example.com",
 			CongestionControl: "cubic",
 			ObfsPassword:      "shared-tuic-pwd",
+			TLSInsecure:       1,
 		},
 	}
 	users := []store.NodeUser{
@@ -390,6 +392,7 @@ func TestStage14ClashHysteria2TUIC(t *testing.T) {
 		"obfs-password: salty-pwd",
 		"up: 100",
 		"down: 200",
+		"skip-cert-verify: true",
 		"type: tuic",
 		"uuid: tuic-uuid",
 		"password: shared-tuic-pwd",
@@ -419,6 +422,10 @@ func TestStage14SingBoxHysteria2TUIC(t *testing.T) {
 	if hy2["up_mbps"] != float64(100) || hy2["down_mbps"] != float64(200) {
 		t.Errorf("hy2 up/down = %v/%v", hy2["up_mbps"], hy2["down_mbps"])
 	}
+	hy2TLS := hy2["tls"].(map[string]any)
+	if hy2TLS["insecure"] != true {
+		t.Errorf("hy2 tls.insecure = %v, want true", hy2TLS["insecure"])
+	}
 	obfs, _ := hy2["obfs"].(map[string]any)
 	if obfs == nil || obfs["type"] != "salamander" || obfs["password"] != "salty-pwd" {
 		t.Errorf("hy2 obfs = %#v", obfs)
@@ -429,6 +436,10 @@ func TestStage14SingBoxHysteria2TUIC(t *testing.T) {
 	}
 	if tuic["congestion_control"] != "cubic" {
 		t.Errorf("tuic congestion_control = %v", tuic["congestion_control"])
+	}
+	tuicTLS := tuic["tls"].(map[string]any)
+	if tuicTLS["insecure"] != true {
+		t.Errorf("tuic tls.insecure = %v, want true", tuicTLS["insecure"])
 	}
 }
 
@@ -447,6 +458,7 @@ func TestStage14Base64Hy2TuicURIs(t *testing.T) {
 		"obfs-password=salty-pwd",
 		"up=100",
 		"down=200",
+		"insecure=1",
 		"tuic://",
 		"tuic-uuid:shared-tuic-pwd",
 		"congestion_control=cubic",
@@ -484,6 +496,9 @@ func TestHysteria2Base64URIKeepsNumericAuthorityPortWhenPortRangeSet(t *testing.
 	}
 	if got := u.Query().Get("fp"); got != "" {
 		t.Fatalf("hysteria2 URI should not include uTLS fingerprint, got fp=%q: %s", got, line)
+	}
+	if got := u.Query().Get("insecure"); got != "1" {
+		t.Fatalf("hysteria2 URI insecure=%q, want 1 for self-signed agent certificate: %s", got, line)
 	}
 }
 

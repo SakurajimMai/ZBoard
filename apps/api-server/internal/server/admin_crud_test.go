@@ -427,6 +427,61 @@ func TestSubscriptionEnforcesDeviceLimit(t *testing.T) {
 	}
 }
 
+func TestSubscriptionDeviceLimitIgnoresExpiredOnlineWindow(t *testing.T) {
+	r, st, _ := setupAdminCRUDRouter(t)
+	ctx := context.Background()
+	userID, err := st.AdminCreateUser(ctx, store.AdminCreateUserInput{
+		Email:        "devices-window@example.com",
+		PasswordHash: "hash",
+		TrafficLimit: 1000,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	nodeID, _, err := st.CreateNode(ctx, store.CreateNodeInput{
+		Name:     "设备窗口节点",
+		Host:     "device-window.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := st.EnsureNodeUserWithLimits(ctx, userID, nodeID, "11111111-1111-4111-8111-111111111111", "vless", 0, 1); err != nil {
+		t.Fatalf("ensure node user: %v", err)
+	}
+	token := "sub-devices-window"
+	if _, err := st.CreateSubToken(ctx, userID, token, hashSubToken(token)); err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sub/"+token, nil)
+	req.Header.Set("User-Agent", "Client-A")
+	req.RemoteAddr = "127.0.0.1:10000"
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("first device status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	staleSeenAt := time.Now().UTC().Add(-2 * time.Hour)
+	if _, err := st.DB.ExecContext(ctx, st.Rebind(
+		`UPDATE user_devices SET last_seen_at = ? WHERE user_id = ?`),
+		staleSeenAt, userID); err != nil {
+		t.Fatalf("mark device stale: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/sub/"+token, nil)
+	req.Header.Set("User-Agent", "Client-B")
+	req.RemoteAddr = "127.0.0.2:10000"
+	rr = httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("stale device should not consume online slot, status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestSubscriptionRejectsUnknownTarget(t *testing.T) {
 	r, st, _ := setupAdminCRUDRouter(t)
 	userID, err := st.AdminCreateUser(context.Background(), store.AdminCreateUserInput{
@@ -623,6 +678,9 @@ func TestAdminCanUpdatePlanAndNode(t *testing.T) {
 	}
 	if node.Name != "日本 01" || node.Host != "jp.example.com" || node.Port != 8443 || node.Protocol != "hysteria2" || node.PortRange != "20000-40000" || node.Status != "inactive" {
 		t.Fatalf("unexpected node after update: %+v", node)
+	}
+	if node.TLSInsecure != 1 {
+		t.Fatalf("hysteria2 node should default tls_insecure=1 for self-signed agent certificates, got %d", node.TLSInsecure)
 	}
 }
 

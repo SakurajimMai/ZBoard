@@ -15,6 +15,8 @@ import (
 	"github.com/zboard/api-server/internal/subrender"
 )
 
+const subscriptionDeviceOnlineWindow = 10 * time.Minute
+
 func subToken(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := c.MustGet(ctxUserIDKey).(int64)
@@ -218,17 +220,18 @@ func checkSubscriptionDeviceLimit(ctx context.Context, st *store.Store, userID i
 		return st.TouchUserDevice(ctx, userID, subscriptionDeviceFingerprint(ip, ua), ip, ua)
 	}
 	fp := subscriptionDeviceFingerprint(ip, ua)
-	exists, err := st.HasUserDevice(ctx, userID, fp)
+	activeSince := time.Now().UTC().Add(-subscriptionDeviceOnlineWindow)
+	exists, err := st.HasActiveUserDevice(ctx, userID, fp, activeSince)
 	if err != nil {
 		return err
 	}
 	if !exists {
-		count, err := st.CountUserDevices(ctx, userID)
+		count, err := st.CountActiveUserDevices(ctx, userID, activeSince)
 		if err != nil {
 			return err
 		}
 		if count >= limit {
-			return httpx.NewError(http.StatusForbidden, "device_limit_exceeded", fmt.Sprintf("套餐最多允许 %d 台设备使用订阅", limit))
+			return httpx.NewError(http.StatusForbidden, "device_limit_exceeded", fmt.Sprintf("套餐最多允许 %d 台设备同时在线", limit))
 		}
 	}
 	return st.TouchUserDevice(ctx, userID, fp, ip, ua)
