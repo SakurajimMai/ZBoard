@@ -462,6 +462,7 @@ func TestHysteria2Base64URIKeepsNumericAuthorityPortWhenPortRangeSet(t *testing.
 	nodes, users := stage14Sample()
 	nodes[0].Port = 20925
 	nodes[0].PortRange = "21000-22000"
+	nodes[0].Fingerprint = "chrome"
 	out := subrender.Base64(subrender.Build(nodes[:1], users[:1]))
 	raw, err := base64.StdEncoding.DecodeString(out)
 	if err != nil {
@@ -480,5 +481,27 @@ func TestHysteria2Base64URIKeepsNumericAuthorityPortWhenPortRangeSet(t *testing.
 	}
 	if got := u.Query().Get("mport"); got != "21000-22000" {
 		t.Fatalf("hysteria2 URI mport=%q, want 21000-22000: %s", got, line)
+	}
+	if got := u.Query().Get("fp"); got != "" {
+		t.Fatalf("hysteria2 URI should not include uTLS fingerprint, got fp=%q: %s", got, line)
+	}
+}
+
+func TestSingBoxHysteria2DoesNotRenderUTLS(t *testing.T) {
+	nodes, users := stage14Sample()
+	nodes[0].Fingerprint = "chrome"
+	out := subrender.SingBox(subrender.Build(nodes[:1], users[:1]))
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("sing-box decode: %v\n%s", err, out)
+	}
+	outbounds := doc["outbounds"].([]any)
+	hy2 := outbounds[0].(map[string]any)
+	tls, ok := hy2["tls"].(map[string]any)
+	if !ok {
+		t.Fatalf("hysteria2 outbound missing tls: %#v", hy2)
+	}
+	if _, ok := tls["utls"]; ok {
+		t.Fatalf("hysteria2 outbound should not include tls.utls: %#v", tls)
 	}
 }

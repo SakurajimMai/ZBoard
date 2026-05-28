@@ -156,7 +156,7 @@ func uriFor(it Item) string {
 		if it.SNI != "" {
 			q.Set("sni", it.SNI)
 		}
-		if it.Fingerprint != "" {
+		if it.Fingerprint != "" && supportsURIUTLSFingerprint(it.Protocol) {
 			q.Set("fp", it.Fingerprint)
 		}
 		if len(it.ALPN) > 0 {
@@ -195,7 +195,7 @@ func uriFor(it Item) string {
 		if it.SNI != "" {
 			q.Set("sni", it.SNI)
 		}
-		if it.Fingerprint != "" {
+		if it.Fingerprint != "" && supportsURIUTLSFingerprint(it.Protocol) {
 			q.Set("fp", it.Fingerprint)
 		}
 		if len(it.ALPN) > 0 {
@@ -251,7 +251,7 @@ func uriFor(it Item) string {
 		if it.DownMbps > 0 {
 			q.Set("down", strconv.Itoa(it.DownMbps))
 		}
-		if it.Fingerprint != "" {
+		if it.Fingerprint != "" && supportsURIUTLSFingerprint(it.Protocol) {
 			q.Set("fp", it.Fingerprint)
 		}
 		// mport param for clients that support it (redundant with host:port-range
@@ -302,6 +302,24 @@ func uriTransportType(transport string) string {
 		return "mkcp"
 	}
 	return transport
+}
+
+func supportsURIUTLSFingerprint(protocol string) bool {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "hysteria2", "hy2", "tuic":
+		return false
+	default:
+		return true
+	}
+}
+
+func supportsSingBoxUTLS(protocol string) bool {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "hysteria2", "hy2", "tuic":
+		return false
+	default:
+		return true
+	}
 }
 
 // splitALPN turns a comma-separated string into a trimmed slice; mirrors the
@@ -515,7 +533,7 @@ func SingBox(items []Item) string {
 		}
 		if it.Security == "tls" {
 			tls := map[string]any{"enabled": true, "server_name": it.SNI}
-			if it.Fingerprint != "" {
+			if it.Fingerprint != "" && supportsSingBoxUTLS(it.Protocol) {
 				tls["utls"] = map[string]any{"enabled": true, "fingerprint": it.Fingerprint}
 			}
 			if len(it.ALPN) > 0 {
@@ -532,7 +550,7 @@ func SingBox(items []Item) string {
 					"short_id":   it.RealityShortID,
 				},
 			}
-			if it.Fingerprint != "" {
+			if it.Fingerprint != "" && supportsSingBoxUTLS(it.Protocol) {
 				tls["utls"] = map[string]any{"enabled": true, "fingerprint": it.Fingerprint}
 			}
 			if len(it.ALPN) > 0 {
