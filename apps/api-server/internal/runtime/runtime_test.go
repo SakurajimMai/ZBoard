@@ -158,7 +158,7 @@ func TestXrayConfigExposesStatsAPI(t *testing.T) {
 	}
 }
 
-func TestSingBoxConfigDoesNotRequireV2RayAPI(t *testing.T) {
+func TestSingBoxConfigEnablesV2RayStatsAPI(t *testing.T) {
 	node := &store.Node{
 		ID: 1, Name: "T", Host: "h", Port: 443,
 		Protocol: "vless", Transport: "tcp", Security: "tls",
@@ -176,10 +176,18 @@ func TestSingBoxConfigDoesNotRequireV2RayAPI(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &doc); err != nil {
 		t.Fatalf("not valid JSON: %v\n%s", err, body)
 	}
-	if exp, ok := doc["experimental"].(map[string]any); ok {
-		if _, ok := exp["v2ray_api"]; ok {
-			t.Fatalf("sing-box runtime config must not require v2ray_api build tag: %#v", exp)
-		}
+	exp, ok := doc["experimental"].(map[string]any)
+	if !ok {
+		t.Fatalf("sing-box runtime config missing experimental: %#v", doc)
+	}
+	api, ok := exp["v2ray_api"].(map[string]any)
+	if !ok {
+		t.Fatalf("sing-box runtime config missing v2ray_api: %#v", exp)
+	}
+	stats := api["stats"].(map[string]any)
+	statUsers := stats["users"].([]any)
+	if len(statUsers) != 2 || statUsers[0] != "u11" || statUsers[1] != "u22" {
+		t.Fatalf("v2ray_api.stats.users = %#v, want [u11 u22]", statUsers)
 	}
 }
 
@@ -504,6 +512,19 @@ func TestHysteria2Inbound(t *testing.T) {
 	alpn := tls["alpn"].([]any)
 	if len(alpn) != 1 || alpn[0] != "h3" {
 		t.Errorf("expected default alpn=[h3], got %#v", alpn)
+	}
+	exp := doc["experimental"].(map[string]any)
+	api := exp["v2ray_api"].(map[string]any)
+	if api["listen"] != "127.0.0.1:10085" {
+		t.Fatalf("v2ray_api.listen = %v", api["listen"])
+	}
+	stats := api["stats"].(map[string]any)
+	if stats["enabled"] != true {
+		t.Fatalf("v2ray_api.stats.enabled = %v", stats["enabled"])
+	}
+	statUsers := stats["users"].([]any)
+	if len(statUsers) != 1 || statUsers[0] != "u7" {
+		t.Fatalf("v2ray_api.stats.users = %#v, want [u7]", statUsers)
 	}
 }
 

@@ -78,6 +78,16 @@ export default function Overview() {
     { value: "quarterly", label: d.overview.quarterly },
     { value: "yearly", label: d.overview.yearly },
   ]
+  const clientOptions = [
+    { value: "general", label: d.overview.clientGeneral },
+    { value: "v2rayn", label: "v2rayN / v2rayNG", target: "v2rayn" },
+    { value: "shadowrocket", label: "Shadowrocket", target: "shadowrocket" },
+    { value: "passwall", label: "Passwall", target: "passwall" },
+    { value: "clash", label: "Clash / Mihomo", target: "clash" },
+    { value: "singbox", label: d.overview.clientSingbox, target: "sing-box" },
+    { value: "hiddify", label: "Hiddify", target: "hiddify" },
+    { value: "furious", label: "Furious", target: "furious" },
+  ]
 
   const [user, setUser] = useState<any>(null)
   const [plans, setPlans] = useState<any[]>([])
@@ -113,7 +123,7 @@ export default function Overview() {
   if (loading) return <div className="text-muted-foreground p-8">{d.common.loading}</div>
   if (!user) return <div className="text-red-500 p-8">{d.common.loadError}</div>
 
-  const target = clientType === "clash" ? "clash" : clientType === "singbox" ? "sing-box" : undefined
+  const target = clientOptions.find((item) => item.value === clientType)?.target
   const mainLink = buildSubscriptionUrl(subToken, target, settings)
 
   const backupDomain = settings.backup_subscription_domain || ""
@@ -393,9 +403,9 @@ export default function Overview() {
                   onChange={(e) => setClientType(e.target.value)}
                   className="w-full rounded-lg border bg-card px-4 py-2.5 text-sm appearance-none cursor-pointer pr-10 focus:outline-none focus:ring-2 focus:ring-primary/20"
                 >
-                  <option value="general">{d.overview.clientGeneral}</option>
-                  <option value="clash">{d.overview.clientMeta}</option>
-                  <option value="singbox">{d.overview.clientSingbox}</option>
+                  {clientOptions.map((item) => (
+                    <option key={item.value} value={item.value}>{item.label}</option>
+                  ))}
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
               </div>

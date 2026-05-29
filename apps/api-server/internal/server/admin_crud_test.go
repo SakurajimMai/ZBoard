@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -515,6 +516,137 @@ func TestSubscriptionRejectsUnknownTarget(t *testing.T) {
 	r.ServeHTTP(rr, req)
 	if rr.Code != http.StatusForbidden || !bytes.Contains(rr.Body.Bytes(), []byte("subscription_target_disabled")) {
 		t.Fatalf("unknown target should be rejected, status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestSubscriptionInfersCompatibleTargetFromUserAgent(t *testing.T) {
+	r, st, _ := setupAdminCRUDRouter(t)
+	ctx := context.Background()
+	userID, err := st.AdminCreateUser(ctx, store.AdminCreateUserInput{
+		Email:        "ua-target@example.com",
+		PasswordHash: "hash",
+		TrafficLimit: 1000,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	nodeID, _, err := st.CreateNode(ctx, store.CreateNodeInput{
+		Name:     "UA Target Node",
+		Host:     "ua-target.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := st.EnsureNodeUser(ctx, userID, nodeID, "11111111-1111-4111-8111-111111111111", "vless"); err != nil {
+		t.Fatalf("ensure node user: %v", err)
+	}
+	tokenValue := "sub-ua-target"
+	if _, err := st.CreateSubToken(ctx, userID, tokenValue, hashSubToken(tokenValue)); err != nil {
+		t.Fatalf("create sub token: %v", err)
+	}
+
+	cases := []struct {
+		name        string
+		ua          string
+		wantContent string
+		wantBody    string
+	}{
+		{name: "v2rayn", ua: "v2rayN/7.12.5", wantContent: "text/plain", wantBody: "vless://"},
+		{name: "shadowrocket", ua: "Shadowrocket/2.2.50", wantContent: "text/plain", wantBody: "vless://"},
+		{name: "passwall", ua: "PassWall", wantContent: "text/plain", wantBody: "vless://"},
+		{name: "clash", ua: "clash.meta", wantContent: "text/yaml", wantBody: "proxies:"},
+		{name: "sing-box", ua: "sing-box/1.11.8", wantContent: "application/json", wantBody: `"outbounds"`},
+		{name: "hiddify", ua: "HiddifyNext/2.5.7", wantContent: "application/json", wantBody: `"outbounds"`},
+		{name: "furious", ua: "Furious/0.10.0", wantContent: "application/json", wantBody: `"outbounds"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/sub/"+tokenValue, nil)
+			req.Header.Set("User-Agent", tc.ua)
+			rr := httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("subscription status=%d body=%s", rr.Code, rr.Body.String())
+			}
+			if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, tc.wantContent) {
+				t.Fatalf("content-type=%q, want prefix %q", got, tc.wantContent)
+			}
+			body := rr.Body.String()
+			if tc.wantContent == "text/plain" {
+				raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(body))
+				if err != nil {
+					t.Fatalf("decode base64 subscription: %v", err)
+				}
+				body = string(raw)
+			}
+			if !strings.Contains(body, tc.wantBody) {
+				t.Fatalf("body missing %q:\n%s", tc.wantBody, body)
+			}
+		})
+	}
+}
+
+func TestSubscriptionAcceptsClientTargetAliases(t *testing.T) {
+	r, st, _ := setupAdminCRUDRouter(t)
+	ctx := context.Background()
+	userID, err := st.AdminCreateUser(ctx, store.AdminCreateUserInput{
+		Email:        "target-alias@example.com",
+		PasswordHash: "hash",
+		TrafficLimit: 1000,
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	nodeID, _, err := st.CreateNode(ctx, store.CreateNodeInput{
+		Name:     "Target Alias Node",
+		Host:     "target-alias.example.com",
+		Port:     443,
+		Protocol: "vless",
+	})
+	if err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := st.EnsureNodeUser(ctx, userID, nodeID, "11111111-1111-4111-8111-111111111111", "vless"); err != nil {
+		t.Fatalf("ensure node user: %v", err)
+	}
+	tokenValue := "sub-target-alias"
+	if _, err := st.CreateSubToken(ctx, userID, tokenValue, hashSubToken(tokenValue)); err != nil {
+		t.Fatalf("create sub token: %v", err)
+	}
+
+	cases := []struct {
+		target      string
+		wantStatus  int
+		wantContent string
+	}{
+		{target: "v2rayn", wantStatus: http.StatusOK, wantContent: "text/plain"},
+		{target: "shadowrocket", wantStatus: http.StatusOK, wantContent: "text/plain"},
+		{target: "passwall", wantStatus: http.StatusOK, wantContent: "text/plain"},
+		{target: "clash", wantStatus: http.StatusOK, wantContent: "text/yaml"},
+		{target: "mihomo", wantStatus: http.StatusOK, wantContent: "text/yaml"},
+		{target: "sing-box", wantStatus: http.StatusOK, wantContent: "application/json"},
+		{target: "hiddify", wantStatus: http.StatusOK, wantContent: "application/json"},
+		{target: "furious", wantStatus: http.StatusOK, wantContent: "application/json"},
+		{target: "unknown", wantStatus: http.StatusForbidden},
+	}
+	for _, tc := range cases {
+		t.Run(tc.target, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/sub/"+tokenValue+"?target="+url.QueryEscape(tc.target), nil)
+			rr := httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+			}
+			if tc.wantContent != "" {
+				if got := rr.Header().Get("Content-Type"); !strings.HasPrefix(got, tc.wantContent) {
+					t.Fatalf("content-type=%q, want prefix %q", got, tc.wantContent)
+				}
+			}
+		})
 	}
 }
 
@@ -1250,6 +1382,7 @@ func TestAdminOverviewUsesAggregateTotals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
+	now := time.Now().UTC()
 	for i := 0; i < 105; i++ {
 		status := "paid"
 		if i == 0 {
@@ -1293,6 +1426,24 @@ func TestAdminOverviewUsesAggregateTotals(t *testing.T) {
 				t.Fatalf("disable node: %v", err)
 			}
 		}
+		switch i {
+		case 0:
+			if err := st.RecordHeartbeat(ctx, store.HeartbeatInput{NodeID: nodeID, AgentVersion: "test", RuntimeStatus: "running", ReportedAt: now}); err != nil {
+				t.Fatalf("record inactive node heartbeat: %v", err)
+			}
+		case 1, 2:
+			if err := st.RecordHeartbeat(ctx, store.HeartbeatInput{NodeID: nodeID, AgentVersion: "test", RuntimeStatus: "running", ReportedAt: now}); err != nil {
+				t.Fatalf("record online node heartbeat: %v", err)
+			}
+		case 3:
+			if err := st.RecordHeartbeat(ctx, store.HeartbeatInput{NodeID: nodeID, AgentVersion: "test", RuntimeStatus: "running", ReportedAt: now.Add(-10 * time.Minute)}); err != nil {
+				t.Fatalf("record stale node heartbeat: %v", err)
+			}
+		case 4:
+			if err := st.RecordHeartbeat(ctx, store.HeartbeatInput{NodeID: nodeID, AgentVersion: "test", RuntimeStatus: "stopped", ReportedAt: now}); err != nil {
+				t.Fatalf("record stopped node heartbeat: %v", err)
+			}
+		}
 	}
 
 	if err := st.RecordTraffic(ctx, []store.TrafficDelta{{
@@ -1328,7 +1479,7 @@ func TestAdminOverviewUsesAggregateTotals(t *testing.T) {
 	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode overview: %v", err)
 	}
-	if got.Users != 1 || got.ActiveNodes != 104 || got.PaidOrders != 104 || got.Revenue != "156.00" {
+	if got.Users != 1 || got.ActiveNodes != 2 || got.PaidOrders != 104 || got.Revenue != "156.00" {
 		t.Fatalf("unexpected overview: %+v", got)
 	}
 	if len(got.RevenueTrend) != 6 || got.RevenueTrend[5].Revenue != 156 {

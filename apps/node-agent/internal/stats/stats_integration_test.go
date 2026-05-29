@@ -21,9 +21,6 @@ type fakeStatsServer struct {
 	resets  int
 }
 
-// QueryStatsMethod must match what the client dials.
-const queryMethod = "/xray.app.stats.command.StatsService/QueryStats"
-
 // streamHandler implements the grpc StreamHandler signature; we register it
 // generically so we don't need to import or generate pb stubs server-side.
 func (s *fakeStatsServer) streamHandler(srv any, stream grpc.ServerStream) error {
@@ -129,6 +126,19 @@ func encodeResponseBytes(in []stats.Stat) []byte {
 }
 
 func TestQueryAndResetIntegration(t *testing.T) {
+	testQueryAndResetMethod(t, "xray.app.stats.command.StatsService", func(client *stats.Client, ctx context.Context) ([]stats.UserDelta, error) {
+		return client.QueryAndReset(ctx)
+	})
+}
+
+func TestQueryAndResetUsesSingBoxStatsServiceMethod(t *testing.T) {
+	testQueryAndResetMethod(t, "v2ray.core.app.stats.command.StatsService", func(client *stats.Client, ctx context.Context) ([]stats.UserDelta, error) {
+		return client.QueryAndResetMethod(ctx, stats.SingBoxQueryStatsMethod)
+	})
+}
+
+func testQueryAndResetMethod(t *testing.T, serviceName string, query func(*stats.Client, context.Context) ([]stats.UserDelta, error)) {
+	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -144,7 +154,7 @@ func TestQueryAndResetIntegration(t *testing.T) {
 		},
 	}
 	svc := &grpc.ServiceDesc{
-		ServiceName: "xray.app.stats.command.StatsService",
+		ServiceName: serviceName,
 		HandlerType: (*any)(nil),
 		Methods:     nil,
 		Streams: []grpc.StreamDesc{{
@@ -172,7 +182,7 @@ func TestQueryAndResetIntegration(t *testing.T) {
 	// this internally via grpc.ForceCodec(protoCodec{}) per call.
 	_ = grpc.WithTransportCredentials(insecure.NewCredentials())
 
-	deltas, err := client.QueryAndReset(ctx)
+	deltas, err := query(client, ctx)
 	if err != nil {
 		t.Fatalf("QueryAndReset: %v", err)
 	}
@@ -199,7 +209,7 @@ func TestQueryAndResetIntegration(t *testing.T) {
 	}
 
 	// Second call must return zero deltas because reset cleared the counters.
-	deltas2, err := client.QueryAndReset(ctx)
+	deltas2, err := query(client, ctx)
 	if err != nil {
 		t.Fatalf("QueryAndReset #2: %v", err)
 	}

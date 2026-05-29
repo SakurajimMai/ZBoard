@@ -35,7 +35,30 @@ func (s *Store) AdminOverview(ctx context.Context) (*AdminOverview, error) {
 	if err := s.DB.GetContext(ctx, &out.Users, `SELECT COUNT(*) FROM users`); err != nil {
 		return nil, err
 	}
-	if err := s.DB.GetContext(ctx, &out.ActiveNodes, `SELECT COUNT(*) FROM nodes WHERE status = 'active'`); err != nil {
+	offlineThresholdSeconds, err := s.IntSetting(ctx, "node_offline_threshold", 120)
+	if err != nil {
+		return nil, err
+	}
+	if offlineThresholdSeconds <= 0 {
+		offlineThresholdSeconds = 120
+	}
+	onlineSince := Now().Add(-time.Duration(offlineThresholdSeconds) * time.Second)
+	onlineNodesQuery := s.Rebind(`SELECT COUNT(DISTINCT n.id)
+		FROM nodes n
+		LEFT JOIN (
+			SELECT h.node_id, h.runtime_status
+			FROM agent_heartbeats h
+			INNER JOIN (
+				SELECT node_id, MAX(reported_at) AS reported_at
+				FROM agent_heartbeats
+				GROUP BY node_id
+			) latest ON latest.node_id = h.node_id AND latest.reported_at = h.reported_at
+		) ah ON ah.node_id = n.id
+		WHERE n.status = 'active'
+			AND n.last_heartbeat_at IS NOT NULL
+			AND n.last_heartbeat_at >= ?
+			AND (ah.runtime_status IS NULL OR ah.runtime_status = '' OR ah.runtime_status = 'running')`)
+	if err := s.DB.GetContext(ctx, &out.ActiveNodes, onlineNodesQuery, onlineSince); err != nil {
 		return nil, err
 	}
 	if err := s.DB.GetContext(ctx, &out.PaidOrders, `SELECT COUNT(*) FROM orders WHERE status = 'paid'`); err != nil {

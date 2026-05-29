@@ -14,12 +14,28 @@ COPY . .
 RUN test -n "${TARGETOS}" && test -n "${TARGETARCH}" && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w" -o /out/zboard-agent ./cmd/zboard-agent
 
-# Download Xray and sing-box binaries
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS singbox-build
+WORKDIR /src
+
+RUN apk add --no-cache git ca-certificates
+
+ARG SINGBOX_VERSION=1.11.8
+ARG SINGBOX_TAGS="with_quic with_grpc with_wireguard with_utls with_acme with_v2ray_api"
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN git clone --depth 1 --branch "v${SINGBOX_VERSION}" https://github.com/SagerNet/sing-box.git . && \
+    test -n "${TARGETOS}" && test -n "${TARGETARCH}" && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+      go build -trimpath -ldflags "-s -w -buildid=" \
+      -tags "${SINGBOX_TAGS}" \
+      -o /out/sing-box ./cmd/sing-box
+
+# Download the Xray binary; sing-box is built above with v2ray stats support.
 FROM alpine:3.20 AS runtime-dl
 RUN apk add --no-cache curl unzip tar
 
 ARG XRAY_VERSION=25.5.16
-ARG SINGBOX_VERSION=1.11.8
 ARG TARGETARCH
 
 RUN case "${TARGETARCH}" in \
@@ -32,12 +48,6 @@ RUN case "${TARGETARCH}" in \
     unzip /tmp/xray.zip -d /tmp/xray && \
     chmod +x /tmp/xray/xray
 
-RUN curl -fsSL "https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-linux-${TARGETARCH}.tar.gz" \
-      -o /tmp/singbox.tar.gz && \
-    tar -xzf /tmp/singbox.tar.gz -C /tmp && \
-    mv /tmp/sing-box-${SINGBOX_VERSION}-linux-${TARGETARCH}/sing-box /tmp/sing-box && \
-    chmod +x /tmp/sing-box
-
 # Runtime stage
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata iptables ip6tables
@@ -45,11 +55,12 @@ RUN apk add --no-cache ca-certificates tzdata iptables ip6tables
 WORKDIR /app
 COPY --from=build /out/zboard-agent /usr/local/bin/zboard-agent
 COPY --from=runtime-dl /tmp/xray/xray /usr/local/bin/xray
-COPY --from=runtime-dl /tmp/sing-box /usr/local/bin/sing-box
+COPY --from=singbox-build /out/sing-box /usr/local/bin/sing-box
 
 ENV ZBOARD_AGENT_CONFIG_FILE=/etc/zboard-agent/runtime.json
 ENV ZBOARD_AGENT_WORK_DIR=/var/lib/zboard-agent
 ENV ZBOARD_AGENT_RUNTIME_BINARY=/usr/local/bin/xray
+ENV ZBOARD_AGENT_SINGBOX_V2RAY_API=1
 ENV TZ=Asia/Shanghai
 
 VOLUME ["/etc/zboard-agent", "/var/lib/zboard-agent"]

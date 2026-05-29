@@ -30,10 +30,11 @@ import (
 )
 
 type Supervisor struct {
-	Binary      string
-	RuntimeType string // "xray" | "sing-box"
-	ConfigFile  string
-	WorkDir     string
+	Binary          string
+	RuntimeType     string // "xray" | "sing-box"
+	ConfigFile      string
+	WorkDir         string
+	SingBoxV2RayAPI bool
 
 	mu        sync.Mutex
 	cmd       *exec.Cmd
@@ -58,7 +59,7 @@ func (s *Supervisor) TryBootExisting(ctx context.Context) bool {
 	if err != nil || len(data) == 0 {
 		return false
 	}
-	prepared, err := prepareRuntimeConfig(data)
+	prepared, err := prepareRuntimeConfigWithCapabilities(data, s.SingBoxV2RayAPI)
 	if err != nil {
 		return false
 	}
@@ -86,7 +87,7 @@ func (s *Supervisor) TryBootExisting(ctx context.Context) bool {
 func (s *Supervisor) Apply(ctx context.Context, configJSON []byte) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	prepared, err := prepareRuntimeConfig(configJSON)
+	prepared, err := prepareRuntimeConfigWithCapabilities(configJSON, s.SingBoxV2RayAPI)
 	if err != nil {
 		return false, err
 	}
@@ -239,13 +240,19 @@ func ensureRuntimeAssets(configJSON []byte) error {
 }
 
 func prepareRuntimeConfig(configJSON []byte) ([]byte, error) {
+	return prepareRuntimeConfigWithCapabilities(configJSON, false)
+}
+
+func prepareRuntimeConfigWithCapabilities(configJSON []byte, singBoxV2RayAPI bool) ([]byte, error) {
 	prepared, err := normalizeQUICCertificatePaths(configJSON)
 	if err != nil {
 		return nil, err
 	}
-	prepared, err = stripUnsupportedSingBoxV2RayAPI(prepared)
-	if err != nil {
-		return nil, err
+	if !singBoxV2RayAPI {
+		prepared, err = stripUnsupportedSingBoxV2RayAPI(prepared)
+		if err != nil {
+			return nil, err
+		}
 	}
 	prepared, err = stripLegacySingBoxSpecialOutbounds(prepared)
 	if err != nil {
@@ -312,10 +319,8 @@ func stripUnsupportedSingBoxV2RayAPI(configJSON []byte) ([]byte, error) {
 	if err := json.Unmarshal(configJSON, &doc); err != nil {
 		return nil, fmt.Errorf("parse runtime config: %w", err)
 	}
-	if _, ok := inferRuntimeType(configJSON); !ok {
-		return configJSON, nil
-	}
-	if runtimeType, _ := inferRuntimeType(configJSON); runtimeType != "sing-box" {
+	runtimeType, ok := inferRuntimeType(configJSON)
+	if !ok || runtimeType != "sing-box" {
 		return configJSON, nil
 	}
 	exp, ok := doc["experimental"].(map[string]any)

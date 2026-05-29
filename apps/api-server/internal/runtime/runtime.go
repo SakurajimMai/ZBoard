@@ -18,8 +18,8 @@ import (
 // StatsAPIPort is the local-only port the runtime exposes for per-user stats.
 // The Node Agent dials 127.0.0.1:StatsAPIPort over gRPC. We use the Xray
 // `xray.app.stats.command.StatsService` API; sing-box exposes the same wire
-// sing-box's v2ray_api requires a non-default build tag, so bundled sing-box
-// configs deliberately omit it to keep runtime startup portable.
+// through experimental.v2ray_api when the runtime binary is built with
+// with_v2ray_api.
 const StatsAPIPort = 10085
 
 const (
@@ -305,6 +305,34 @@ func httpTransportSettings(node *store.Node) map[string]any {
 // singBoxUserName is the canonical user name we set on every sing-box user.
 func singBoxUserName(userID int64) string { return fmt.Sprintf("u%d", userID) }
 
+func singBoxStatsUsers(users []store.NodeUser) []string {
+	out := make([]string, 0, len(users))
+	for _, u := range users {
+		if u.Enabled == 0 {
+			continue
+		}
+		out = append(out, singBoxUserName(u.UserID))
+	}
+	return out
+}
+
+func withSingBoxStats(doc map[string]any, users []store.NodeUser) map[string]any {
+	statUsers := singBoxStatsUsers(users)
+	if len(statUsers) == 0 {
+		return doc
+	}
+	doc["experimental"] = map[string]any{
+		"v2ray_api": map[string]any{
+			"listen": "127.0.0.1:" + strconv.Itoa(StatsAPIPort),
+			"stats": map[string]any{
+				"enabled": true,
+				"users":   statUsers,
+			},
+		},
+	}
+	return doc
+}
+
 func singBox(node *store.Node, users []store.NodeUser) map[string]any {
 	users2 := make([]map[string]any, 0, len(users))
 	for _, u := range users {
@@ -384,13 +412,13 @@ func singBox(node *store.Node, users []store.NodeUser) map[string]any {
 		inbound["transport"] = map[string]any{"type": "grpc", "service_name": node.GRPCServiceName}
 	}
 
-	return map[string]any{
+	return withSingBoxStats(map[string]any{
 		"log":      map[string]any{"level": "warn"},
 		"inbounds": []any{inbound},
 		"outbounds": []any{
 			map[string]any{"type": "direct", "tag": "direct"},
 		},
-	}
+	}, users)
 }
 
 func defaultStr(v, fallback string) string {
@@ -465,7 +493,7 @@ func singBoxHysteria2(node *store.Node, users []store.NodeUser) map[string]any {
 	// BuildPortHoppingMeta() and the nodesvc layer includes it in the task
 	// payload — the agent reads it from there, not from the config JSON.
 
-	return doc
+	return withSingBoxStats(doc, users)
 }
 
 // PortHoppingMeta returns the iptables setup/teardown commands for a Hysteria2
@@ -547,13 +575,13 @@ func singBoxTUIC(node *store.Node, users []store.NodeUser) map[string]any {
 		"congestion_control": defaultStr(node.CongestionControl, "bbr"),
 		"tls":                quicTLSBlock(node),
 	}
-	return map[string]any{
+	return withSingBoxStats(map[string]any{
 		"log":      map[string]any{"level": "warn"},
 		"inbounds": []any{inbound},
 		"outbounds": []any{
 			map[string]any{"type": "direct", "tag": "direct"},
 		},
-	}
+	}, users)
 }
 
 // splitALPN turns a comma-separated ALPN list (e.g. "h2,http/1.1") into a

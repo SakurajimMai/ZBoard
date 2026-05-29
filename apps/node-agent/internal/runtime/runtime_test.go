@@ -153,7 +153,7 @@ func TestPrepareRuntimeConfigAddsDefaultQUICCertificatePaths(t *testing.T) {
 	}
 }
 
-func TestPrepareRuntimeConfigStripsUnsupportedSingBoxV2RayAPI(t *testing.T) {
+func TestPrepareRuntimeConfigStripsUnsupportedSingBoxV2RayAPIByDefault(t *testing.T) {
 	dir := t.TempDir()
 	certPath := filepath.Join(dir, "server.crt")
 	keyPath := filepath.Join(dir, "server.key")
@@ -186,10 +186,54 @@ func TestPrepareRuntimeConfigStripsUnsupportedSingBoxV2RayAPI(t *testing.T) {
 	}
 	exp, _ := doc["experimental"].(map[string]any)
 	if _, ok := exp["v2ray_api"]; ok {
-		t.Fatalf("v2ray_api should be stripped for bundled sing-box compatibility: %#v", exp)
+		t.Fatalf("v2ray_api should be stripped unless sing-box capability is enabled: %#v", exp)
 	}
 	if _, ok := exp["cache_file"]; !ok {
 		t.Fatalf("non-v2ray experimental settings should be preserved: %#v", exp)
+	}
+}
+
+func TestSupervisorPreservesSingBoxV2RayAPIWhenSupported(t *testing.T) {
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "server.crt")
+	keyPath := filepath.Join(dir, "server.key")
+	configPath := filepath.Join(dir, "runtime.json")
+
+	s := New(filepath.Join(dir, "missing-sing-box"), "sing-box", configPath, dir)
+	s.SingBoxV2RayAPI = true
+	_, err := s.Apply(context.Background(), []byte(`{
+		"inbounds": [{
+			"type": "hysteria2",
+			"tls": {
+				"enabled": true,
+				"server_name": "us1.example.com",
+				"certificate_path": "`+filepath.ToSlash(certPath)+`",
+				"key_path": "`+filepath.ToSlash(keyPath)+`"
+			}
+		}],
+		"experimental": {
+			"cache_file": {"enabled": true},
+			"v2ray_api": {
+				"listen": "127.0.0.1:10085",
+				"stats": {"enabled": true, "users": ["u1"]}
+			}
+		}
+	}`))
+	if err == nil {
+		t.Fatal("expected missing runtime binary to fail after writing prepared config")
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read prepared config: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("unmarshal prepared config: %v", err)
+	}
+	exp, _ := doc["experimental"].(map[string]any)
+	if _, ok := exp["v2ray_api"]; !ok {
+		t.Fatalf("v2ray_api should be preserved when sing-box capability is enabled: %#v", exp)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -66,7 +67,12 @@ func subRender(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.Param("token")
 		hash := hashSubToken(token)
-		target := c.DefaultQuery("target", "base64")
+		target, ok := resolveSubscriptionTarget(c.Query("target"), c.Request.UserAgent())
+		if !ok {
+			_ = d.Store.LogSubAccess(c.Request.Context(), nil, hash, c.Query("target"), c.ClientIP(), c.Request.UserAgent(), "deny", "target_disabled")
+			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "subscription_target_disabled", "该订阅格式已关闭"))
+			return
+		}
 		if !subscriptionTargetEnabled(c.Request.Context(), d.Store, target) {
 			_ = d.Store.LogSubAccess(c.Request.Context(), nil, hash, target, c.ClientIP(), c.Request.UserAgent(), "deny", "target_disabled")
 			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "subscription_target_disabled", "该订阅格式已关闭"))
@@ -154,17 +160,52 @@ func subRender(d Deps) gin.HandlerFunc {
 func subscriptionTargetEnabled(ctx context.Context, st *store.Store, target string) bool {
 	key := ""
 	switch target {
-	case "clash", "clash-meta":
+	case "clash":
 		key = "clash_enabled"
-	case "sing-box", "singbox":
+	case "sing-box":
 		key = "singbox_enabled"
-	case "base64", "v2rayn", "":
+	case "base64":
 		key = "v2rayn_enabled"
 	default:
 		return false
 	}
 	enabled, err := st.BoolSetting(ctx, key, true)
 	return err == nil && enabled
+}
+
+func resolveSubscriptionTarget(rawTarget, userAgent string) (string, bool) {
+	target := strings.ToLower(strings.TrimSpace(rawTarget))
+	if target == "" || target == "auto" {
+		return inferSubscriptionTarget(userAgent), true
+	}
+	return canonicalSubscriptionTarget(target)
+}
+
+func inferSubscriptionTarget(userAgent string) string {
+	ua := strings.ToLower(userAgent)
+	switch {
+	case strings.Contains(ua, "clash") || strings.Contains(ua, "mihomo") || strings.Contains(ua, "stash"):
+		return "clash"
+	case strings.Contains(ua, "sing-box") || strings.Contains(ua, "singbox") ||
+		strings.Contains(ua, "hiddify") || strings.Contains(ua, "furious"):
+		return "sing-box"
+	default:
+		return "base64"
+	}
+}
+
+func canonicalSubscriptionTarget(target string) (string, bool) {
+	key := strings.NewReplacer("_", "-", " ", "-", ".", "-").Replace(target)
+	switch key {
+	case "base64", "v2ray", "v2rayn", "v2rayng", "shadowrocket", "passwall", "general", "uri", "uris":
+		return "base64", true
+	case "clash", "clash-meta", "clash-verge", "mihomo", "stash":
+		return "clash", true
+	case "sing-box", "singbox", "hiddify", "hiddify-next", "furious":
+		return "sing-box", true
+	default:
+		return "", false
+	}
 }
 
 func ensureSubscriptionNodeUsers(ctx context.Context, st *store.Store, u *store.User, nodes []store.Node, nodeUsers []store.NodeUser) (bool, error) {

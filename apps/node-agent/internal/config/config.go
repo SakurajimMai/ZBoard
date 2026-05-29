@@ -25,6 +25,7 @@ type Config struct {
 	WorkDir           string // working directory for the runtime process
 	AgentVersion      string
 	StatsAPIAddr      string // host:port of the runtime's stats gRPC API; empty disables stats scraping
+	SingBoxV2RayAPI   bool   // true when the sing-box binary supports experimental.v2ray_api
 	statsExplicit     bool
 }
 
@@ -104,6 +105,7 @@ func overlayEnv(cfg *Config) {
 		"ZBOARD_AGENT_WORK_DIR",
 		"ZBOARD_AGENT_VERSION",
 		"ZBOARD_AGENT_STATS_API_ADDR",
+		"ZBOARD_AGENT_SINGBOX_V2RAY_API",
 	} {
 		if v, ok := os.LookupEnv(k); ok {
 			applyKV(cfg, k, v)
@@ -146,6 +148,8 @@ func applyKV(c *Config, k, v string) {
 	case "ZBOARD_AGENT_STATS_API_ADDR", "STATS_API_ADDR":
 		c.StatsAPIAddr = v
 		c.statsExplicit = true
+	case "ZBOARD_AGENT_SINGBOX_V2RAY_API", "SINGBOX_V2RAY_API":
+		c.SingBoxV2RayAPI = parseBool(v)
 	}
 }
 
@@ -159,11 +163,22 @@ func (c *Config) validate() error {
 	if c.NodeSecret == "" {
 		return fmt.Errorf("node_secret is required")
 	}
-	if !c.statsExplicit && isSingBoxRuntime(c.RuntimeType, c.RuntimeBinary) {
-		c.StatsAPIAddr = ""
+	if isSingBoxRuntime(c.RuntimeType, c.RuntimeBinary) {
+		if !c.SingBoxV2RayAPI {
+			c.StatsAPIAddr = ""
+		}
 	}
 	c.APIBaseURL = strings.TrimRight(c.APIBaseURL, "/")
 	return nil
+}
+
+func parseBool(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func isSingBoxRuntime(runtimeType, runtimeBinary string) bool {

@@ -1,7 +1,6 @@
 // Package stats reads per-user uplink/downlink counters from a local
-// StatsService-compatible runtime API, currently enabled by Zboard's generated
-// Xray configs. Sing-box's v2ray_api requires a non-default build tag, so
-// bundled sing-box configs intentionally avoid depending on it.
+// StatsService-compatible runtime API, enabled by Zboard's generated Xray
+// configs and by bundled sing-box builds compiled with with_v2ray_api.
 //
 // We hand-roll the protobuf encoding for QueryStatsRequest/Response with
 // google.golang.org/protobuf/encoding/protowire to avoid pulling in xray-core
@@ -13,15 +12,32 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
-// QueryStatsMethod is the fully-qualified gRPC method path used by Xray's
-// StatsService and compatible v2ray_api implementations.
-const QueryStatsMethod = "/xray.app.stats.command.StatsService/QueryStats"
+const (
+	// XrayQueryStatsMethod is the fully-qualified gRPC method path used by
+	// Xray's StatsService.
+	XrayQueryStatsMethod = "/xray.app.stats.command.StatsService/QueryStats"
+	// SingBoxQueryStatsMethod is the v2ray StatsService path exposed by
+	// sing-box experimental.v2ray_api.
+	SingBoxQueryStatsMethod = "/v2ray.core.app.stats.command.StatsService/QueryStats"
+	// QueryStatsMethod is kept for existing callers; it targets Xray.
+	QueryStatsMethod = XrayQueryStatsMethod
+)
+
+func QueryMethodForRuntime(runtimeType string) string {
+	switch strings.ToLower(strings.TrimSpace(runtimeType)) {
+	case "sing-box", "singbox":
+		return SingBoxQueryStatsMethod
+	default:
+		return XrayQueryStatsMethod
+	}
+}
 
 // UserDelta is the per-user traffic delta returned by QueryAndReset.
 type UserDelta struct {
@@ -64,9 +80,18 @@ func (c *Client) Close() error {
 // `user>>>u7>>>traffic>>>downlink` (sing-box). The numeric user_id is
 // extracted from the leading `u<id>` token.
 func (c *Client) QueryAndReset(ctx context.Context) ([]UserDelta, error) {
+	return c.QueryAndResetMethod(ctx, XrayQueryStatsMethod)
+}
+
+// QueryAndResetMethod is QueryAndReset with an explicit StatsService method
+// path. Sing-box uses the v2ray service name while Xray uses its own package.
+func (c *Client) QueryAndResetMethod(ctx context.Context, method string) ([]UserDelta, error) {
+	if strings.TrimSpace(method) == "" {
+		method = XrayQueryStatsMethod
+	}
 	req := &queryStatsRequest{Pattern: "user>>>", Reset_: true}
 	resp := &queryStatsResponse{}
-	if err := c.conn.Invoke(ctx, QueryStatsMethod, req, resp, grpc.ForceCodec(protoCodec{})); err != nil {
+	if err := c.conn.Invoke(ctx, method, req, resp, grpc.ForceCodec(protoCodec{})); err != nil {
 		return nil, fmt.Errorf("stats query: %w", err)
 	}
 	return Aggregate(resp.Stats), nil

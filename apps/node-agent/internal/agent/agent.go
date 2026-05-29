@@ -30,10 +30,12 @@ type Agent struct {
 }
 
 func New(cfg *config.Config) *Agent {
+	supervisor := runtime.New(cfg.RuntimeBinary, cfg.RuntimeType, cfg.ConfigFile, cfg.WorkDir)
+	supervisor.SingBoxV2RayAPI = cfg.SingBoxV2RayAPI
 	a := &Agent{
 		Cfg:        cfg,
 		Client:     apiclient.New(cfg.APIBaseURL, cfg.NodeID, cfg.NodeSecret),
-		Supervisor: runtime.New(cfg.RuntimeBinary, cfg.RuntimeType, cfg.ConfigFile, cfg.WorkDir),
+		Supervisor: supervisor,
 	}
 	if cfg.StatsAPIAddr != "" {
 		c, err := stats.Dial(cfg.StatsAPIAddr)
@@ -225,9 +227,10 @@ func (a *Agent) reportTraffic(ctx context.Context) error {
 		DownloadDelta int64 `json:"download_delta"`
 	}
 	out := []item{}
-	if a.Stats != nil && a.Supervisor.IsRunning() && supportsStatsAPI(a.Supervisor.Type()) {
+	runtimeType := a.Supervisor.Type()
+	if a.Stats != nil && a.Supervisor.IsRunning() && supportsStatsAPI(runtimeType, a.Supervisor.SingBoxV2RayAPI) {
 		qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		deltas, err := a.Stats.QueryAndReset(qctx)
+		deltas, err := a.Stats.QueryAndResetMethod(qctx, stats.QueryMethodForRuntime(runtimeType))
 		cancel()
 		if err != nil {
 			log.Printf("stats scrape failed (sending empty report): %v", err)
@@ -248,6 +251,15 @@ func (a *Agent) reportTraffic(ctx context.Context) error {
 	return a.Client.Do(ctx, "/api/agent/v1/traffic/report", body, nil)
 }
 
+func supportsStatsAPI(runtimeType string, singBoxV2RayAPI bool) bool {
+	switch strings.ToLower(strings.TrimSpace(runtimeType)) {
+	case "sing-box", "singbox":
+		return singBoxV2RayAPI
+	default:
+		return true
+	}
+}
+
 func isTimeoutError(err error) bool {
 	if err == nil {
 		return false
@@ -257,13 +269,4 @@ func isTimeoutError(err error) bool {
 	}
 	var netErr net.Error
 	return errors.As(err, &netErr) && netErr.Timeout()
-}
-
-func supportsStatsAPI(runtimeType string) bool {
-	switch strings.ToLower(strings.TrimSpace(runtimeType)) {
-	case "sing-box", "singbox":
-		return false
-	default:
-		return true
-	}
 }
