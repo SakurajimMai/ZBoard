@@ -61,15 +61,26 @@ const nextConfig = {
       'https://*.hcaptcha.com',
     ]
 
-    const connectSrc = ["'self'", apiOrigin, ...captchaConnect].filter(Boolean)
-    const scriptSrc = ["'self'", "'unsafe-inline'", "'unsafe-eval'", ...captchaScript]
+    // 站点经 Cloudflare 代理时会自动注入 Web Analytics beacon
+    // (static.cloudflareinsights.com/beacon.min.js),并把数据回传到
+    // cloudflareinsights.com。放行脚本与回传地址,避免控制台刷红。
+    const cloudflareScript = ['https://static.cloudflareinsights.com']
+    const cloudflareConnect = [
+      'https://static.cloudflareinsights.com',
+      'https://cloudflareinsights.com',
+    ]
+
+    const connectSrc = ["'self'", apiOrigin, ...captchaConnect, ...cloudflareConnect].filter(Boolean)
+    const scriptSrc = ["'self'", "'unsafe-inline'", "'unsafe-eval'", ...captchaScript, ...cloudflareScript]
     const frameSrc = ["'self'", ...captchaFrame]
 
     const csp = [
       "default-src 'self'",
       `script-src ${scriptSrc.join(' ')}`,
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob:",
+      // 知识库文章 / SEO og:image / favicon 可引用外部图床的 HTTPS 图片。
+      // 图片不会执行代码,放行 https: 是 CSP 的常规做法,避免外链图无法显示。
+      "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
       `connect-src ${connectSrc.join(' ')}`,
       `frame-src ${frameSrc.join(' ')}`,
