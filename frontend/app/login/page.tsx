@@ -56,7 +56,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center bg-background px-4 overflow-hidden select-none">
+    <div className="relative min-h-dvh flex items-center justify-center bg-background px-4 overflow-hidden select-none">
       <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6">
         <LanguageSwitcher align="right" side="bottom" />
       </div>

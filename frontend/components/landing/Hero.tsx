@@ -16,7 +16,7 @@ export default function Hero() {
   ]
 
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-16 gradient-hero">
+    <section className="relative min-h-dvh flex items-center justify-center overflow-hidden pt-16 gradient-hero">
       {/* Decorative elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 rounded-full bg-primary/5 blur-3xl" />

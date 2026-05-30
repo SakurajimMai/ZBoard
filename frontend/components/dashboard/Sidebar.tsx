@@ -86,12 +86,15 @@ export default function Sidebar({ user }: SidebarProps) {
           </div>
         </div>
         <div className="flex items-center justify-between px-2">
-          <LanguageSwitcher align="left" side="top" />
+          <LanguageSwitcher align="left" side="top" iconOnly />
           <div className="flex items-center gap-1">
             <ThemeToggle />
-            <button className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors">
+            <button
+              className="flex items-center justify-center size-9 rounded-lg text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
+              title={t.dash.logout}
+              aria-label={t.dash.logout}
+            >
               <LogOut className="w-4 h-4" />
-              <span>{t.dash.logout}</span>
             </button>
           </div>
         </div>

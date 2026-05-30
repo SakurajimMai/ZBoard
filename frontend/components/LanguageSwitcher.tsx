@@ -6,7 +6,7 @@ import { LOCALES, type Locale } from "@/lib/i18n/locales"
 import { useI18n } from "@/lib/i18n/context"
 import { cn } from "@/lib/utils"
 
-export default function LanguageSwitcher({ align = "right", side = "bottom" }: { align?: "left" | "right"; side?: "top" | "bottom" }) {
+export default function LanguageSwitcher({ align = "right", side = "bottom", iconOnly = false }: { align?: "left" | "right"; side?: "top" | "bottom"; iconOnly?: boolean }) {
   const { locale, setLocale } = useI18n()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -35,16 +35,18 @@ export default function LanguageSwitcher({ align = "right", side = "bottom" }: {
       <button
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors",
+          "flex items-center rounded-lg text-sm font-medium transition-colors",
           "text-muted-foreground hover:text-foreground hover:bg-accent",
+          iconOnly ? "justify-center size-9" : "gap-1.5 px-2.5 py-1.5",
           open && "bg-accent text-foreground"
         )}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label="切换语言"
+        title={iconOnly ? current.nativeLabel : undefined}
       >
         <Globe className="w-4 h-4 flex-shrink-0" />
-        <span className="hidden sm:inline max-w-[80px] truncate">{current.nativeLabel}</span>
+        {!iconOnly && <span className="hidden sm:inline max-w-[80px] truncate">{current.nativeLabel}</span>}
       </button>
 
       {/* Dropdown */}
