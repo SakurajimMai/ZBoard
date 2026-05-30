@@ -205,54 +205,6 @@ func createOrder(d Deps) gin.HandlerFunc {
 	}
 }
 
-func payOrder(d Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		orderNo := c.Param("order_no")
-		uid := c.MustGet(ctxUserIDKey).(int64)
-		key := c.GetHeader("Idempotency-Key")
-		res, err := d.Biz.StartPayment(c.Request.Context(), uid, orderNo, key)
-		if err != nil {
-			httpx.Fail(c, err)
-			return
-		}
-		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
-			ActorType: "user", ActorID: ptrInt64(uid),
-			Action: "payment.start", ResourceType: "order", ResourceID: orderNo,
-			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
-		})
-		httpx.OK(c, gin.H{
-			"existing": res.Existing,
-			"payment":  res.Payment,
-			"order_no": res.OrderNo,
-			"pay_url":  res.PayURL,
-		})
-	}
-}
-
-// ===== Mock callback =====
-
-type mockCallbackBody struct {
-	EventID   string `json:"event_id" binding:"required"`
-	OrderNo   string `json:"order_no" binding:"required"`
-	PaymentNo string `json:"payment_no" binding:"required"`
-}
-
-func mockPaymentCallback(d Deps) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var body mockCallbackBody
-		if err := c.ShouldBindJSON(&body); err != nil {
-			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
-			return
-		}
-		raw, _ := c.GetRawData()
-		if err := d.Biz.HandleMockCallback(c.Request.Context(), body.EventID, body.OrderNo, body.PaymentNo, "", string(raw)); err != nil {
-			httpx.Fail(c, err)
-			return
-		}
-		httpx.OK(c, gin.H{"ok": true})
-	}
-}
-
 // ===== Admin views =====
 
 func adminListOrders(d Deps) gin.HandlerFunc {
@@ -489,6 +441,10 @@ func adminUpdateUser(d Deps) gin.HandlerFunc {
 				return
 			}
 		} else {
+			if err := d.Store.DeleteUserSessions(c.Request.Context(), id); err != nil {
+				httpx.Fail(c, err)
+				return
+			}
 			if err := d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 0); err != nil {
 				httpx.Fail(c, err)
 				return
@@ -603,6 +559,10 @@ func adminUserDisable(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, err)
 			return
 		}
+		if err := d.Store.DeleteUserSessions(c.Request.Context(), id); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
 		if err := d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 0); err != nil {
 			httpx.Fail(c, err)
 			return
@@ -691,18 +651,22 @@ func adminBatchUsers(d Deps) gin.HandlerFunc {
 					httpx.Fail(c, err)
 					return
 				}
+				if err := d.Store.DeleteUserSessions(c.Request.Context(), id); err != nil {
+					httpx.Fail(c, err)
+					return
+				}
 				if err := d.Store.SetNodeUserEnabledForUser(c.Request.Context(), id, 0); err != nil {
 					httpx.Fail(c, err)
 					return
 				}
 				needsNodeSync = true
 			case "reset_subscription":
-				tok, err := newSubToken()
+				tok, storedToken, err := newSubTokenForUser(id, d)
 				if err != nil {
 					httpx.Fail(c, err)
 					return
 				}
-				if err := d.Store.RotateSubToken(c.Request.Context(), id, tok, hashSubToken(tok)); err != nil {
+				if err := d.Store.RotateSubToken(c.Request.Context(), id, storedToken, hashSubToken(tok)); err != nil {
 					httpx.Fail(c, err)
 					return
 				}
@@ -752,12 +716,12 @@ func adminResetUserSubscription(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "id 不合法"))
 			return
 		}
-		tok, err := newSubToken()
+		tok, storedToken, err := newSubTokenForUser(id, d)
 		if err != nil {
 			httpx.Fail(c, err)
 			return
 		}
-		if err := d.Store.RotateSubToken(c.Request.Context(), id, tok, hashSubToken(tok)); err != nil {
+		if err := d.Store.RotateSubToken(c.Request.Context(), id, storedToken, hashSubToken(tok)); err != nil {
 			httpx.Fail(c, err)
 			return
 		}
@@ -784,19 +748,24 @@ func adminGetUserSubscription(d Deps) gin.HandlerFunc {
 			return
 		}
 		if t == nil {
-			tok, err := newSubToken()
+			tok, storedToken, err := newSubTokenForUser(id, d)
 			if err != nil {
 				httpx.Fail(c, err)
 				return
 			}
-			if _, err := d.Store.CreateSubToken(c.Request.Context(), id, tok, hashSubToken(tok)); err != nil {
+			if _, err := d.Store.CreateSubToken(c.Request.Context(), id, storedToken, hashSubToken(tok)); err != nil {
 				httpx.Fail(c, err)
 				return
 			}
 			httpx.OK(c, gin.H{"token": tok})
 			return
 		}
-		httpx.OK(c, gin.H{"token": t.Token})
+		tok, err := materializeSubToken(id, t.Token, d)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		httpx.OK(c, gin.H{"token": tok})
 	}
 }
 
@@ -844,7 +813,7 @@ func adminResetUserIdentity(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, err)
 			return
 		}
-		tok, err := newSubToken()
+		tok, storedToken, err := newSubTokenForUser(id, d)
 		if err != nil {
 			httpx.Fail(c, err)
 			return
@@ -853,7 +822,7 @@ func adminResetUserIdentity(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, err)
 			return
 		}
-		if err := d.Store.RotateSubToken(c.Request.Context(), id, tok, hashSubToken(tok)); err != nil {
+		if err := d.Store.RotateSubToken(c.Request.Context(), id, storedToken, hashSubToken(tok)); err != nil {
 			httpx.Fail(c, err)
 			return
 		}

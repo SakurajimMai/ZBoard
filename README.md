@@ -71,7 +71,7 @@ docker compose up -d
 export ZBOARD_DB_DIALECT=sqlite
 export ZBOARD_ADMIN_EMAIL=admin@local.dev
 export ZBOARD_ADMIN_PASSWORD=dev123
-export ZBOARD_TOKEN_SECRET=dev-secret
+export ZBOARD_TOKEN_SECRET="$(openssl rand -hex 32)"
 go run ./apps/api-server/cmd/server
 
 # 前端

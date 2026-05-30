@@ -144,6 +144,23 @@ export default function Overview() {
     setTimeout(() => setCopied(null), 2000)
   }
 
+  // redirectToPayment navigates to a gateway pay URL only after confirming it's
+  // an http(s) absolute URL. pay_url comes from our own backend providers, but
+  // validating the scheme here blocks an open-redirect / javascript: payload if
+  // a provider is ever misconfigured or compromised.
+  const redirectToPayment = (rawURL: string): boolean => {
+    try {
+      const u = new URL(rawURL)
+      if (u.protocol !== "https:" && u.protocol !== "http:") {
+        return false
+      }
+      window.location.href = u.toString()
+      return true
+    } catch {
+      return false
+    }
+  }
+
   const handleResetToken = async () => {
     try {
       const res = await resetSubscriptionToken()
@@ -189,7 +206,9 @@ export default function Overview() {
       if (!payRes.pay_url) {
         throw new Error(d.overview.payGatewayError)
       }
-      window.location.href = payRes.pay_url
+      if (!redirectToPayment(payRes.pay_url)) {
+        throw new Error(d.overview.payGatewayError)
+      }
     } catch (e: any) {
       setNotice({ type: "error", message: e?.message || d.overview.createOrderFailed })
     } finally {
@@ -233,7 +252,9 @@ export default function Overview() {
       if (!payRes.pay_url) {
         throw new Error(d.overview.payGatewayError)
       }
-      window.location.href = payRes.pay_url
+      if (!redirectToPayment(payRes.pay_url)) {
+        throw new Error(d.overview.payGatewayError)
+      }
     } catch (e: any) {
       setNotice({ type: "error", message: e?.message || d.overview.createOrderFailed })
     } finally {

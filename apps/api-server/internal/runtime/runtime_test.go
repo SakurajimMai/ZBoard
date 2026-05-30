@@ -650,3 +650,36 @@ func TestSingBoxSS2022AndRealityHandshake(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateNodeRejectsOutOfRangePort(t *testing.T) {
+	base := store.Node{
+		Name: "P", Host: "p.example.com", Protocol: "vless",
+		Transport: "tcp", Security: "tls", RuntimeType: "xray",
+	}
+	cases := []struct {
+		name    string
+		port    int
+		wantErr bool
+	}{
+		{"zero", 0, true},
+		{"negative", -1, true},
+		{"too high", 65536, true},
+		{"way too high", 1 << 20, true},
+		{"min valid", 1, false},
+		{"typical", 443, false},
+		{"max valid", 65535, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := base
+			n.Port = tc.port
+			err := runtime.ValidateNode(&n)
+			if tc.wantErr && err == nil {
+				t.Fatalf("port %d: expected error, got nil", tc.port)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("port %d: unexpected error: %v", tc.port, err)
+			}
+		})
+	}
+}

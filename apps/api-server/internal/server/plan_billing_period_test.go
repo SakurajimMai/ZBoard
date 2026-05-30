@@ -57,7 +57,8 @@ func TestCreateQuarterlyPlanOrderUsesQuarterlyPriceAndGrantsQuarterlyQuota(t *te
 		t.Fatalf("unexpected quarterly order amount: %+v", got.Order)
 	}
 
-	if err := bizsvc.New(st).ActivateByCallback(ctx, got.Order.OrderNo, "mock", "trade-quarterly"); err != nil {
+	seedPendingPayment(t, st, got.Order.OrderNo, "epay")
+	if err := bizsvc.New(st).ActivateByCallback(ctx, got.Order.OrderNo, "epay", "trade-quarterly", got.Order.Amount); err != nil {
 		t.Fatalf("activate callback: %v", err)
 	}
 	u, err := st.FindUserByID(ctx, userID)
@@ -139,7 +140,8 @@ func TestUpgradePlanOrderCreditsRemainingTimeAndUnusedTraffic(t *testing.T) {
 	}
 
 	beforePay := time.Now().UTC()
-	if err := bizsvc.New(st).ActivateByCallback(ctx, got.Order.OrderNo, "mock", "trade-upgrade"); err != nil {
+	seedPendingPayment(t, st, got.Order.OrderNo, "epay")
+	if err := bizsvc.New(st).ActivateByCallback(ctx, got.Order.OrderNo, "epay", "trade-upgrade", got.Order.Amount); err != nil {
 		t.Fatalf("activate callback: %v", err)
 	}
 	u, err := st.FindUserByID(ctx, userID)

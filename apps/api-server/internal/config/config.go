@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/zboard/api-server/internal/subtoken"
 )
 
 type Dialect string
@@ -25,6 +27,13 @@ type Config struct {
 	AdminPassword   string
 	TokenSecret     string
 	CORSOrigins     []string
+	// TrustedProxies lists CIDR ranges (or bare IPs) of reverse proxies allowed
+	// to set X-Forwarded-For. Empty means trust no proxy: ClientIP falls back to
+	// the direct TCP peer, so a spoofed X-Forwarded-For can't shift the per-IP
+	// rate-limit bucket. Set this only to the CIDRs of your own proxy/CDN tier
+	// so legitimate clients are counted by their real IP instead of all sharing
+	// the proxy's address.
+	TrustedProxies []string
 
 	// SMTP for transactional emails. When SMTPHost/From are empty, the mailer
 	// is disabled and code sends become no-ops (logged only).
@@ -54,6 +63,10 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("ZBOARD_DB_DSN is required for dialect %s", dialect)
 		}
 	}
+	tokenSecret := strings.TrimSpace(os.Getenv("ZBOARD_TOKEN_SECRET"))
+	if err := subtoken.ValidateSigningSecret(tokenSecret); err != nil {
+		return nil, fmt.Errorf("ZBOARD_TOKEN_SECRET: %w", err)
+	}
 	return &Config{
 		Host:            getenv("ZBOARD_HOST", "127.0.0.1"),
 		Port:            port,
@@ -62,8 +75,9 @@ func Load() (*Config, error) {
 		AdminSetupToken: os.Getenv("ZBOARD_ADMIN_SETUP_TOKEN"),
 		AdminEmail:      os.Getenv("ZBOARD_ADMIN_EMAIL"),
 		AdminPassword:   os.Getenv("ZBOARD_ADMIN_PASSWORD"),
-		TokenSecret:     getenv("ZBOARD_TOKEN_SECRET", "dev-token-secret"),
+		TokenSecret:     tokenSecret,
 		CORSOrigins:     parseCORSOrigins(os.Getenv("ZBOARD_CORS_ORIGINS")),
+		TrustedProxies:  parseTrustedProxies(os.Getenv("ZBOARD_TRUSTED_PROXIES")),
 
 		SMTPHost: os.Getenv("ZBOARD_SMTP_HOST"),
 		SMTPPort: atoiOr(os.Getenv("ZBOARD_SMTP_PORT"), 587),
@@ -107,4 +121,22 @@ func getenv(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// parseTrustedProxies splits a comma-separated list of proxy CIDRs or IPs.
+// Example: "127.0.0.1/32,10.0.0.0/8,172.18.0.0/16"
+// Empty input returns nil, which means "trust no proxy".
+func parseTrustedProxies(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

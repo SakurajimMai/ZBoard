@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -154,6 +155,15 @@ func (a *Agent) pullAndApply(ctx context.Context) error {
 		return err
 	}
 	for _, t := range resp.Tasks {
+		// Defense in depth: the task_id is echoed straight into the result URL
+		// (/api/agent/v1/tasks/<id>/result). The control plane is the source of
+		// truth, but a compromised or buggy control plane could send an id with
+		// slashes or other URL-significant characters. Reject anything that
+		// isn't the canonical token shape before it reaches the URL builder.
+		if !validTaskID(t.TaskID) {
+			log.Printf("skipping task with malformed task_id %q", t.TaskID)
+			continue
+		}
 		switch t.TaskType {
 		case "sync_config":
 			if len(t.RuntimeConfig) == 0 {
@@ -190,6 +200,16 @@ func (a *Agent) pullAndApply(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// taskIDPattern is the canonical shape the control plane uses for task ids
+// (e.g. "task-20240131120000-ab12", "task-disable-expired-ab12cd"). Restricting
+// the agent to this charset keeps a hostile id from injecting path segments or
+// query strings into the result URL.
+var taskIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+
+func validTaskID(id string) bool {
+	return taskIDPattern.MatchString(id)
 }
 
 func (a *Agent) reportResult(ctx context.Context, taskID, status, reason string) {

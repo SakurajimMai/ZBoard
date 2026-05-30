@@ -187,8 +187,12 @@ func userFilterWhere(f UserFilter) (string, []any) {
 	parts := make([]string, 0, 6)
 	args := make([]any, 0, 6)
 	if email := strings.TrimSpace(strings.ToLower(f.Email)); email != "" {
-		parts = append(parts, "LOWER(email) LIKE ?")
-		args = append(args, "%"+email+"%")
+		// LIKE wildcards (% _) inside the user-supplied email would otherwise
+		// turn admin search into a full-table scan ("%") or pattern probe.
+		// Escape with '!' (chosen because '\' is dialect-ambiguous between
+		// MySQL string literals and SQL standard) and declare it explicitly.
+		parts = append(parts, "LOWER(email) LIKE ? ESCAPE '!'")
+		args = append(args, "%"+escapeLikePattern(email)+"%")
 	}
 	if status := strings.TrimSpace(f.Status); status != "" && status != "all" {
 		parts = append(parts, "status = ?")
@@ -218,4 +222,16 @@ func userFilterWhere(f UserFilter) (string, []any) {
 		return "", args
 	}
 	return fmt.Sprintf(" WHERE %s", strings.Join(parts, " AND ")), args
+}
+
+// escapeLikePattern escapes the LIKE wildcards "%" and "_" plus the "!" escape
+// character itself so user-supplied search input is treated as a literal. The
+// SQL using this MUST declare ESCAPE '!' to match.
+func escapeLikePattern(s string) string {
+	r := strings.NewReplacer(
+		"!", "!!",
+		"%", "!%",
+		"_", "!_",
+	)
+	return r.Replace(s)
 }

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/zboard/api-server/internal/agentauth"
 	"github.com/zboard/api-server/internal/store"
 )
 
@@ -17,6 +18,12 @@ const (
 	// TaskRunTimeout is how long a `running` task may stay locked before the
 	// sweep moves it to `failed`.
 	TaskRunTimeout = 10 * time.Minute
+
+	// AgentNonceRetention is how far back we keep nonces. The HMAC middleware
+	// already rejects timestamps outside ±agentauth.WindowSeconds, so any nonce
+	// older than that window cannot be replayed and is safe to delete. We keep
+	// a 2× window of slack to absorb clock skew between the API and agents.
+	AgentNonceRetention = time.Duration(2*agentauth.WindowSeconds) * time.Second
 )
 
 type Service struct {
@@ -34,6 +41,7 @@ type Result struct {
 	ExpiryReminders  int   `json:"expiry_reminders"`
 	TrafficReminders int   `json:"traffic_reminders"`
 	TimedOutTasks    int64 `json:"timed_out_tasks"`
+	PurgedNonces     bool  `json:"purged_nonces"`
 }
 
 // Run executes a full maintenance pass.
@@ -84,6 +92,13 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 		return nil, err
 	}
 	res.TimedOutTasks = swept
+
+	// Drop replay-window nonces. The middleware rejects anything older than
+	// the timestamp window, so these can never be presented again.
+	if err := s.Store.PurgeAgentNonces(ctx, now.Add(-AgentNonceRetention).Unix()); err != nil {
+		return nil, err
+	}
+	res.PurgedNonces = true
 
 	return res, nil
 }
@@ -157,6 +172,9 @@ func (s *Service) sendTrafficReminders(ctx context.Context) (int, error) {
 // task per node the user has access to. Returns the number of tasks created.
 func (s *Service) disableUser(ctx context.Context, userID int64, reason string) (int, error) {
 	if err := s.Store.SetUserStatus(ctx, userID, "disabled"); err != nil {
+		return 0, err
+	}
+	if err := s.Store.DeleteUserSessions(ctx, userID); err != nil {
 		return 0, err
 	}
 	if err := s.Store.SetNodeUserEnabledForUser(ctx, userID, 0); err != nil {

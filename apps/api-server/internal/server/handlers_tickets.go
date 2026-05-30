@@ -29,6 +29,10 @@ func createTicket(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
 			return
 		}
+		if !validateTextLen(c, "subject", body.Subject, maxTitleRunes) ||
+			!validateTextLen(c, "content", body.Content, maxContentRunes) {
+			return
+		}
 		if err := d.Captcha.Verify(c.Request.Context(), captchasvc.SceneTicket, body.CaptchaToken, c.ClientIP()); err != nil {
 			httpx.Fail(c, err)
 			return
@@ -100,6 +104,9 @@ func replyUserTicket(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
 			return
 		}
+		if !validateTextLen(c, "content", body.Content, maxContentRunes) {
+			return
+		}
 		ticket, err := d.Store.FindTicketByNo(c.Request.Context(), ticketNo)
 		if err != nil {
 			httpx.Fail(c, httpx.NewError(http.StatusNotFound, "not_found", "工单不存在"))
@@ -168,6 +175,9 @@ func adminReplyTicket(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
 			return
 		}
+		if !validateTextLen(c, "content", body.Content, maxContentRunes) {
+			return
+		}
 		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
 		ticket, err := d.Store.FindTicketByID(c.Request.Context(), id)
 		if err != nil {
@@ -214,7 +224,11 @@ func adminCloseTicket(d Deps) gin.HandlerFunc {
 }
 
 func newTicketNo() string {
-	b := make([]byte, 4)
+	// 8 random bytes (64-bit) instead of 4. Combined with the daily prefix
+	// this puts a meaningful birthday bound on guessing — an attacker who
+	// knows a date would still need ~2^32 tries to land on any one ticket,
+	// and brute-forcing a specific user's ticket stays infeasible.
+	b := make([]byte, 8)
 	_, _ = rand.Read(b)
 	return "TK-" + time.Now().UTC().Format("20060102") + "-" + hex.EncodeToString(b)
 }

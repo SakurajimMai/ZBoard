@@ -60,6 +60,13 @@ func ValidateNode(node *store.Node) error {
 	if node == nil {
 		return fmt.Errorf("node is nil")
 	}
+	// Port lands in generated runtime config and, for hysteria2, in iptables
+	// DNAT rules the agent runs as root (e.g. "--to-destination :%d"). An
+	// out-of-range value produces an invalid config or a malformed iptables
+	// command, so reject it at the source.
+	if node.Port < 1 || node.Port > 65535 {
+		return fmt.Errorf("node port %d out of range (1-65535)", node.Port)
+	}
 	protocol := strings.ToLower(strings.TrimSpace(node.Protocol))
 	if protocol == "" {
 		protocol = "vless"

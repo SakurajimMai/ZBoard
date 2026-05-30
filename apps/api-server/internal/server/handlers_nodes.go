@@ -57,6 +57,7 @@ func adminCreateNode(d Deps) gin.HandlerFunc {
 		}
 		protocol, transport, security, runtimeType := normalizeNodeCreateRuntimeFields(body)
 		if err := validateNodeRuntimeFields(
+			body.Port,
 			protocol,
 			transport,
 			security,
@@ -146,8 +147,37 @@ func adminListNodes(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, err)
 			return
 		}
+		// Mask server-side secrets before they leave the process. The admin edit
+		// form reads these back and re-submits them, so we can't drop the fields
+		// entirely — adminUpdateNode restores the stored value when the masked
+		// placeholder comes back unchanged.
+		for i := range rows {
+			rows[i].RealityPrivateKey = maskNodeSecret(rows[i].RealityPrivateKey)
+			rows[i].ObfsPassword = maskNodeSecret(rows[i].ObfsPassword)
+		}
 		httpx.OK(c, gin.H{"items": rows, "page": params.Page, "page_size": params.PageSize, "total": total})
 	}
+}
+
+// maskNodeSecret hides a node's stored secret (Reality private key, hysteria2
+// obfs password) in admin list responses. Mirrors the payment-provider config
+// masking: keep the first/last 2 chars so an operator can recognize the value
+// without the response carrying the full secret (which a compromised admin
+// session or an XSS in the panel would otherwise exfiltrate wholesale).
+func maskNodeSecret(s string) string {
+	if s == "" {
+		return ""
+	}
+	if len(s) <= 4 {
+		return "****"
+	}
+	return s[:2] + "****" + s[len(s)-2:]
+}
+
+// isMaskedNodeSecret reports whether a submitted value is a masked placeholder
+// echoed back by the edit form rather than a real secret the admin typed.
+func isMaskedNodeSecret(s string) bool {
+	return strings.Contains(s, "****")
 }
 
 func adminUpdateNode(d Deps) gin.HandlerFunc {
@@ -172,7 +202,28 @@ func adminUpdateNode(d Deps) gin.HandlerFunc {
 		}
 		in := normalizeNodeUpdate(body)
 		in.Status = status
+		// The edit form echoes back the masked secrets it received from the list
+		// endpoint. When the submitted value is still the mask, restore the
+		// stored secret so a save doesn't overwrite the real key with "xx****yy".
+		if isMaskedNodeSecret(in.RealityPrivateKey) || isMaskedNodeSecret(in.ObfsPassword) {
+			existing, ferr := d.Store.FindNodeByID(c.Request.Context(), id)
+			if ferr != nil {
+				if store.IsNoRows(ferr) {
+					httpx.Fail(c, httpx.NewError(http.StatusNotFound, "node_not_found", "节点不存在"))
+					return
+				}
+				httpx.Fail(c, ferr)
+				return
+			}
+			if isMaskedNodeSecret(in.RealityPrivateKey) {
+				in.RealityPrivateKey = existing.RealityPrivateKey
+			}
+			if isMaskedNodeSecret(in.ObfsPassword) {
+				in.ObfsPassword = existing.ObfsPassword
+			}
+		}
 		if err := validateNodeRuntimeFields(
+			in.Port,
 			in.Protocol,
 			in.Transport,
 			in.Security,
@@ -214,8 +265,9 @@ func adminUpdateNode(d Deps) gin.HandlerFunc {
 	}
 }
 
-func validateNodeRuntimeFields(protocol, transport, security, runtimeType, realityServerName, realityPublicKey, realityPrivateKey, portRange string) error {
+func validateNodeRuntimeFields(port int, protocol, transport, security, runtimeType, realityServerName, realityPublicKey, realityPrivateKey, portRange string) error {
 	return runtime.ValidateNode(&store.Node{
+		Port:              port,
 		Protocol:          protocol,
 		Transport:         transport,
 		Security:          security,

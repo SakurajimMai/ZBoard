@@ -30,7 +30,7 @@ func TestPreserveMaskedConfigOnlyKeepsSensitiveValues(t *testing.T) {
 	}
 }
 
-func TestAdminListPaymentProvidersReturnsFullSensitiveConfig(t *testing.T) {
+func TestAdminListPaymentProvidersMasksSensitiveConfig(t *testing.T) {
 	r, st, token := setupAdminCRUDRouter(t)
 	ctx := context.Background()
 	if _, err := st.CreatePaymentProvider(ctx, store.CreatePaymentProviderInput{
@@ -49,7 +49,16 @@ func TestAdminListPaymentProvidersReturnsFullSensitiveConfig(t *testing.T) {
 		t.Fatalf("list providers status=%d body=%s", resp.Code, resp.Body.String())
 	}
 	body := resp.Body.String()
-	if !strings.Contains(body, "sk_live_secret") || strings.Contains(body, "****") {
-		t.Fatalf("admin list should return full sensitive config, body=%s", body)
+	// Sensitive keys must be masked; the admin UI fetches detail/edit views
+	// separately if a privileged operator needs to verify a value.
+	if strings.Contains(body, "sk_live_secret") || strings.Contains(body, "whsec_secret") {
+		t.Fatalf("admin list leaked plaintext secret, body=%s", body)
+	}
+	if !strings.Contains(body, "****") {
+		t.Fatalf("admin list should show masked placeholder, body=%s", body)
+	}
+	// Non-sensitive fields still come through unchanged.
+	if !strings.Contains(body, "https://api.stripe.com") {
+		t.Fatalf("admin list dropped non-sensitive fields, body=%s", body)
 	}
 }

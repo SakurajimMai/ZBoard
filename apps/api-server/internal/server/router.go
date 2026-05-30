@@ -8,7 +8,6 @@ import (
 	"github.com/zboard/api-server/internal/agentauth"
 	"github.com/zboard/api-server/internal/authsvc"
 	"github.com/zboard/api-server/internal/bizsvc"
-	"github.com/zboard/api-server/internal/buildinfo"
 	"github.com/zboard/api-server/internal/captchasvc"
 	"github.com/zboard/api-server/internal/nodesvc"
 	"github.com/zboard/api-server/internal/payment/registry"
@@ -27,6 +26,13 @@ type Deps struct {
 	Payments    *registry.Registry
 	Captcha     *captchasvc.Service
 	CORSOrigins []string
+	// TrustedProxies lists CIDRs/IPs of reverse proxies allowed to set
+	// X-Forwarded-For. Empty trusts no proxy (ClientIP = direct peer), which
+	// prevents X-Forwarded-For spoofing but, behind a real proxy, counts every
+	// client under the proxy's IP. Set it to your proxy/CDN tier so per-IP rate
+	// limits bucket by the real client IP.
+	TrustedProxies []string
+	TokenSecret    string
 }
 
 func New(d Deps) *gin.Engine {
@@ -35,30 +41,48 @@ func New(d Deps) *gin.Engine {
 	}
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
+	// Trust only the explicitly configured proxy CIDRs. Empty (nil) trusts no
+	// proxy, so ClientIP() returns the direct TCP peer and a spoofed
+	// X-Forwarded-For can't move the per-IP rate-limit bucket. Operators behind
+	// a reverse proxy / CDN set ZBOARD_TRUSTED_PROXIES to that tier's CIDRs so
+	// limits count real client IPs instead of merging everyone onto the proxy.
+	if err := r.SetTrustedProxies(d.TrustedProxies); err != nil {
+		// A bad CIDR in config is a deployment error; fail closed to no-trust
+		// rather than silently honoring a spoofable X-Forwarded-For.
+		_ = r.SetTrustedProxies(nil)
+	}
 	r.Use(gin.Recovery())
+	r.Use(maxBodyBytes(defaultMaxBodyBytes))
 	r.Use(cors(d.CORSOrigins))
+
+	// Each sensitive route gets its own per-IP budget. They share machinery
+	// but not state, so a flood of subscription polls can't starve a user
+	// trying to log in.
+	emailLimiter := newFixedWindowLimiter(emailRateLimitWindow, emailRateLimitBurst)
+	loginLimiter := newFixedWindowLimiter(loginRateLimitWindow, loginRateLimitBurst)
+	codeLimiter := newFixedWindowLimiter(codeRateLimitWindow, codeRateLimitBurst)
+	adminAuthLimiter := newFixedWindowLimiter(loginRateLimitWindow, loginRateLimitBurst)
 
 	r.GET("/health", func(c *gin.Context) {
 		if err := d.DB.PingContext(c.Request.Context()); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "down", "error": err.Error()})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "down"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "commit": buildinfo.Commit})
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
 	api := r.Group("/api/v1")
 	{
 		api.POST("/auth/register", registerUser(d))
-		api.POST("/auth/send-email-code", sendEmailCode(d))
-		api.POST("/auth/register-with-code", registerUserWithCode(d))
-		api.POST("/auth/reset-password", resetPassword(d))
-		api.POST("/auth/login", loginUser(d))
+		api.POST("/auth/send-email-code", rateLimit(emailLimiter), sendEmailCode(d))
+		api.POST("/auth/register-with-code", rateLimit(codeLimiter), registerUserWithCode(d))
+		api.POST("/auth/reset-password", rateLimit(codeLimiter), resetPassword(d))
+		api.POST("/auth/login", rateLimit(loginLimiter), loginUser(d))
 		api.GET("/settings", publicSettings(d))
 		api.GET("/announcements", listActiveAnnouncements(d))
 		api.GET("/knowledge", listActiveKnowledge(d))
 		api.GET("/knowledge/:slug", getActiveKnowledge(d))
 		api.GET("/plans", listPlans(d))
-		api.POST("/payments/mock-callback", mockPaymentCallback(d))
 		api.POST("/payments/:provider/callback", paymentCallback(d))
 		api.GET("/payments/paypal/return", paypalReturn(d))
 		api.GET("/payment-methods", listAvailablePaymentMethods(d))
@@ -91,12 +115,12 @@ func New(d Deps) *gin.Engine {
 		}
 	}
 
-	r.GET("/api/sub/:token", subRender(d))
+	r.GET("/api/sub/:token", subscriptionRateLimit(newSubRateLimiter()), subRender(d))
 
 	admin := r.Group("/api/admin/v1")
 	{
-		admin.POST("/auth/bootstrap", adminBootstrap(d))
-		admin.POST("/auth/login", adminLogin(d))
+		admin.POST("/auth/bootstrap", rateLimit(adminAuthLimiter), adminBootstrap(d))
+		admin.POST("/auth/login", rateLimit(adminAuthLimiter), adminLogin(d))
 
 		authed := admin.Group("")
 		authed.Use(adminAuth(d.Auth))

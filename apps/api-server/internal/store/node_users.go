@@ -85,6 +85,24 @@ func (s *Store) ListNodeUsersByNode(ctx context.Context, nodeID int64) ([]NodeUs
 	return rows, nil
 }
 
+// ListEnabledNodeUserIDsByNode returns the set of user IDs that are *currently
+// enabled* on the node. The traffic-report path uses this as an allowlist:
+// a disabled account (closed by the worker for expiry/over-quota) must never be
+// chargeable again, otherwise a malicious or compromised agent could keep
+// attributing traffic to it — wedging the audit trail and re-tripping quotas.
+func (s *Store) ListEnabledNodeUserIDsByNode(ctx context.Context, nodeID int64) (map[int64]struct{}, error) {
+	q := s.Rebind(`SELECT user_id FROM node_users WHERE node_id = ? AND enabled = 1`)
+	var ids []int64
+	if err := s.DB.SelectContext(ctx, &ids, q, nodeID); err != nil {
+		return nil, err
+	}
+	out := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		out[id] = struct{}{}
+	}
+	return out, nil
+}
+
 // SetNodeUserEnabled toggles the enabled flag on all node_users rows for a user.
 func (s *Store) SetNodeUserEnabledForUser(ctx context.Context, userID int64, enabled int) error {
 	q := s.Rebind(`UPDATE node_users SET enabled = ? WHERE user_id = ?`)

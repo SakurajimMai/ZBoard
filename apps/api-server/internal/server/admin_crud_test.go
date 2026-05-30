@@ -40,13 +40,14 @@ func setupAdminCRUDRouter(t *testing.T) (*gin.Engine, *store.Store, string) {
 		t.Fatalf("login admin: %v", err)
 	}
 	r := New(Deps{
-		DB:       st.DB,
-		Store:    st,
-		Auth:     auth,
-		Biz:      bizsvc.New(st),
-		Nodes:    nodesvc.New(st),
-		Worker:   worker.New(st),
-		Payments: registry.New(st),
+		DB:          st.DB,
+		Store:       st,
+		Auth:        auth,
+		Biz:         bizsvc.New(st),
+		Nodes:       nodesvc.New(st),
+		Worker:      worker.New(st),
+		Payments:    registry.New(st),
+		TokenSecret: "test-token-secret-not-default",
 	})
 	return r, st, token
 }
@@ -1537,6 +1538,105 @@ func TestAdminSendTestEmailRejectsInvalidCustomAddress(t *testing.T) {
 	}
 	if !bytes.Contains(resp.Body.Bytes(), []byte("invalid_test_email")) {
 		t.Fatalf("test email should report invalid address, body=%s", resp.Body.String())
+	}
+}
+
+// TestAdminNodeListMasksRealityPrivateKey is the H17 regression: the admin node
+// list must not return the raw Reality private key (or hysteria2 obfs password).
+// A blunt json:"-" would break the edit form, which reads the value back — so we
+// also verify that re-submitting the masked placeholder preserves the stored key.
+func TestAdminNodeListMasksRealityPrivateKey(t *testing.T) {
+	r, st, token := setupAdminCRUDRouter(t)
+	ctx := context.Background()
+
+	const realKey = "PRIVATE-KEY-HEX-1234567890"
+	create := adminJSON(t, r, token, http.MethodPost, "/api/admin/v1/nodes", map[string]any{
+		"name":                "reality-secret",
+		"host":                "rs.example.com",
+		"port":                443,
+		"protocol":            "vless",
+		"transport":           "tcp",
+		"security":            "reality",
+		"runtime_type":        "xray",
+		"reality_server_name": "www.cloudflare.com",
+		"reality_public_key":  "PUBKEY",
+		"reality_private_key": realKey,
+		"reality_dest":        "www.cloudflare.com:443",
+		"flow":                "xtls-rprx-vision",
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create reality node status=%d body=%s", create.Code, create.Body.String())
+	}
+
+	list := adminJSON(t, r, token, http.MethodGet, "/api/admin/v1/nodes", nil)
+	if list.Code != http.StatusOK {
+		t.Fatalf("list nodes status=%d body=%s", list.Code, list.Body.String())
+	}
+	if bytes.Contains(list.Body.Bytes(), []byte(realKey)) {
+		t.Fatalf("admin node list leaked raw reality private key: %s", list.Body.String())
+	}
+	if !bytes.Contains(list.Body.Bytes(), []byte("****")) {
+		t.Fatalf("admin node list should mask the private key, body=%s", list.Body.String())
+	}
+
+	// Decode the masked value the form would echo back, then re-submit it.
+	var listResp struct {
+		Items []struct {
+			ID                int64  `json:"id"`
+			RealityPrivateKey string `json:"reality_private_key"`
+		} `json:"items"`
+	}
+	body := list.Body.Bytes()
+	// httpx.OK wraps payload under "data"; tolerate either shape.
+	if err := json.Unmarshal(body, &listResp); err != nil || len(listResp.Items) == 0 {
+		var wrapped struct {
+			Data struct {
+				Items []struct {
+					ID                int64  `json:"id"`
+					RealityPrivateKey string `json:"reality_private_key"`
+				} `json:"items"`
+			} `json:"data"`
+		}
+		if err2 := json.Unmarshal(body, &wrapped); err2 != nil {
+			t.Fatalf("decode list: %v / %v body=%s", err, err2, list.Body.String())
+		}
+		listResp.Items = wrapped.Data.Items
+	}
+	if len(listResp.Items) == 0 {
+		t.Fatalf("no nodes in list response: %s", list.Body.String())
+	}
+	maskedKey := listResp.Items[0].RealityPrivateKey
+	nodeID := listResp.Items[0].ID
+	if maskedKey == realKey {
+		t.Fatalf("decoded list still contains raw key")
+	}
+
+	upd := adminJSON(t, r, token, http.MethodPut, "/api/admin/v1/nodes/"+strconv.FormatInt(nodeID, 10), map[string]any{
+		"name":                "reality-secret",
+		"host":                "rs.example.com",
+		"port":                443,
+		"protocol":            "vless",
+		"transport":           "tcp",
+		"security":            "reality",
+		"runtime_type":        "xray",
+		"reality_server_name": "www.cloudflare.com",
+		"reality_public_key":  "PUBKEY",
+		"reality_private_key": maskedKey, // echo the mask back, as the UI does
+		"reality_dest":        "www.cloudflare.com:443",
+		"flow":                "xtls-rprx-vision",
+		"status":              "active",
+	})
+	if upd.Code != http.StatusOK {
+		t.Fatalf("update with masked key status=%d body=%s", upd.Code, upd.Body.String())
+	}
+
+	// The stored key must be unchanged — the mask must not have overwritten it.
+	n, err := st.FindNodeByID(ctx, nodeID)
+	if err != nil {
+		t.Fatalf("find node: %v", err)
+	}
+	if n.RealityPrivateKey != realKey {
+		t.Fatalf("masked re-submit corrupted stored key: got %q want %q", n.RealityPrivateKey, realKey)
 	}
 }
 

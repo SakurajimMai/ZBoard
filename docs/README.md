@@ -24,7 +24,7 @@ Zboard 是一个纯自研商业订阅节点中控系统。它由控制面（Go A
 export ZBOARD_DB_DIALECT=sqlite
 export ZBOARD_DB_PATH=./data/zboard.sqlite
 export ZBOARD_ADMIN_SETUP_TOKEN=dev-admin-token
-export ZBOARD_TOKEN_SECRET=dev-token-secret
+export ZBOARD_TOKEN_SECRET="$(openssl rand -hex 32)"
 
 go run ./apps/api-server/cmd/server
 # 健康检查: GET http://127.0.0.1:3000/health

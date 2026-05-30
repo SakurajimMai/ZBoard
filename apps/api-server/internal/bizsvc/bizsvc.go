@@ -80,7 +80,7 @@ func (s *Service) CreateOrder(ctx context.Context, userID, planID int64, period,
 	period = store.NormalizeBillingPeriod(period)
 
 	requestHash := hashRequest(map[string]any{"user_id": userID, "plan_id": planID, "period": period})
-	scope := "orders.create"
+	scope := fmt.Sprintf("orders.create:%d", userID)
 
 	if idempotencyKey != "" {
 		claimed, existing, err := s.Store.ClaimIdempotency(ctx, scope, idempotencyKey, requestHash, IdempotencyTTL)
@@ -271,6 +271,21 @@ func centsToMoney(cents int64) string {
 	return fmt.Sprintf("%d.%02d", cents/100, cents%100)
 }
 
+func ensurePaidAmountMatchesOrder(orderAmount, paidAmount string) error {
+	want, err := moneyToCents(orderAmount)
+	if err != nil {
+		return httpx.NewError(http.StatusBadRequest, "order_amount_invalid", "订单金额不合法")
+	}
+	got, err := moneyToCents(paidAmount)
+	if err != nil || strings.TrimSpace(paidAmount) == "" {
+		return httpx.NewError(http.StatusBadRequest, "callback_amount_invalid", "回调金额不合法")
+	}
+	if got != want {
+		return httpx.NewError(http.StatusBadRequest, "callback_amount_mismatch", "回调金额与订单不一致")
+	}
+	return nil
+}
+
 // CreateTrafficResetOrder creates a payable order for resetting the current
 // user's traffic. The traffic is not cleared until the payment callback marks
 // the order as paid.
@@ -329,151 +344,47 @@ func hashRequest(payload map[string]any) string {
 
 // ===== Payments =====
 
-type PayResult struct {
-	Existing bool           `json:"existing"`
-	Payment  *store.Payment `json:"payment"`
-	OrderNo  string         `json:"order_no"`
-	PayURL   string         `json:"pay_url"`
-}
-
-// StartPayment creates a `pending` payment and returns a mock pay URL. Idempotent on (Idempotency-Key, scope).
-func (s *Service) StartPayment(ctx context.Context, userID int64, orderNo, idempotencyKey string) (*PayResult, error) {
+// ActivateByCallback 只给真实支付回调用：订单、支付渠道、待处理支付记录和
+// 回调金额都一致时，才会标记支付成功并激活套餐。
+func (s *Service) ActivateByCallback(ctx context.Context, orderNo, provider, providerTradeNo, paidAmount string) error {
 	o, err := s.Store.FindOrderByNo(ctx, orderNo)
 	if err != nil {
 		if store.IsNoRows(err) {
-			return nil, httpx.NewError(http.StatusNotFound, "order_not_found", "订单不存在")
+			return httpx.NewError(http.StatusNotFound, "order_not_found", "订单不存在")
 		}
-		return nil, err
-	}
-	if o.UserID != userID {
-		return nil, httpx.NewError(http.StatusForbidden, "order_owner_mismatch", "订单不属于当前用户")
-	}
-	if o.Status == "paid" {
-		return nil, httpx.NewError(http.StatusConflict, "order_already_paid", "订单已支付")
-	}
-
-	requestHash := hashRequest(map[string]any{"user_id": userID, "order_no": orderNo})
-	scope := "payments.start"
-
-	doInsert := func() (*PayResult, error) {
-		paymentNo := "PAY" + time.Now().UTC().Format("20060102150405") + strconv.FormatInt(o.ID, 10)
-		p := &store.Payment{
-			PaymentNo: paymentNo,
-			OrderID:   o.ID,
-			UserID:    o.UserID,
-			Provider:  "mock",
-			Amount:    o.Amount,
-			Status:    "pending",
-		}
-		pid, err := s.Store.CreatePayment(ctx, p)
-		if err != nil {
-			return nil, err
-		}
-		p.ID = pid
-		return &PayResult{
-			Payment: p,
-			OrderNo: o.OrderNo,
-			PayURL:  fmt.Sprintf("https://example.invalid/pay/%s", paymentNo),
-		}, nil
-	}
-
-	if idempotencyKey != "" {
-		claimed, existing, err := s.Store.ClaimIdempotency(ctx, scope, idempotencyKey, requestHash, IdempotencyTTL)
-		if err != nil {
-			return nil, err
-		}
-		if existing != nil {
-			if existing.RequestHash == nil || *existing.RequestHash != requestHash {
-				return nil, httpx.NewError(http.StatusConflict, "idempotency_mismatch", "Idempotency-Key 与原始请求不一致")
-			}
-			if existing.ResponseBody != nil {
-				var prior PayResult
-				if err := json.Unmarshal([]byte(*existing.ResponseBody), &prior); err == nil {
-					prior.Existing = true
-					return &prior, nil
-				}
-			}
-			return nil, httpx.NewError(http.StatusConflict, "idempotency_in_progress", "请求处理中，请稍后重试")
-		}
-		res, err := doInsert()
-		if err != nil {
-			return nil, err
-		}
-		body, _ := json.Marshal(res)
-		_ = s.Store.CompleteIdempotency(ctx, claimed.ID, string(body), "succeeded")
-		return res, nil
-	}
-	return doInsert()
-}
-
-// HandleMockCallback marks payment + order as paid and activates the user. It is
-// keyed on (provider, provider_event_id) so duplicates are rejected.
-func (s *Service) HandleMockCallback(ctx context.Context, eventID, orderNo, paymentNo, headers, body string) error {
-	if eventID == "" || orderNo == "" || paymentNo == "" {
-		return httpx.NewError(http.StatusBadRequest, "bad_request", "回调字段缺失")
-	}
-	_, dup, err := s.Store.CreatePaymentCallback(ctx, "mock", eventID, orderNo, headers, body)
-	if err != nil {
-		return err
-	}
-	if dup {
-		return httpx.NewError(http.StatusConflict, "callback_duplicate", "回调事件已处理")
-	}
-
-	now := time.Now().UTC()
-	if err := s.Store.MarkPaymentSuccess(ctx, paymentNo, "mock-"+eventID, now); err != nil {
-		return err
-	}
-	if err := s.Store.MarkOrderPaid(ctx, orderNo, now); err != nil {
-		return err
-	}
-
-	o, err := s.Store.FindOrderByNo(ctx, orderNo)
-	if err != nil {
-		return err
-	}
-	if o.Kind == store.OrderKindTrafficReset {
-		return s.completeTrafficResetOrder(ctx, o)
-	}
-	plan, err := s.Store.FindPlanByID(ctx, o.PlanID)
-	if err != nil {
-		return err
-	}
-	if err := s.Store.ActivateUserPlanPeriod(ctx, o.UserID, plan, o.BillingPeriod); err != nil {
-		return err
-	}
-	// Provision node_users for every currently active node so the new
-	// subscriber sees nodes immediately.
-	nodes, err := s.Store.ListActiveNodes(ctx)
-	if err != nil {
-		return err
-	}
-	clientID, err := newClientID()
-	if err != nil {
-		return err
-	}
-	for _, n := range nodes {
-		if err := s.Store.EnsureNodeUserWithLimits(ctx, o.UserID, n.ID, clientID, n.Protocol, 0, plan.DeviceLimit); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// ActivateByCallback is called from the generic payment webhook handler. It
-// marks the payment + order as paid and activates the user's plan — same logic
-// as HandleMockCallback but provider-agnostic.
-func (s *Service) ActivateByCallback(ctx context.Context, orderNo, provider, providerTradeNo string) error {
-	o, err := s.Store.FindOrderByNo(ctx, orderNo)
-	if err != nil {
 		return err
 	}
 	if o.Status == "paid" {
 		return nil // already activated, idempotent
 	}
+	// 不在这里因 expired_at 过期而拒绝回调。能走到回调,说明用户已通过 /pay
+	// 发起过真实支付(创建支付记录前已校验订单未过期);支付网关可能在订单
+	// 30 分钟过期窗口之后才回调,若此时拒绝,用户已付款却无法开通套餐。
+	// 下方"必须存在该订单 + 渠道的待处理支付记录"才是真正的闸门:没有走过
+	// /pay 的订单不会有这条记录,伪造回调依旧无法激活。
+	if strings.TrimSpace(provider) == "" || strings.EqualFold(provider, "mock") {
+		return httpx.NewError(http.StatusBadRequest, "provider_invalid", "支付方式不可用")
+	}
+	if err := ensurePaidAmountMatchesOrder(o.Amount, paidAmount); err != nil {
+		return err
+	}
+	payment, err := s.Store.FindPendingPaymentByOrderProvider(ctx, o.ID, provider)
+	if err != nil {
+		if store.IsNoRows(err) {
+			return httpx.NewError(http.StatusConflict, "payment_not_found", "未找到待处理支付记录")
+		}
+		return err
+	}
+	if err := ensurePaidAmountMatchesOrder(payment.Amount, paidAmount); err != nil {
+		return err
+	}
 	now := time.Now().UTC()
-	paymentNo := "PAY-" + provider + "-" + orderNo
-	_ = s.Store.MarkPaymentSuccess(ctx, paymentNo, providerTradeNo, now)
+	if err := s.Store.MarkPaymentSuccess(ctx, payment.PaymentNo, providerTradeNo, now); err != nil {
+		if store.IsNoRows(err) {
+			return httpx.NewError(http.StatusConflict, "payment_not_pending", "支付记录状态不可更新")
+		}
+		return err
+	}
 	if err := s.Store.MarkOrderPaid(ctx, orderNo, now); err != nil {
 		return err
 	}

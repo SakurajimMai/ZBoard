@@ -91,6 +91,9 @@ func TestCustomPayPalProviderUsesCaptureReturnRouteAndProviderName(t *testing.T)
 	if err != nil {
 		t.Fatalf("create order: %v", err)
 	}
+	if err := st.SetSettings(ctx, map[string]string{"site_url": "https://panel.example.test"}); err != nil {
+		t.Fatalf("settings: %v", err)
+	}
 
 	pay := adminJSON(t, r, token, http.MethodPost, "/api/v1/orders/"+order.Order.OrderNo+"/pay?provider=paypal_live", nil)
 	if pay.Code != http.StatusOK {

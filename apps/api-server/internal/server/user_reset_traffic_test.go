@@ -123,7 +123,8 @@ func TestTrafficResetPaymentCallbackClearsTraffic(t *testing.T) {
 		t.Fatalf("create reset order: %v", err)
 	}
 
-	if err := bizsvc.New(st).ActivateByCallback(ctx, orderNo, "epay", "trade-reset-1"); err != nil {
+	seedPendingPayment(t, st, orderNo, "epay")
+	if err := bizsvc.New(st).ActivateByCallback(ctx, orderNo, "epay", "trade-reset-1", order.Amount); err != nil {
 		t.Fatalf("activate callback: %v", err)
 	}
 	u, err := st.FindUserByID(ctx, userID)
@@ -223,7 +224,8 @@ func TestTrafficResetPaymentCallbackRestoresSkippedNodeMapping(t *testing.T) {
 		t.Fatalf("create reset order: %v", err)
 	}
 
-	if err := bizsvc.New(st).ActivateByCallback(ctx, orderNo, "epay", "trade-reset-2"); err != nil {
+	seedPendingPayment(t, st, orderNo, "epay")
+	if err := bizsvc.New(st).ActivateByCallback(ctx, orderNo, "epay", "trade-reset-2", order.Amount); err != nil {
 		t.Fatalf("activate callback: %v", err)
 	}
 	nu, err := st.FindNodeUser(ctx, userID, created.NodeID)

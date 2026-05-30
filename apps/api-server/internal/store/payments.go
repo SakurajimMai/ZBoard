@@ -2,13 +2,14 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
 type Payment struct {
 	ID              int64      `db:"id" json:"id"`
 	PaymentNo       string     `db:"payment_no" json:"payment_no"`
-	OrderID         int64     `db:"order_id" json:"order_id"`
+	OrderID         int64      `db:"order_id" json:"order_id"`
 	UserID          int64      `db:"user_id" json:"user_id"`
 	Provider        string     `db:"provider" json:"provider"`
 	ProviderTradeNo *string    `db:"provider_trade_no" json:"provider_trade_no"`
@@ -31,8 +32,30 @@ func (s *Store) CreatePayment(ctx context.Context, p *Payment) (int64, error) {
 func (s *Store) MarkPaymentSuccess(ctx context.Context, paymentNo, providerTradeNo string, paidAt time.Time) error {
 	q := s.Rebind(`UPDATE payments SET status = 'success', provider_trade_no = ?, paid_at = ?
 		WHERE payment_no = ? AND status <> 'success'`)
-	_, err := s.DB.ExecContext(ctx, q, providerTradeNo, paidAt, paymentNo)
-	return err
+	res, err := s.DB.ExecContext(ctx, q, providerTradeNo, paidAt, paymentNo)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) FindPendingPaymentByOrderProvider(ctx context.Context, orderID int64, provider string) (*Payment, error) {
+	q := s.Rebind(`SELECT id, payment_no, order_id, user_id, provider, provider_trade_no,
+		amount, status, paid_at, raw_payload, created_at, updated_at
+		FROM payments WHERE order_id = ? AND provider = ? AND status = 'pending'
+		ORDER BY id DESC LIMIT 1`)
+	var p Payment
+	if err := s.DB.GetContext(ctx, &p, q, orderID, provider); err != nil {
+		return nil, err
+	}
+	return &p, nil
 }
 
 func (s *Store) ListPayments(ctx context.Context, limit int) ([]Payment, error) {

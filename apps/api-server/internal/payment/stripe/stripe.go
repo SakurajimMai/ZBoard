@@ -156,6 +156,11 @@ func (p *stripeProvider) VerifyCallback(_ context.Context, headers map[string]st
 	}, nil
 }
 
+// stripeSignatureToleranceSeconds is the maximum allowed clock drift between
+// Stripe's signed timestamp and our local clock. Stripe's official client uses
+// 5 minutes; we match that to reject replayed webhooks beyond the window.
+const stripeSignatureToleranceSeconds = 300
+
 func verifyStripeSignature(headers map[string]string, body []byte, secret string) error {
 	if secret == "" {
 		return fmt.Errorf("stripe: webhook_secret is required")
@@ -180,6 +185,14 @@ func verifyStripeSignature(headers map[string]string, body []byte, secret string
 	}
 	if timestamp == "" || len(signatures) == 0 {
 		return fmt.Errorf("stripe: malformed Stripe-Signature header")
+	}
+	tsInt, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return fmt.Errorf("stripe: malformed timestamp")
+	}
+	now := time.Now().Unix()
+	if delta := now - tsInt; delta > stripeSignatureToleranceSeconds || delta < -stripeSignatureToleranceSeconds {
+		return fmt.Errorf("stripe: timestamp outside tolerance window")
 	}
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(timestamp))

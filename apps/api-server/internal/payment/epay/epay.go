@@ -14,6 +14,7 @@ package epay
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -96,8 +97,11 @@ func (p *epayProvider) VerifyCallback(_ context.Context, _ map[string]string, bo
 		}
 	}
 	expected := sign(params, p.cfg.SecretKey)
-	if !strings.EqualFold(expected, receivedSign) {
-		return nil, fmt.Errorf("epay: signature mismatch (got %s, want %s)", receivedSign, expected)
+	// EasyPay signs with lowercase MD5 hex; some gateways echo uppercase. Normalize
+	// before constant-time comparison so we neither leak via timing nor via the
+	// error message (the expected signature is HMAC-equivalent material).
+	if !hmac.Equal([]byte(strings.ToLower(receivedSign)), []byte(expected)) {
+		return nil, fmt.Errorf("epay: signature mismatch")
 	}
 
 	status := "failed"

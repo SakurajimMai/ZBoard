@@ -114,6 +114,7 @@ type agentTaskResultBody struct {
 func agentTaskResult(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		taskID := c.Param("task_id")
+		nodeID := c.MustGet(agentauth.NodeIDCtxKey).(int64)
 		body := getAgentBody(c)
 		var in agentTaskResultBody
 		if len(body) > 0 {
@@ -124,6 +125,21 @@ func agentTaskResult(d Deps) gin.HandlerFunc {
 		}
 		if in.Status != "success" && in.Status != "failed" {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "status 必须是 success 或 failed"))
+			return
+		}
+		// HMAC 只能证明请求由哪个节点签名，URL 里的 task_id 仍需校验归属。
+		// 否则节点 A 可以完成节点 B 的任务，把对方任务静默改成成功或失败。
+		task, findErr := d.Store.FindNodeTaskByTaskID(c.Request.Context(), taskID)
+		if findErr != nil {
+			if store.IsNoRows(findErr) {
+				httpx.Fail(c, httpx.NewError(http.StatusNotFound, "task_not_found", "任务不存在"))
+				return
+			}
+			httpx.Fail(c, findErr)
+			return
+		}
+		if task.NodeID != nodeID {
+			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "task_node_mismatch", "任务不属于当前节点"))
 			return
 		}
 		if err := d.Store.CompleteTask(c.Request.Context(), taskID, in.Status, in.FailedReason); err != nil {
@@ -151,9 +167,19 @@ func agentTrafficReport(d Deps) gin.HandlerFunc {
 			return
 		}
 		nodeID := c.MustGet(agentauth.NodeIDCtxKey).(int64)
+		// 只接受已分配且仍启用的用户流量，避免恶意或失陷 agent 把任意用户的
+		// 配额刷掉，或给已被 worker 因到期/超额禁用的账号继续记账。
+		allowed, err := d.Store.ListEnabledNodeUserIDsByNode(c.Request.Context(), nodeID)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
 		deltas := make([]store.TrafficDelta, 0, len(in.Items))
 		for _, it := range in.Items {
 			if it.UploadDelta < 0 || it.DownloadDelta < 0 {
+				continue
+			}
+			if _, ok := allowed[it.UserID]; !ok {
 				continue
 			}
 			deltas = append(deltas, store.TrafficDelta{
@@ -162,6 +188,11 @@ func agentTrafficReport(d Deps) gin.HandlerFunc {
 				UploadDelta:   it.UploadDelta,
 				DownloadDelta: it.DownloadDelta,
 			})
+		}
+		if len(deltas) == 0 && len(in.Items) > 0 {
+			// 全部条目都被拒绝时返回错误，避免配置错误或攻击请求得到静默 200。
+			httpx.Fail(c, httpx.NewError(http.StatusForbidden, "traffic_user_not_assigned", "上报用户不在该节点下"))
+			return
 		}
 		if err := d.Store.RecordTraffic(c.Request.Context(), deltas); err != nil {
 			httpx.Fail(c, err)

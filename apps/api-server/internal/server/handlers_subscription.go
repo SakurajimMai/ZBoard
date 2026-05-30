@@ -14,9 +14,11 @@ import (
 	"github.com/zboard/api-server/internal/httpx"
 	"github.com/zboard/api-server/internal/store"
 	"github.com/zboard/api-server/internal/subrender"
+	"github.com/zboard/api-server/internal/subtoken"
 )
 
 const subscriptionDeviceOnlineWindow = 10 * time.Minute
+const storedSubTokenPrefix = subtoken.StoredPrefix
 
 func subToken(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -27,31 +29,36 @@ func subToken(d Deps) gin.HandlerFunc {
 			return
 		}
 		if t == nil {
-			tok, err := newSubToken()
+			tok, storedToken, err := newSubTokenForUser(uid, d)
 			if err != nil {
 				httpx.Fail(c, err)
 				return
 			}
-			if _, err := d.Store.CreateSubToken(c.Request.Context(), uid, tok, hashSubToken(tok)); err != nil {
+			if _, err := d.Store.CreateSubToken(c.Request.Context(), uid, storedToken, hashSubToken(tok)); err != nil {
 				httpx.Fail(c, err)
 				return
 			}
 			httpx.OK(c, gin.H{"token": tok})
 			return
 		}
-		httpx.OK(c, gin.H{"token": t.Token})
+		tok, err := materializeSubToken(uid, t.Token, d)
+		if err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		httpx.OK(c, gin.H{"token": tok})
 	}
 }
 
 func subResetToken(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := c.MustGet(ctxUserIDKey).(int64)
-		tok, err := newSubToken()
+		tok, storedToken, err := newSubTokenForUser(uid, d)
 		if err != nil {
 			httpx.Fail(c, err)
 			return
 		}
-		if err := d.Store.RotateSubToken(c.Request.Context(), uid, tok, hashSubToken(tok)); err != nil {
+		if err := d.Store.RotateSubToken(c.Request.Context(), uid, storedToken, hashSubToken(tok)); err != nil {
 			httpx.Fail(c, err)
 			return
 		}
@@ -296,11 +303,25 @@ func subscriptionDeviceFingerprint(ip, ua string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func newSubToken() (string, error) { return authx.NewToken(24) }
+func newSubTokenForUser(userID int64, d Deps) (publicToken, storedToken string, err error) {
+	salt, err := authx.NewToken(24)
+	if err != nil {
+		return "", "", err
+	}
+	storedToken = storedSubTokenPrefix + salt
+	publicToken, err = subtoken.PublicToken(userID, salt, d.TokenSecret)
+	if err != nil {
+		return "", "", err
+	}
+	return publicToken, storedToken, nil
+}
+
+func materializeSubToken(userID int64, storedToken string, d Deps) (string, error) {
+	return subtoken.Materialize(userID, storedToken, d.TokenSecret)
+}
 
 func hashSubToken(t string) string {
-	sum := sha256.Sum256([]byte(t))
-	return hex.EncodeToString(sum[:])
+	return subtoken.Hash(t)
 }
 
 func subUserInfo(ctx context.Context, st *store.Store, u *store.User) string {

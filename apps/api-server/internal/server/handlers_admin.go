@@ -71,12 +71,13 @@ func adminLogout(d Deps) gin.HandlerFunc {
 
 func adminAuditLogs(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		rows, err := d.Store.ListAuditLogs(c.Request.Context(), 100)
+		params := paginationFromQuery(c)
+		rows, total, err := d.Store.ListAuditLogsPage(c.Request.Context(), params)
 		if err != nil {
 			httpx.Fail(c, err)
 			return
 		}
-		httpx.OK(c, gin.H{"items": rows})
+		httpx.OK(c, gin.H{"items": rows, "page": params.Page, "page_size": params.PageSize, "total": total})
 	}
 }
 

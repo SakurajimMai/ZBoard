@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"errors"
@@ -21,6 +20,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/zboard/api-server/internal/subtoken"
 )
 
 type columnMeta struct {
@@ -85,11 +85,17 @@ func main() {
 		provisionNodes     = flag.Bool("provision-nodes", true, "create node_users rows for active target nodes")
 		copyBalance        = flag.Bool("copy-balance", false, "copy source balance into Zboard")
 		balanceCents       = flag.Bool("balance-cents", true, "when copying integer balance, treat it as cents")
+		tokenSecret        = flag.String("token-secret", env("ZBOARD_TOKEN_SECRET"), "Zboard subscription token signing secret, or ZBOARD_TOKEN_SECRET")
 	)
 	flag.Parse()
 
 	if strings.TrimSpace(*sourceDSN) == "" || strings.TrimSpace(*targetDSN) == "" {
 		log.Fatal("missing DSN: set XBOARD_DSN and ZBOARD_DSN, or pass -source/-target")
+	}
+	if *execute {
+		if err := subtoken.ValidateSigningSecret(*tokenSecret); err != nil {
+			log.Fatalf("invalid token secret: %v", err)
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
@@ -199,11 +205,7 @@ func main() {
 			log.Printf("insert user failed source_id=%s email=%s: %v", u.SourceID, redactEmail(u.Email), err)
 			continue
 		}
-		token, err := randomHex(24)
-		if err != nil {
-			returnWithRollback(tx, err)
-		}
-		if err := insertSubToken(ctx, tx, userID, token, u.CreatedAt); err != nil {
+		if err := insertSubToken(ctx, tx, userID, *tokenSecret, u.CreatedAt); err != nil {
 			returnWithRollback(tx, err)
 		}
 		if err := upsertTrafficSnapshot(ctx, tx, userID, u); err != nil {
@@ -1023,11 +1025,19 @@ func insertTargetUser(ctx context.Context, tx *sql.Tx, u sourceUser, planID *int
 	return res.LastInsertId()
 }
 
-func insertSubToken(ctx context.Context, tx *sql.Tx, userID int64, token string, createdAt time.Time) error {
-	hash := sha256.Sum256([]byte(token))
+func insertSubToken(ctx context.Context, tx *sql.Tx, userID int64, tokenSecret string, createdAt time.Time) error {
+	salt, err := randomHex(24)
+	if err != nil {
+		return err
+	}
+	publicToken, err := subtoken.PublicToken(userID, salt, tokenSecret)
+	if err != nil {
+		return err
+	}
+	storedSubToken := subtoken.StoredToken(salt)
 	_, err := tx.ExecContext(ctx, `INSERT INTO subscription_tokens(user_id, token, token_hash, status, created_at, updated_at)
 		VALUES (?, ?, ?, 'active', ?, ?)`,
-		userID, token, hex.EncodeToString(hash[:]), createdAt, createdAt)
+		userID, storedSubToken, subtoken.Hash(publicToken), createdAt, createdAt)
 	return err
 }
 

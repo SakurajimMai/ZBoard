@@ -142,6 +142,12 @@ func bindKnowledge(c *gin.Context) (store.KnowledgeInput, bool) {
 		httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
 		return store.KnowledgeInput{}, false
 	}
+	if !validateTextLen(c, "title", body.Title, maxTitleRunes) ||
+		!validateTextLen(c, "summary", body.Summary, maxSummaryRunes) ||
+		!validateTextLen(c, "content", body.Content, maxContentRunes) ||
+		!validateTextLen(c, "category", body.Category, maxTitleRunes) {
+		return store.KnowledgeInput{}, false
+	}
 	status := strings.TrimSpace(body.Status)
 	if status == "" {
 		status = "active"

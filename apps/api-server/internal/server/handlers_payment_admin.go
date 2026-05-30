@@ -27,7 +27,7 @@ func adminListPaymentProviders(d Deps) gin.HandlerFunc {
 				"name":          r.Name,
 				"display_name":  r.DisplayName,
 				"provider_type": r.ProviderType,
-				"config_json":   r.ConfigJSON,
+				"config_json":   maskConfig(r.ConfigJSON),
 				"enabled":       r.Enabled,
 				"sort":          r.Sort,
 				"created_at":    r.CreatedAt,

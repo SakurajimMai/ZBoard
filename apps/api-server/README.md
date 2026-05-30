@@ -67,7 +67,6 @@ POST /api/v1/auth/logout
 GET  /api/v1/plans
 POST /api/v1/orders                       (Idempotency-Key)
 POST /api/v1/orders/:order_no/pay         (Idempotency-Key)
-POST /api/v1/payments/mock-callback
 GET  /api/v1/subscription
 POST /api/v1/subscription/reset-token
 GET  /api/sub/:token?target=base64|clash|sing-box

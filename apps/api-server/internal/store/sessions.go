@@ -13,12 +13,22 @@ func (s *Store) CreateAdminSession(ctx context.Context, adminID int64, tokenHash
 
 // FindAdminSession returns the admin id for an active session token hash.
 func (s *Store) FindAdminSession(ctx context.Context, tokenHash string) (int64, error) {
-	q := s.Rebind(`SELECT admin_id FROM admin_sessions WHERE token_hash = ? AND expires_at > ?`)
-	var id int64
-	if err := s.DB.GetContext(ctx, &id, q, tokenHash, Now()); err != nil {
-		return 0, err
+	id, _, err := s.FindAdminSessionWithExpiry(ctx, tokenHash)
+	return id, err
+}
+
+// FindAdminSessionWithExpiry returns the admin id and the session's current
+// expires_at so callers can decide whether a refresh write is needed.
+func (s *Store) FindAdminSessionWithExpiry(ctx context.Context, tokenHash string) (int64, time.Time, error) {
+	q := s.Rebind(`SELECT admin_id, expires_at FROM admin_sessions WHERE token_hash = ? AND expires_at > ?`)
+	var row struct {
+		ID        int64     `db:"admin_id"`
+		ExpiresAt time.Time `db:"expires_at"`
 	}
-	return id, nil
+	if err := s.DB.GetContext(ctx, &row, q, tokenHash, Now()); err != nil {
+		return 0, time.Time{}, err
+	}
+	return row.ID, row.ExpiresAt, nil
 }
 
 func (s *Store) RefreshAdminSession(ctx context.Context, tokenHash string, expires time.Time) error {
@@ -40,12 +50,22 @@ func (s *Store) CreateUserSession(ctx context.Context, userID int64, tokenHash s
 }
 
 func (s *Store) FindUserSession(ctx context.Context, tokenHash string) (int64, error) {
-	q := s.Rebind(`SELECT user_id FROM user_sessions WHERE token_hash = ? AND expires_at > ?`)
-	var id int64
-	if err := s.DB.GetContext(ctx, &id, q, tokenHash, Now()); err != nil {
-		return 0, err
+	id, _, err := s.FindUserSessionWithExpiry(ctx, tokenHash)
+	return id, err
+}
+
+// FindUserSessionWithExpiry returns the user id and the session's current
+// expires_at so callers can decide whether a refresh write is needed.
+func (s *Store) FindUserSessionWithExpiry(ctx context.Context, tokenHash string) (int64, time.Time, error) {
+	q := s.Rebind(`SELECT user_id, expires_at FROM user_sessions WHERE token_hash = ? AND expires_at > ?`)
+	var row struct {
+		ID        int64     `db:"user_id"`
+		ExpiresAt time.Time `db:"expires_at"`
 	}
-	return id, nil
+	if err := s.DB.GetContext(ctx, &row, q, tokenHash, Now()); err != nil {
+		return 0, time.Time{}, err
+	}
+	return row.ID, row.ExpiresAt, nil
 }
 
 func (s *Store) RefreshUserSession(ctx context.Context, tokenHash string, expires time.Time) error {

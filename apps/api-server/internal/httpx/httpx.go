@@ -44,6 +44,6 @@ func Fail(c *gin.Context, err error) {
 	}
 	c.AbortWithStatusJSON(http.StatusInternalServerError, &AppError{
 		Code:    "internal",
-		Message: err.Error(),
+		Message: "服务内部错误",
 	})
 }

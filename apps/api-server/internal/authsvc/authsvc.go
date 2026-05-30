@@ -3,6 +3,7 @@ package authsvc
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -58,21 +59,31 @@ func (s *Service) SendEmailCode(ctx context.Context, email, purpose string) erro
 		}
 	}
 
-	// Purpose-specific guard
+	// Purpose-specific guard. Both branches return success even when the email
+	// doesn't match the expected state — otherwise the public response itself
+	// is an account-existence oracle that lets an attacker enumerate users.
+	// We still skip the actual mail send for the wrong-state case so the user
+	// doesn't receive a code they didn't ask for.
+	skipSend := false
 	switch purpose {
 	case "register":
 		if u, err := s.Store.FindUserByEmail(ctx, email); err == nil && u != nil {
-			return httpx.NewError(http.StatusConflict, "email_taken", "邮箱已注册")
+			skipSend = true
 		}
 	case "reset_password":
 		if _, err := s.Store.FindUserByEmail(ctx, email); err != nil {
 			if store.IsNoRows(err) {
-				return httpx.NewError(http.StatusNotFound, "email_not_found", "该邮箱未注册")
+				skipSend = true
+			} else {
+				return err
 			}
-			return err
 		}
 	default:
 		return httpx.NewError(http.StatusBadRequest, "bad_request", "无效的 purpose")
+	}
+
+	if skipSend {
+		return nil
 	}
 
 	code := genCode6()
@@ -245,7 +256,7 @@ func (s *Service) ResetPasswordWithCode(ctx context.Context, email, newPassword,
 	u, err := s.Store.FindUserByEmail(ctx, email)
 	if err != nil {
 		if store.IsNoRows(err) {
-			return httpx.NewError(http.StatusNotFound, "email_not_found", "该邮箱未注册")
+			return httpx.NewError(http.StatusBadRequest, "invalid_code", "验证码错误或已过期")
 		}
 		return err
 	}
@@ -414,15 +425,27 @@ func (s *Service) ResolveUserToken(ctx context.Context, token string) (int64, er
 		return 0, httpx.ErrUnauthorized
 	}
 	tokenHash := authx.HashToken(token)
-	id, err := s.Store.FindUserSession(ctx, tokenHash)
+	id, currentExpiry, err := s.Store.FindUserSessionWithExpiry(ctx, tokenHash)
 	if err != nil {
 		if store.IsNoRows(err) {
 			return 0, httpx.ErrUnauthorized
 		}
 		return 0, err
 	}
-	if err := s.Store.RefreshUserSession(ctx, tokenHash, time.Now().UTC().Add(UserSessionTTL)); err != nil {
+	// Slide expiry forward only when more than half the TTL has been consumed.
+	// This avoids one DB write per request while still extending sessions for
+	// active users (and preserves the test's "1h-old session gets refreshed").
+	if time.Until(currentExpiry) < UserSessionTTL/2 {
+		if err := s.Store.RefreshUserSession(ctx, tokenHash, time.Now().UTC().Add(UserSessionTTL)); err != nil {
+			return 0, err
+		}
+	}
+	u, err := s.Store.FindUserByID(ctx, id)
+	if err != nil {
 		return 0, err
+	}
+	if u.Status != "active" {
+		return 0, httpx.ErrForbidden
 	}
 	return id, nil
 }
@@ -435,6 +458,18 @@ func (s *Service) LogoutUser(ctx context.Context, token string) error {
 }
 
 func (s *Service) ChangeUserPassword(ctx context.Context, userID int64, currentPassword, newPassword string) error {
+	return s.changeUserPassword(ctx, userID, currentPassword, newPassword, "")
+}
+
+func (s *Service) ChangeUserPasswordKeepingSession(ctx context.Context, userID int64, currentPassword, newPassword, keepToken string) error {
+	keepHash := ""
+	if keepToken != "" {
+		keepHash = authx.HashToken(keepToken)
+	}
+	return s.changeUserPassword(ctx, userID, currentPassword, newPassword, keepHash)
+}
+
+func (s *Service) changeUserPassword(ctx context.Context, userID int64, currentPassword, newPassword, keepTokenHash string) error {
 	if len(newPassword) < 6 {
 		return httpx.NewError(http.StatusBadRequest, "bad_request", "密码至少 6 位")
 	}
@@ -448,6 +483,9 @@ func (s *Service) ChangeUserPassword(ctx context.Context, userID int64, currentP
 	hash, err := authx.HashPassword(newPassword)
 	if err != nil {
 		return err
+	}
+	if keepTokenHash != "" {
+		return s.Store.UpdateUserPasswordHashKeepingSession(ctx, userID, hash, keepTokenHash)
 	}
 	return s.Store.UpdateUserPasswordHash(ctx, userID, hash)
 }
@@ -472,7 +510,7 @@ func (s *Service) DeleteUserAccount(ctx context.Context, userID int64, password 
 // ===== Admin =====
 
 func (s *Service) BootstrapAdmin(ctx context.Context, setupToken, email, password string) (int64, error) {
-	if s.SetupToken == "" || setupToken != s.SetupToken {
+	if s.SetupToken == "" || subtle.ConstantTimeCompare([]byte(setupToken), []byte(s.SetupToken)) != 1 {
 		return 0, httpx.NewError(http.StatusForbidden, "setup_token_invalid", "Setup token 无效")
 	}
 	count, err := s.Store.CountAdmins(ctx)
@@ -524,15 +562,17 @@ func (s *Service) ResolveAdminToken(ctx context.Context, token string) (*store.A
 		return nil, httpx.ErrUnauthorized
 	}
 	tokenHash := authx.HashToken(token)
-	id, err := s.Store.FindAdminSession(ctx, tokenHash)
+	id, currentExpiry, err := s.Store.FindAdminSessionWithExpiry(ctx, tokenHash)
 	if err != nil {
 		if store.IsNoRows(err) {
 			return nil, httpx.ErrUnauthorized
 		}
 		return nil, err
 	}
-	if err := s.Store.RefreshAdminSession(ctx, tokenHash, time.Now().UTC().Add(AdminSessionTTL)); err != nil {
-		return nil, err
+	if time.Until(currentExpiry) < AdminSessionTTL/2 {
+		if err := s.Store.RefreshAdminSession(ctx, tokenHash, time.Now().UTC().Add(AdminSessionTTL)); err != nil {
+			return nil, err
+		}
 	}
 	a, err := s.Store.FindAdminByID(ctx, id)
 	if err != nil {

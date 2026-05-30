@@ -5,20 +5,25 @@ import (
 	"time"
 )
 
+const EmailCodeMaxAttempts = 5
+
 type EmailCode struct {
-	ID         int64     `db:"id"`
-	Email      string    `db:"email"`
-	Code       string    `db:"code"`
-	Purpose    string    `db:"purpose"`
-	Used       int       `db:"used"`
-	ExpiresAt  time.Time `db:"expires_at"`
-	LastSentAt time.Time `db:"last_sent_at"`
-	CreatedAt  time.Time `db:"created_at"`
+	ID             int64      `db:"id"`
+	Email          string     `db:"email"`
+	Code           string     `db:"code"`
+	Purpose        string     `db:"purpose"`
+	Used           int        `db:"used"`
+	FailedAttempts int        `db:"failed_attempts"`
+	LockedAt       *time.Time `db:"locked_at"`
+	ExpiresAt      time.Time  `db:"expires_at"`
+	LastSentAt     time.Time  `db:"last_sent_at"`
+	CreatedAt      time.Time  `db:"created_at"`
 }
 
 // FindLatestEmailCode returns the most recent unused code for (email, purpose).
 func (s *Store) FindLatestEmailCode(ctx context.Context, email, purpose string) (*EmailCode, error) {
-	q := s.Rebind(`SELECT id, email, code, purpose, used, expires_at, last_sent_at, created_at
+	q := s.Rebind(`SELECT id, email, code, purpose, used, failed_attempts, locked_at,
+		expires_at, last_sent_at, created_at
 		FROM email_codes WHERE email = ? AND purpose = ? AND used = 0
 		ORDER BY id DESC LIMIT 1`)
 	var c EmailCode
@@ -34,21 +39,49 @@ func (s *Store) CreateEmailCode(ctx context.Context, email, code, purpose string
 	return err
 }
 
-// VerifyEmailCode marks the code as used if it matches and is not expired.
+// VerifyEmailCode consumes a matching unexpired code and counts wrong attempts
+// against the latest outstanding code for the same email and purpose.
 func (s *Store) VerifyEmailCode(ctx context.Context, email, code, purpose string) (bool, error) {
-	q := s.Rebind(`SELECT id FROM email_codes
-		WHERE email = ? AND code = ? AND purpose = ? AND used = 0 AND expires_at > ?
+	now := time.Now().UTC()
+	q := s.Rebind(`SELECT id, code, failed_attempts, locked_at
+		FROM email_codes
+		WHERE email = ? AND purpose = ? AND used = 0 AND expires_at > ?
 		ORDER BY id DESC LIMIT 1`)
-	var id int64
-	if err := s.DB.GetContext(ctx, &id, q, email, code, purpose, time.Now().UTC()); err != nil {
+	var row struct {
+		ID             int64      `db:"id"`
+		Code           string     `db:"code"`
+		FailedAttempts int        `db:"failed_attempts"`
+		LockedAt       *time.Time `db:"locked_at"`
+	}
+	if err := s.DB.GetContext(ctx, &row, q, email, purpose, now); err != nil {
 		if IsNoRows(err) {
 			return false, nil
 		}
 		return false, err
 	}
-	upd := s.Rebind(`UPDATE email_codes SET used = 1 WHERE id = ?`)
-	if _, err := s.DB.ExecContext(ctx, upd, id); err != nil {
+	if row.LockedAt != nil || row.FailedAttempts >= EmailCodeMaxAttempts {
+		return false, nil
+	}
+	if row.Code == code {
+		upd := s.Rebind(`UPDATE email_codes SET used = 1
+			WHERE id = ? AND used = 0 AND locked_at IS NULL AND failed_attempts < ?`)
+		res, err := s.DB.ExecContext(ctx, upd, row.ID, EmailCodeMaxAttempts)
+		if err != nil {
+			return false, err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return false, err
+		}
+		return affected > 0, nil
+	}
+
+	upd := s.Rebind(`UPDATE email_codes
+		SET failed_attempts = failed_attempts + 1,
+			locked_at = CASE WHEN failed_attempts + 1 >= ? THEN ? ELSE locked_at END
+		WHERE id = ? AND used = 0 AND locked_at IS NULL AND failed_attempts < ?`)
+	if _, err := s.DB.ExecContext(ctx, upd, EmailCodeMaxAttempts, now, row.ID, EmailCodeMaxAttempts); err != nil {
 		return false, err
 	}
-	return true, nil
+	return false, nil
 }

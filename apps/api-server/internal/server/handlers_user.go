@@ -106,7 +106,8 @@ func changeUserPassword(d Deps) gin.HandlerFunc {
 			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
 			return
 		}
-		if err := d.Auth.ChangeUserPassword(c.Request.Context(), uid, body.CurrentPassword, body.NewPassword); err != nil {
+		token, _ := c.Get(ctxUserTok)
+		if err := d.Auth.ChangeUserPasswordKeepingSession(c.Request.Context(), uid, body.CurrentPassword, body.NewPassword, token.(string)); err != nil {
 			httpx.Fail(c, err)
 			return
 		}

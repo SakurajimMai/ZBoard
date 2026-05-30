@@ -110,6 +110,10 @@ func bindAnnouncement(c *gin.Context) (store.AnnouncementInput, bool) {
 		httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
 		return store.AnnouncementInput{}, false
 	}
+	if !validateTextLen(c, "title", body.Title, maxTitleRunes) ||
+		!validateTextLen(c, "content", body.Content, maxContentRunes) {
+		return store.AnnouncementInput{}, false
+	}
 	status := strings.TrimSpace(body.Status)
 	if status == "" {
 		status = "active"

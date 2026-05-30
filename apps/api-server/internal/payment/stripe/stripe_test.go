@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zboard/api-server/internal/payment"
 )
@@ -58,7 +60,8 @@ func TestCreatePaymentBuildsCheckoutSession(t *testing.T) {
 func TestVerifyCallbackSuccess(t *testing.T) {
 	body := []byte(`{"id":"evt_123","type":"checkout.session.completed","data":{"object":{"id":"cs_123","payment_intent":"pi_123","client_reference_id":"ORD123","payment_status":"paid","amount_total":990,"metadata":{"order_no":"ORD123"}}}}`)
 	secret := "whsec_test"
-	timestamp := "1710000000"
+	// Use a fresh timestamp so the 5-minute replay window check passes.
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(fmt.Sprintf("%s.%s", timestamp, string(body))))
 	sig := hex.EncodeToString(mac.Sum(nil))
@@ -72,6 +75,23 @@ func TestVerifyCallbackSuccess(t *testing.T) {
 	}
 	if data.Status != "success" || data.OrderNo != "ORD123" || data.ProviderOrderNo != "evt_123" {
 		t.Fatalf("unexpected data: %+v", data)
+	}
+}
+
+func TestVerifyCallbackRejectsStaleTimestamp(t *testing.T) {
+	body := []byte(`{"id":"evt_old","type":"checkout.session.completed","data":{"object":{"payment_status":"paid","amount_total":100,"metadata":{"order_no":"ORD"}}}}`)
+	secret := "whsec_test"
+	// Stripe replays beyond 5 minutes must be rejected.
+	timestamp := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(fmt.Sprintf("%s.%s", timestamp, string(body))))
+	sig := hex.EncodeToString(mac.Sum(nil))
+
+	p := New(Config{SecretKey: "sk_test", WebhookSecret: secret})
+	if _, err := p.VerifyCallback(context.Background(), map[string]string{
+		"Stripe-Signature": "t=" + timestamp + ",v1=" + sig,
+	}, body); err == nil {
+		t.Fatal("expected stale timestamp error")
 	}
 }
 

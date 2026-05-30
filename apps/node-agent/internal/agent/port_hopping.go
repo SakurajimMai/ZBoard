@@ -8,6 +8,16 @@ import (
 	"strings"
 )
 
+// allowedShellBinaries restricts which executables the control plane may
+// instruct the agent to run via setup_cmds / teardown_cmds. The control plane
+// is trusted authentication-wise (HMAC signed), but a compromised control
+// plane or a malicious admin should not gain arbitrary RCE on every node.
+// Port hopping only needs iptables/ip6tables; nothing else is whitelisted.
+var allowedShellBinaries = map[string]bool{
+	"iptables":  true,
+	"ip6tables": true,
+}
+
 // portHoppingConfig is the `port_hopping` block from the sync_config task
 // payload (NOT from the runtime config JSON — sing-box rejects unknown fields).
 type portHoppingConfig struct {
@@ -80,6 +90,16 @@ func runShell(cmd string, ignoreErr bool) error {
 	parts := strings.Fields(cmd)
 	if len(parts) == 0 {
 		return nil
+	}
+	if !allowedShellBinaries[parts[0]] {
+		// Refuse anything outside the allowlist. Logging the rejected binary
+		// gives operators a signal if a malicious task ever gets queued.
+		err := fmt.Errorf("refusing to run disallowed binary %q", parts[0])
+		if ignoreErr {
+			log.Printf("port-hopping: %v", err)
+			return nil
+		}
+		return err
 	}
 	c := exec.Command(parts[0], parts[1:]...)
 	out, err := c.CombinedOutput()
