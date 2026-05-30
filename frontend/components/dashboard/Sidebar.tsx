@@ -17,6 +17,7 @@ import {
   Zap,
 } from "lucide-react"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
+import ThemeToggle from "@/components/ThemeToggle"
 import { useI18n } from "@/lib/i18n/context"
 import { dashboardCopy } from "@/lib/i18n/dashboard"
 import { cn } from "@/lib/utils"
@@ -86,10 +87,13 @@ export default function Sidebar({ user }: SidebarProps) {
         </div>
         <div className="flex items-center justify-between px-2">
           <LanguageSwitcher align="left" side="top" />
-          <button className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors">
-            <LogOut className="w-4 h-4" />
-            <span>{t.dash.logout}</span>
-          </button>
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            <button className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors">
+              <LogOut className="w-4 h-4" />
+              <span>{t.dash.logout}</span>
+            </button>
+          </div>
         </div>
       </div>
     </>
@@ -105,6 +109,7 @@ export default function Sidebar({ user }: SidebarProps) {
           <span className="font-bold text-lg text-foreground">Zboard</span>
         </Link>
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <LanguageSwitcher align="right" side="bottom" />
           <button
             onClick={() => setMobileOpen(!mobileOpen)}

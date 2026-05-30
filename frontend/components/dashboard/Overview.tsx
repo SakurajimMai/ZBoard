@@ -121,7 +121,7 @@ export default function Overview() {
   }, [])
 
   if (loading) return <div className="text-muted-foreground p-8">{d.common.loading}</div>
-  if (!user) return <div className="text-red-500 p-8">{d.common.loadError}</div>
+  if (!user) return <div className="text-destructive p-8">{d.common.loadError}</div>
 
   const target = clientOptions.find((item) => item.value === clientType)?.target
   const mainLink = buildSubscriptionUrl(subToken, target, settings)
@@ -268,7 +268,7 @@ export default function Overview() {
           {notice && (
             <div className={`rounded-lg border px-4 py-3 text-sm flex items-start gap-2 ${
               notice.type === "success"
-                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
                 : "border-destructive/30 bg-destructive/10 text-destructive"
             }`}>
               {notice.type === "success" ? <CheckCircle2 className="w-4 h-4 mt-0.5" /> : <AlertCircle className="w-4 h-4 mt-0.5" />}
@@ -276,28 +276,28 @@ export default function Overview() {
             </div>
           )}
           {/* === 头部卡片 === */}
-          <div className="rounded-xl border bg-card p-5">
+          <div className="rounded-xl border bg-card p-5 card-shadow">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center">
-                  <Server className="w-6 h-6 text-blue-500" />
+                <div className="w-12 h-12 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
+                  <Server className="w-6 h-6 text-primary" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-foreground">{subId}</h2>
+                  <h2 className="font-display text-xl font-bold text-foreground">{subId}</h2>
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-success"></span>
                     {d.overview.lastUsed}: {new Date().toLocaleString(locale)}
                   </p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" className="text-pink-600 border-pink-200 hover:bg-pink-50 disabled:opacity-50" onClick={openTrafficResetDialog} disabled={resettingTraffic} title={resetPriceEnabled ? `¥${resetPriceNum.toFixed(2)}` : d.overview.trafficNotAvailable}>
+                <Button variant="outline" size="sm" className="text-pink-600 dark:text-pink-400 border-pink-200 dark:border-pink-500/30 hover:bg-pink-50 dark:hover:bg-pink-500/10 disabled:opacity-50" onClick={openTrafficResetDialog} disabled={resettingTraffic} title={resetPriceEnabled ? `¥${resetPriceNum.toFixed(2)}` : d.overview.trafficNotAvailable}>
                   <CreditCard className={`w-3.5 h-3.5 mr-1.5 ${resettingTraffic ? "animate-pulse" : ""}`} /> {resettingTraffic ? d.overview.resetTrafficCreating : resetPriceEnabled ? d.overview.resetTrafficPrice.replace("{price}", resetPriceNum.toFixed(2)) : d.overview.resetTraffic}
                 </Button>
-                <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50" onClick={() => setUUIDDialogOpen(true)} disabled={resettingUUID}>
+                <Button variant="outline" size="sm" className="text-primary border-primary/30 hover:bg-primary/10" onClick={() => setUUIDDialogOpen(true)} disabled={resettingUUID}>
                   <Shield className="w-3.5 h-3.5 mr-1.5" /> {resettingUUID ? d.overview.resettingUUID : d.overview.resetUUID}
                 </Button>
-                <Button variant="outline" size="sm" className="text-orange-600 border-orange-200 hover:bg-orange-50" onClick={handleResetToken}>
+                <Button variant="outline" size="sm" className="text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-500/30 hover:bg-orange-50 dark:hover:bg-orange-500/10" onClick={handleResetToken}>
                   <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> {d.overview.resetSubLink}
                 </Button>
               </div>
@@ -306,35 +306,35 @@ export default function Overview() {
 
           {/* === 产品资讯 + 使用统计 === */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="rounded-xl border bg-card p-5">
+            <div className="rounded-xl border bg-card p-5 card-shadow">
               <h3 className="text-sm font-medium text-muted-foreground mb-4">{d.overview.productInfo}</h3>
               <div className="grid grid-cols-3 gap-3">
                 <div className="text-center p-3 rounded-lg bg-secondary/50">
                   <p className="text-xs text-muted-foreground mb-1">{d.overview.status}</p>
-                  <p className={`font-bold ${user.status === "active" ? "text-green-600" : "text-red-500"}`}>
+                  <p className={`font-bold ${user.status === "active" ? "text-success" : "text-destructive"}`}>
                     {user.status === "active" ? d.overview.active : d.overview.disabled}
                   </p>
                 </div>
                 <div className="text-center p-3 rounded-lg bg-secondary/50">
                   <p className="text-xs text-muted-foreground mb-1">{d.overview.expiry}</p>
-                  <p className="font-bold text-foreground text-sm">{expireDate}</p>
+                  <p className="font-bold text-foreground text-sm tabular-nums">{expireDate}</p>
                 </div>
                 <div className="text-center p-3 rounded-lg bg-secondary/50">
                   <p className="text-xs text-muted-foreground mb-1">{d.overview.nodeId}</p>
-                  <p className="font-bold text-foreground">{subId.replace("LINK-", "")}</p>
+                  <p className="font-bold text-foreground tabular-nums">{subId.replace("LINK-", "")}</p>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-xl border bg-card p-5">
+            <div className="rounded-xl border bg-card p-5 card-shadow">
               <h3 className="text-sm font-medium text-muted-foreground mb-4">{d.overview.monthlyUsage}</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div className="text-center">
-                  <p className="text-3xl font-bold text-blue-600">{totalFormatted.value}<span className="text-base font-normal text-muted-foreground ml-0.5">{totalFormatted.unit}</span></p>
+                  <p className="font-display text-3xl font-bold text-primary tabular-nums">{totalFormatted.value}<span className="text-base font-normal text-muted-foreground ml-0.5">{totalFormatted.unit}</span></p>
                   <p className="text-xs text-muted-foreground mt-1">{d.overview.total}</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-3xl font-bold text-foreground">{usedFormatted.value}<span className="text-base font-normal text-muted-foreground ml-0.5">{usedFormatted.unit}</span></p>
+                  <p className="font-display text-3xl font-bold text-foreground tabular-nums">{usedFormatted.value}<span className="text-base font-normal text-muted-foreground ml-0.5">{usedFormatted.unit}</span></p>
                   <p className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">{d.overview.usedTraffic} <RefreshCw className="w-3 h-3" /></p>
                 </div>
               </div>
@@ -342,29 +342,29 @@ export default function Overview() {
           </div>
 
           {/* === 流量策略 === */}
-          <div className="rounded-xl border bg-card p-5">
+          <div className="rounded-xl border bg-card p-5 card-shadow">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-foreground">{d.overview.trafficPolicy}</h3>
               <span className="text-xs text-muted-foreground">{d.overview.autoReset}</span>
             </div>
-            <div className="relative w-full h-6 rounded-full bg-blue-100 overflow-hidden">
+            <div className="relative w-full h-6 rounded-full bg-primary/15 overflow-hidden">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-blue-400 to-blue-500 transition-all duration-500 flex items-center"
+                className="h-full rounded-full bg-gradient-to-r from-primary/80 to-primary transition-all duration-500 flex items-center"
                 style={{ width: `${Math.max(usedPct, 2)}%` }}
               >
-                <span className="text-[10px] text-white font-medium pl-3 whitespace-nowrap">
+                <span className="text-[10px] text-primary-foreground font-medium pl-3 whitespace-nowrap tabular-nums">
                   {d.overview.usedPercent.replace("{pct}", usedPct.toFixed(2))}
                 </span>
               </div>
               {usedPct > 80 && (
-                <div className="absolute right-0 top-0 h-full bg-red-400/60" style={{ width: `${100 - 80}%` }} />
+                <div className="absolute right-0 top-0 h-full bg-destructive/50" style={{ width: `${100 - 80}%` }} />
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-2">{d.overview.trafficExceeded}</p>
           </div>
 
           {plans.length > 0 && (
-            <div className="rounded-xl border bg-card p-5 space-y-4">
+            <div className="rounded-xl border bg-card p-5 space-y-4 card-shadow">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-medium text-foreground">{d.overview.upgradeSubscription}</h3>
@@ -397,7 +397,7 @@ export default function Overview() {
                             onClick={() => handleBuyPlan(plan, item.value)}
                           >
                             <span className="text-xs">{item.label}</span>
-                            <span className="text-sm font-semibold">¥{periodPrice(plan, item.value)}</span>
+                            <span className="text-sm font-semibold tabular-nums">¥{periodPrice(plan, item.value)}</span>
                             {buyingPlanKey === buttonKey && <span className="text-[10px] opacity-80">{d.overview.creating}</span>}
                           </Button>
                         )
@@ -410,9 +410,9 @@ export default function Overview() {
           )}
 
           {/* === 节点配置 === */}
-          <div className="rounded-xl border bg-card p-5 space-y-5">
+          <div className="rounded-xl border bg-card p-5 space-y-5 card-shadow">
             <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
-              <span className="inline-block w-2 h-2 rounded-full bg-green-500"></span>
+              <span className="inline-block w-2 h-2 rounded-full bg-success"></span>
               {d.overview.nodeConfig}
             </h3>
 
@@ -435,10 +435,10 @@ export default function Overview() {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-sm font-medium">{d.overview.mainSubLink}</span>
-                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">{d.overview.recommended}</span>
+                <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{d.overview.recommended}</span>
                 <button
                   onClick={() => handleCopy(mainLink, "main")}
-                  className="ml-auto text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  className="ml-auto text-sm text-primary hover:text-primary/80 flex items-center gap-1"
                 >
                   <Copy className="w-3.5 h-3.5" /> {copied === "main" ? d.common.copied : d.common.copy}
                 </button>
@@ -455,11 +455,11 @@ export default function Overview() {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-sm font-medium">{d.overview.backupSubLink}</span>
-                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">{d.overview.backupHint}</span>
+                <span className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium">{d.overview.backupHint}</span>
                 {backupLink && (
                   <button
                     onClick={() => handleCopy(backupLink, "backup")}
-                    className="ml-auto text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                    className="ml-auto text-sm text-primary hover:text-primary/80 flex items-center gap-1"
                   >
                     <Copy className="w-3.5 h-3.5" /> {copied === "backup" ? d.common.copied : d.common.copy}
                   </button>

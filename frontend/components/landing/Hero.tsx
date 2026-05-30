@@ -42,14 +42,14 @@ export default function Hero() {
           </div>
 
           {/* Headline */}
-          <h1 className="text-balance text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-foreground leading-[1.1] mb-6">
+          <h1 className="font-display text-balance text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-foreground leading-[1.1] mb-6 animate-in fade-in-0 slide-in-from-bottom-3 duration-700">
             {t.hero.title1}
             <span className="block mt-2 bg-gradient-to-r from-primary via-chart-2 to-primary bg-clip-text text-transparent">
               {t.hero.title2}
             </span>
           </h1>
 
-          <p className="text-pretty text-base sm:text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed px-4">
+          <p className="text-pretty text-base sm:text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed px-4 animate-in fade-in-0 slide-in-from-bottom-3 duration-700 [animation-delay:120ms] fill-mode-both">
             {t.hero.desc}
           </p>
 
@@ -70,17 +70,18 @@ export default function Hero() {
 
           {/* Stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 max-w-3xl mx-auto">
-            {stats.map((s) => {
+            {stats.map((s, i) => {
               const Icon = s.icon
               return (
                 <div
                   key={s.label}
-                  className="bg-card rounded-2xl p-5 sm:p-6 card-shadow border border-border/50 hover:card-shadow-hover transition-shadow"
+                  className="bg-card rounded-2xl p-5 sm:p-6 card-shadow border border-border/50 hover:card-shadow-hover transition-shadow animate-in fade-in-0 slide-in-from-bottom-3 duration-500 fill-mode-both"
+                  style={{ animationDelay: `${300 + i * 80}ms` }}
                 >
                   <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
                     <Icon className="w-5 h-5 text-primary" />
                   </div>
-                  <div className="text-2xl sm:text-3xl font-bold text-foreground mb-1">{s.value}</div>
+                  <div className="font-display text-2xl sm:text-3xl font-bold text-foreground mb-1 tabular-nums">{s.value}</div>
                   <div className="text-sm text-muted-foreground">{s.label}</div>
                 </div>
               )

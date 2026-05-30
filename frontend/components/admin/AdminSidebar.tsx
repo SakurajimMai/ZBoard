@@ -22,6 +22,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useI18n } from "@/lib/i18n/context"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
+import ThemeToggle from "@/components/ThemeToggle"
 import { adminGetMe, adminGetTickets, adminLogout } from "@/lib/api"
 
 export default function AdminSidebar() {
@@ -112,13 +113,16 @@ export default function AdminSidebar() {
         </div>
         <div className="flex items-center justify-between px-2">
           <LanguageSwitcher align="left" side="top" />
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>{t.admin.logout}</span>
-          </button>
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>{t.admin.logout}</span>
+            </button>
+          </div>
         </div>
       </div>
     </>
@@ -136,6 +140,7 @@ export default function AdminSidebar() {
         </Link>
         <div className="flex items-center gap-2">
           <span className="text-xs rounded-lg bg-primary/10 text-primary px-2.5 py-1 font-semibold">{t.admin.badge}</span>
+          <ThemeToggle />
           <LanguageSwitcher align="right" side="bottom" />
           <button
             onClick={() => setMobileOpen(!mobileOpen)}

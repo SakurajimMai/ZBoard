@@ -1,12 +1,19 @@
 import type { Metadata } from 'next'
 import { cookies, headers } from 'next/headers'
-import { Inter } from 'next/font/google'
+import { Inter, Space_Grotesk } from 'next/font/google'
 import { I18nProvider } from '@/lib/i18n/context'
+import { ThemeProvider } from '@/components/theme-provider'
 import { LOCALES } from '@/lib/i18n/locales'
 import { LOCALE_COOKIE_KEY, detectAcceptLanguageLocale, normalizeLocale } from '@/lib/i18n/resolve'
 import './globals.css'
 
-const inter = Inter({ subsets: ['latin', 'cyrillic'], variable: '--font-sans' })
+const inter = Inter({ subsets: ['latin', 'cyrillic'], variable: '--font-sans', display: 'swap' })
+const spaceGrotesk = Space_Grotesk({
+  subsets: ['latin'],
+  weight: ['500', '600', '700'],
+  variable: '--font-display',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'Zboard — 极速稳定的商业级多端同步加速网络',
@@ -34,11 +41,13 @@ export default async function RootLayout({
     : null
 
   return (
-    <html lang={initialLocale} dir={dir} className={`${inter.variable} bg-background`} suppressHydrationWarning>
+    <html lang={initialLocale} dir={dir} className={`${inter.variable} ${spaceGrotesk.variable} bg-background`} suppressHydrationWarning>
       <body className="font-sans antialiased">
-        <I18nProvider initialLocale={initialLocale}>
-          {children}
-        </I18nProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <I18nProvider initialLocale={initialLocale}>
+            {children}
+          </I18nProvider>
+        </ThemeProvider>
         {Analytics ? <Analytics /> : null}
       </body>
     </html>

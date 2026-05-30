@@ -414,6 +414,7 @@ export default function AdminUsers() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">ID</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">邮箱</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">流量</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">注册时间</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">到期时间</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">状态</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">操作</th>
@@ -422,7 +423,7 @@ export default function AdminUsers() {
             <tbody>
               {users.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-16 text-center text-muted-foreground">没有匹配的用户</td>
+                  <td colSpan={8} className="py-16 text-center text-muted-foreground">没有匹配的用户</td>
                 </tr>
               ) : users.map((u: any) => (
                 <tr key={u.id} className="border-b hover:bg-accent/50">
@@ -435,7 +436,20 @@ export default function AdminUsers() {
                     {bytesToGB(u.traffic_used)} / {bytesToGB(u.traffic_limit)} GB
                   </td>
                   <td className="px-4 py-3 hidden lg:table-cell text-muted-foreground">
-                    {u.expired_at ? new Date(u.expired_at).toLocaleDateString("zh-CN") : "-"}
+                    {u.created_at ? formatDateTime(u.created_at) : "-"}
+                  </td>
+                  <td className="px-4 py-3 hidden lg:table-cell">
+                    {u.expired_at ? (
+                      <span className={`text-xs rounded-md border px-2 py-1 ${
+                        isExpired(u.expired_at)
+                          ? "border-red-300 text-red-600 bg-red-50"
+                          : "border-green-300 text-green-600 bg-green-50"
+                      }`}>
+                        {formatDateTime(u.expired_at)}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <span className={`text-xs rounded-full px-2 py-1 ${
@@ -668,6 +682,22 @@ function bytesToGB(value: number | null | undefined) {
 
 function gbToBytes(value: string) {
   return Math.max(0, Math.round(Number(value || 0) * 1073741824))
+}
+
+// formatDateTime renders an ISO timestamp as "YYYY/MM/DD HH:mm" in local time,
+// matching the registration/expiry columns. Returns "-" for unparseable input.
+function formatDateTime(value: string) {
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return "-"
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+// isExpired reports whether an expiry timestamp is at or before now.
+function isExpired(value: string) {
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return false
+  return d.getTime() <= Date.now()
 }
 
 function csvCell(value: any) {

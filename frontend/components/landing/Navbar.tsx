@@ -6,6 +6,7 @@ import { Menu, X, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useI18n } from "@/lib/i18n/context"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
+import ThemeToggle from "@/components/ThemeToggle"
 
 export default function Navbar() {
   const [open, setOpen] = useState(false)
@@ -44,6 +45,7 @@ export default function Navbar() {
 
         {/* Desktop Actions */}
         <div className="hidden md:flex items-center gap-2">
+          <ThemeToggle />
           <LanguageSwitcher align="right" />
           <Link href="/dashboard">
             <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground font-medium">
@@ -59,6 +61,7 @@ export default function Navbar() {
 
         {/* Mobile toggle */}
         <div className="md:hidden flex items-center gap-2">
+          <ThemeToggle />
           <LanguageSwitcher align="right" />
           <button
             className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
