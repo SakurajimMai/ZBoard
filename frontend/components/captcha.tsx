@@ -77,6 +77,17 @@ export function Captcha({ provider, siteKey, mode = "managed", onToken, onError 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const widgetIdRef = useRef<string | number | null>(null)
 
+  // 把回调存进 ref 并每次渲染刷新:调用方(登录/注册表单)往往传内联箭头函数,
+  // 每次按键都生成新引用。若把 onToken/onError 放进 effect 依赖,widget 会被反复
+  // 销毁重建 —— 这正是 Turnstile 报 "preloaded but not used" / 401 / postMessage
+  // origin 不匹配的根因。用 ref 让 widget 只在 provider/siteKey/mode 真正变化时重建。
+  const onTokenRef = useRef(onToken)
+  const onErrorRef = useRef(onError)
+  useEffect(() => {
+    onTokenRef.current = onToken
+    onErrorRef.current = onError
+  })
+
   useEffect(() => {
     if (provider === "none" || !siteKey) return
     let cancelled = false
@@ -88,40 +99,43 @@ export function Captcha({ provider, siteKey, mode = "managed", onToken, onError 
 
         if (provider === "turnstile") {
           const ts = await waitFor(() => window.turnstile)
+          if (cancelled || !containerRef.current) return
           containerRef.current.innerHTML = ""
           widgetIdRef.current = ts.render(containerRef.current, {
             sitekey: siteKey,
             execution: mode === "invisible" ? "execute" : undefined,
             size: mode === "invisible" ? "invisible" : undefined,
             appearance: mode === "non-interactive" ? "interaction-only" : "always",
-            callback: (t: string) => onToken(t),
-            "error-callback": () => onError?.("人机验证出错"),
-            "expired-callback": () => onToken(""),
+            callback: (t: string) => onTokenRef.current(t),
+            "error-callback": () => onErrorRef.current?.("人机验证出错"),
+            "expired-callback": () => onTokenRef.current(""),
           })
           if (mode === "invisible") {
             ts.execute?.(widgetIdRef.current)
           }
         } else if (provider === "recaptcha") {
           const rc = await waitFor(() => window.grecaptcha)
+          if (cancelled || !containerRef.current) return
           containerRef.current.innerHTML = ""
           widgetIdRef.current = rc.render(containerRef.current, {
             sitekey: siteKey,
-            callback: (t: string) => onToken(t),
-            "expired-callback": () => onToken(""),
-            "error-callback": () => onError?.("人机验证出错"),
+            callback: (t: string) => onTokenRef.current(t),
+            "expired-callback": () => onTokenRef.current(""),
+            "error-callback": () => onErrorRef.current?.("人机验证出错"),
           })
         } else if (provider === "hcaptcha") {
           const hc = await waitFor(() => window.hcaptcha)
+          if (cancelled || !containerRef.current) return
           containerRef.current.innerHTML = ""
           widgetIdRef.current = hc.render(containerRef.current, {
             sitekey: siteKey,
-            callback: (t: string) => onToken(t),
-            "expired-callback": () => onToken(""),
-            "error-callback": () => onError?.("人机验证出错"),
+            callback: (t: string) => onTokenRef.current(t),
+            "expired-callback": () => onTokenRef.current(""),
+            "error-callback": () => onErrorRef.current?.("人机验证出错"),
           })
         }
       } catch (err) {
-        if (!cancelled) onError?.(err instanceof Error ? err.message : "人机验证加载失败")
+        if (!cancelled) onErrorRef.current?.(err instanceof Error ? err.message : "人机验证加载失败")
       }
     })()
 
@@ -136,7 +150,7 @@ export function Captcha({ provider, siteKey, mode = "managed", onToken, onError 
       } catch {}
       widgetIdRef.current = null
     }
-  }, [provider, siteKey, mode, onToken, onError])
+  }, [provider, siteKey, mode])
 
   if (provider === "none" || !siteKey) return null
   return <div ref={containerRef} className="flex justify-center" />

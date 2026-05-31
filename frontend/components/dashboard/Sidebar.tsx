@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { useState } from "react"
 import {
   ChevronRight,
@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
 import ThemeToggle from "@/components/ThemeToggle"
+import { logout } from "@/lib/api"
 import { useI18n } from "@/lib/i18n/context"
 import { dashboardCopy } from "@/lib/i18n/dashboard"
 import { cn } from "@/lib/utils"
@@ -30,6 +31,7 @@ type SidebarProps = {
 
 export default function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname()
+  const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
   const { t, locale } = useI18n()
   const d = dashboardCopy(locale)
@@ -42,6 +44,12 @@ export default function Sidebar({ user }: SidebarProps) {
     { href: "/dashboard/ticket", label: t.dash.ticket, icon: Ticket },
     { href: "/dashboard/settings", label: t.dash.settings, icon: Settings },
   ]
+
+  const handleLogout = () => {
+    logout()
+    setMobileOpen(false)
+    router.replace("/login")
+  }
 
   const SidebarContent = () => (
     <>
@@ -90,6 +98,7 @@ export default function Sidebar({ user }: SidebarProps) {
           <div className="flex items-center gap-1">
             <ThemeToggle />
             <button
+              onClick={handleLogout}
               className="flex items-center justify-center size-9 rounded-lg text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
               title={t.dash.logout}
               aria-label={t.dash.logout}
