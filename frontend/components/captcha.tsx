@@ -103,9 +103,14 @@ export function Captcha({ provider, siteKey, mode = "managed", onToken, onError 
           containerRef.current.innerHTML = ""
           widgetIdRef.current = ts.render(containerRef.current, {
             sitekey: siteKey,
-            execution: mode === "invisible" ? "execute" : undefined,
-            size: mode === "invisible" ? "invisible" : undefined,
-            appearance: mode === "non-interactive" ? "interaction-only" : "always",
+            ...(mode === "invisible" ? { execution: "execute", size: "invisible" } : {}),
+            appearance: mode === "invisible" ? "execute" : "always",
+            theme: "auto",
+            language: "auto",
+            retry: "auto",
+            "refresh-expired": "auto",
+            "refresh-timeout": "auto",
+            "response-field": false,
             callback: (t: string) => onTokenRef.current(t),
             "error-callback": () => onErrorRef.current?.("人机验证出错"),
             "expired-callback": () => onTokenRef.current(""),
