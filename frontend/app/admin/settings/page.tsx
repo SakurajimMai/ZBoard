@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { toast } from "sonner"
 import {
   adminCreatePaymentProvider,
   adminGetPaymentProviders,
@@ -140,7 +141,7 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     adminGetSettings()
       .then((res) => setSettings({ ...defaults, ...(res.settings || {}) }))
-      .catch((err) => alert(err.message || "加载系统设置失败"))
+      .catch((err) => toast.error(err.message || "加载系统设置失败"))
       .finally(() => setLoading(false))
   }, [])
 
@@ -167,9 +168,9 @@ export default function AdminSettingsPage() {
     setSaving(true)
     try {
       await persistSettings()
-      alert("系统设置已保存")
+      toast.success("系统设置已保存")
     } catch (err: any) {
-      alert(err.message || "保存系统设置失败")
+      toast.error(err.message || "保存系统设置失败")
     } finally {
       setSaving(false)
     }
@@ -180,9 +181,9 @@ export default function AdminSettingsPage() {
     try {
       await persistSettings()
       await adminSendTestEmail(testEmail.trim() || undefined)
-      alert("测试邮件已发送到当前管理员邮箱")
+      toast.success("测试邮件已发送到当前管理员邮箱")
     } catch (err: any) {
-      alert(err.message || "发送测试邮件失败")
+      toast.error(err.message || "发送测试邮件失败")
     } finally {
       setTestingEmail(false)
     }

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { AdminPager } from "@/components/admin/AdminPager"
+import { toast } from "sonner"
 import { adminCreatePlan, adminGetPlans, adminUpdatePlan } from "@/lib/api"
 
 type PlanForm = {
@@ -58,7 +59,7 @@ export default function AdminPlans() {
         setPlans(res.items || [])
         setTotal(res.total ?? (res.items || []).length)
       })
-      .catch((err) => alert(err.message || "加载套餐失败"))
+      .catch((err) => toast.error(err.message || "加载套餐失败"))
       .finally(() => setLoading(false))
   }
 
@@ -111,21 +112,23 @@ export default function AdminPlans() {
 
   const save = async () => {
     if (!form.name.trim() || !form.price.trim() || Number(form.duration_days) <= 0) {
-      alert("请填写套餐名称、价格和有效天数")
+      toast.error("请填写套餐名称、价格和有效天数")
       return
     }
     setSaving(true)
     try {
       if (editing) {
         await adminUpdatePlan(editing.id, payload())
+        toast.success("套餐已更新")
       } else {
         await adminCreatePlan(payload())
+        toast.success("套餐已创建")
         setPage(1)
       }
       closeDialog()
       load()
     } catch (err: any) {
-      alert(err.message || "保存失败")
+      toast.error(err.message || "保存失败")
     } finally {
       setSaving(false)
     }

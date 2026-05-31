@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { changeMyPassword, deleteMyAccount, getMe, logout } from "@/lib/api"
+import { useConfirm } from "@/components/confirm-dialog"
 import { useI18n } from "@/lib/i18n/context"
 import { dashboardCopy } from "@/lib/i18n/dashboard"
 
@@ -17,6 +18,7 @@ type UserProfile = {
 
 export default function SettingsPage() {
   const router = useRouter()
+  const confirm = useConfirm()
   const { locale } = useI18n()
   const d = dashboardCopy(locale)
   const [user, setUser] = useState<UserProfile | null>(null)
@@ -77,7 +79,7 @@ export default function SettingsPage() {
       setError(d.settings.deletePasswordRequired)
       return
     }
-    if (!window.confirm(d.settings.deleteConfirm)) {
+    if (!(await confirm({ title: d.settings.deleteAccount, description: d.settings.deleteConfirm, destructive: true, confirmText: d.settings.deleteAccount }))) {
       return
     }
 

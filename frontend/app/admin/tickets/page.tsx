@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { MessageSquare, Send, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { toast } from "sonner"
 import { adminGetTickets, adminGetTicketDetail, adminReplyTicket, adminCloseTicket } from "@/lib/api"
 
 export default function AdminTicketsPage() {
@@ -30,7 +31,7 @@ export default function AdminTicketsPage() {
       setSelectedTicket(res.ticket)
       setMessages(res.messages || [])
     } catch (err: any) {
-      alert(err.message || "加载失败")
+      toast.error(err.message || "加载失败")
     }
   }
 
@@ -43,7 +44,7 @@ export default function AdminTicketsPage() {
       openTicket(selectedTicket.id)
       load()
     } catch (err: any) {
-      alert(err.message || "回复失败")
+      toast.error(err.message || "回复失败")
     } finally {
       setSubmitting(false)
     }
@@ -56,7 +57,7 @@ export default function AdminTicketsPage() {
       openTicket(selectedTicket.id)
       load()
     } catch (err: any) {
-      alert(err.message || "关闭失败")
+      toast.error(err.message || "关闭失败")
     }
   }
 

@@ -35,6 +35,15 @@ type Config struct {
 	// the proxy's address.
 	TrustedProxies []string
 
+	// TrustedPlatform names a request header whose value gin trusts as the real
+	// client IP, read directly without consulting TrustedProxies. Set this when
+	// your origin sits behind a CDN that injects a real-client-IP header (e.g.
+	// Cloudflare's CF-Connecting-IP) AND your origin only accepts traffic from
+	// that CDN — otherwise a direct client could spoof the header to dodge rate
+	// limits. Empty disables it. Mutually preferable to TrustedProxies for CDNs
+	// whose egress IP ranges change frequently.
+	TrustedPlatform string
+
 	// SMTP for transactional emails. When SMTPHost/From are empty, the mailer
 	// is disabled and code sends become no-ops (logged only).
 	SMTPHost string
@@ -78,6 +87,7 @@ func Load() (*Config, error) {
 		TokenSecret:     tokenSecret,
 		CORSOrigins:     parseCORSOrigins(os.Getenv("ZBOARD_CORS_ORIGINS")),
 		TrustedProxies:  parseTrustedProxies(os.Getenv("ZBOARD_TRUSTED_PROXIES")),
+		TrustedPlatform: parseTrustedPlatform(os.Getenv("ZBOARD_TRUSTED_PLATFORM")),
 
 		SMTPHost: os.Getenv("ZBOARD_SMTP_HOST"),
 		SMTPPort: atoiOr(os.Getenv("ZBOARD_SMTP_PORT"), 587),
@@ -139,4 +149,33 @@ func parseTrustedProxies(s string) []string {
 		}
 	}
 	return out
+}
+
+// parseTrustedPlatform maps the ZBOARD_TRUSTED_PLATFORM env value to the request
+// header gin should trust as the real client IP. Friendly aliases are accepted
+// for the common CDNs; any other non-empty value is treated as a literal header
+// name so future platforms work without a code change. The returned strings
+// match gin's Platform* constants but are kept literal here to avoid coupling
+// the config package to the web framework.
+//
+//	cloudflare / cf   -> CF-Connecting-IP
+//	google / gae      -> X-Appengine-Remote-Addr
+//	fly / flyio       -> Fly-Client-IP
+//	<anything else>   -> used verbatim as the header name
+//	"" (empty)        -> disabled
+func parseTrustedPlatform(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	switch strings.ToLower(s) {
+	case "cloudflare", "cf":
+		return "CF-Connecting-IP"
+	case "google", "gae", "appengine":
+		return "X-Appengine-Remote-Addr"
+	case "fly", "flyio", "fly.io":
+		return "Fly-Client-IP"
+	default:
+		return s
+	}
 }

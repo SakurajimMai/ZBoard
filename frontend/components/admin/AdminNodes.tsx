@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { AdminPager } from "@/components/admin/AdminPager"
+import { toast } from "sonner"
+import { useConfirm } from "@/components/confirm-dialog"
 import { adminCreateNode, adminGenerateRealityConfig, adminGetNodes, adminSyncAllNodeConfigs, adminSyncNodeConfig, adminUpdateNode } from "@/lib/api"
 
 type NodeForm = {
@@ -183,6 +185,7 @@ function caps(protocol: string, transport: string, security: string) {
 }
 
 export default function AdminNodes() {
+  const confirm = useConfirm()
   const [nodes, setNodes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -209,7 +212,7 @@ export default function AdminNodes() {
         setNodes(res.items || [])
         setTotal(res.total ?? (res.items || []).length)
       })
-      .catch((err) => alert(err.message || "加载节点失败"))
+      .catch((err) => toast.error(err.message || "加载节点失败"))
       .finally(() => setLoading(false))
   }
 
@@ -337,7 +340,7 @@ export default function AdminNodes() {
         transport: normalizeTransport("vless", "reality", "xray", current.transport),
       }))
     } catch (err: any) {
-      alert(err.message || "生成 Reality 配置失败")
+      toast.error(err.message || "生成 Reality 配置失败")
     } finally {
       setGeneratingReality(false)
     }
@@ -354,12 +357,12 @@ export default function AdminNodes() {
 
   const save = async () => {
     if (!form.name.trim() || !form.host.trim() || Number(form.port) <= 0) {
-      alert("请填写节点名称、地址和端口")
+      toast.error("请填写节点名称、地址和端口")
       return
     }
     if (form.protocol === "vless" && form.security === "reality") {
       if (!form.reality_server_name.trim() || !form.reality_public_key.trim() || !form.reality_private_key.trim()) {
-        alert("Reality 节点必须填写服务器名、Public Key 和 Private Key")
+        toast.error("Reality 节点必须填写服务器名、Public Key 和 Private Key")
         return
       }
     }
@@ -367,15 +370,17 @@ export default function AdminNodes() {
     try {
       if (editing) {
         await adminUpdateNode(editing.id, payload())
+        toast.success("节点已更新")
         closeDialog()
       } else {
         const res = await adminCreateNode(payload())
         setLastSecret(res.node_secret)
+        toast.success("节点已创建,请保存节点密钥")
         setPage(1)
       }
       load()
     } catch (err: any) {
-      alert(err.message || "保存失败")
+      toast.error(err.message || "保存失败")
     } finally {
       setSaving(false)
     }
@@ -384,30 +389,30 @@ export default function AdminNodes() {
   const handleSync = async (nodeId: number) => {
     try {
       const res = await adminSyncNodeConfig(nodeId)
-      alert(`配置同步任务已创建: ${res.task_id}`)
+      toast.success("配置同步任务已创建", { description: res.task_id })
     } catch (err: any) {
-      alert(err.message || "同步失败")
+      toast.error(err.message || "同步失败")
     }
   }
 
   const [syncingAll, setSyncingAll] = useState(false)
   const handleSyncAll = async () => {
     if (syncingAll) return
-    if (!confirm("将为所有启用的节点重新下发配置，确认继续？")) return
+    if (!(await confirm({ title: "同步全部节点", description: "将为所有启用的节点重新下发配置，确认继续？" }))) return
     setSyncingAll(true)
     try {
       const res = await adminSyncAllNodeConfigs()
       const failed = res.results.filter((r) => r.error)
-      let msg = `已下发 ${res.ok}/${res.total} 个节点的同步任务`
       if (failed.length > 0) {
         const detail = failed.slice(0, 5).map((r) => `${r.name}: ${r.error}`).join("\n")
-        msg += `\n\n失败 ${failed.length} 个：\n${detail}`
-        if (failed.length > 5) msg += `\n…(其余 ${failed.length - 5} 个省略)`
+        const extra = failed.length > 5 ? `\n…(其余 ${failed.length - 5} 个省略)` : ""
+        toast.error(`已下发 ${res.ok}/${res.total},失败 ${failed.length} 个`, { description: detail + extra })
+      } else {
+        toast.success(`已下发 ${res.ok}/${res.total} 个节点的同步任务`)
       }
-      alert(msg)
       load()
     } catch (err: any) {
-      alert(err.message || "批量同步失败")
+      toast.error(err.message || "批量同步失败")
     } finally {
       setSyncingAll(false)
     }

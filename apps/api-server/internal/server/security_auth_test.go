@@ -190,6 +190,47 @@ func TestTrustedProxyRateLimitsByRealClientIP(t *testing.T) {
 	}
 }
 
+// With TrustedPlatform set (e.g. Cloudflare's CF-Connecting-IP), the limiter
+// must bucket by that header so a flood from one client doesn't 429 everyone,
+// without having to maintain the CDN's egress CIDR list.
+func TestTrustedPlatformRateLimitsByHeaderClientIP(t *testing.T) {
+	st := testsupport.NewStore(t)
+	auth := authsvc.New(st, "setup-token", nil)
+	r := New(Deps{
+		DB:              st.DB,
+		Store:           st,
+		Auth:            auth,
+		Biz:             bizsvc.New(st),
+		Nodes:           nodesvc.New(st),
+		TrustedPlatform: "CF-Connecting-IP",
+		Payments:        registry.New(st),
+		TokenSecret:     "test-token-secret-not-default",
+	})
+
+	// Exhaust one client's budget keyed by the CF header.
+	var flooded *httptest.ResponseRecorder
+	for i := 0; i < loginRateLimitBurst+1; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"flood@example.com","password":"wrong"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("CF-Connecting-IP", "203.0.113.7")
+		flooded = httptest.NewRecorder()
+		r.ServeHTTP(flooded, req)
+	}
+	if flooded.Code != http.StatusTooManyRequests {
+		t.Fatalf("flooding client should be limited, got %d body=%s", flooded.Code, flooded.Body.String())
+	}
+
+	// A different real client (different CF-Connecting-IP) must still be served.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"other@example.com","password":"wrong"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("CF-Connecting-IP", "203.0.113.8")
+	other := httptest.NewRecorder()
+	r.ServeHTTP(other, req)
+	if other.Code == http.StatusTooManyRequests {
+		t.Fatalf("a different client must not inherit another client's 429 under TrustedPlatform")
+	}
+}
+
 func TestCodeVerificationRoutesAreRateLimited(t *testing.T) {
 	st, _, r := setupSecurityAuthRouter(t)
 	if err := st.SetSettings(context.Background(), map[string]string{

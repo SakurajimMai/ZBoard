@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { Plus, MessageSquare, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { toast } from "sonner"
 import { getTickets, createTicket, getTicketDetail, replyTicket, getPublicSettings } from "@/lib/api"
 import { Captcha, captchaEnabled } from "@/components/captcha"
 import { useI18n } from "@/lib/i18n/context"
@@ -49,7 +50,7 @@ export default function TicketPage() {
   const handleCreate = async () => {
     if (!newSubject.trim() || !newContent.trim()) return
     if (needCaptcha && !captchaToken) {
-      alert(d.ticket.captchaRequired)
+      toast.error(d.ticket.captchaRequired)
       return
     }
     setSubmitting(true)
@@ -60,7 +61,7 @@ export default function TicketPage() {
       setNewContent("")
       load()
     } catch (err: any) {
-      alert(err.message || d.ticket.submitFailed)
+      toast.error(err.message || d.ticket.submitFailed)
     } finally {
       if (needCaptcha) resetCaptcha()
       setSubmitting(false)
@@ -73,7 +74,7 @@ export default function TicketPage() {
       setSelectedTicket(res.ticket)
       setMessages(res.messages || [])
     } catch (err: any) {
-      alert(err.message || d.ticket.loadFailed)
+      toast.error(err.message || d.ticket.loadFailed)
     }
   }
 
@@ -85,7 +86,7 @@ export default function TicketPage() {
       setReplyContent("")
       openTicket(selectedTicket.ticket_no)
     } catch (err: any) {
-      alert(err.message || d.ticket.replyFailed)
+      toast.error(err.message || d.ticket.replyFailed)
     } finally {
       setSubmitting(false)
     }
@@ -206,7 +207,7 @@ export default function TicketPage() {
               siteKey={settings.captcha_site_key || ""}
               mode={(settings.turnstile_mode as any) || "managed"}
               onToken={setCaptchaToken}
-              onError={(msg) => alert(msg)}
+              onError={(msg) => toast.error(msg)}
             />
           )}
           <div className="flex gap-2">

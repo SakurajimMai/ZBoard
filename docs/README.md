@@ -11,8 +11,9 @@ Zboard 是一个纯自研商业订阅节点中控系统。它由控制面（Go A
 5. [Agent 协议](./agent-protocol.md) — 节点注册、心跳、拉任务、上报结果和签名规则
 6. [订阅系统](./subscription.md) — 订阅格式、生成流程和异常返回策略
 7. [节点运行时](./node-runtime.md) — Xray / sing-box 配置生成、校验、重载和流量采集
-8. [安全设计](./security.md) — 后台、API、支付、Agent、订阅和基础设施安全
-9. [部署方案](./deploy.md) — Docker 容器化、环境变量、备份和监控
+8. [前端](./frontend.md) — Next.js 路由、组件、API 客户端、国际化、主题与基础设施
+9. [安全设计](./security.md) — 后台、API、支付、Agent、订阅和基础设施安全
+10. [部署方案](./deploy.md) — Docker 容器化、环境变量、备份和监控
 
 ## 快速开始
 

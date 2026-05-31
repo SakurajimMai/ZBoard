@@ -12,6 +12,8 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { AdminPager } from "@/components/admin/AdminPager"
 import MarkdownRenderer from "@/components/MarkdownRenderer"
+import { toast } from "sonner"
+import { useConfirm } from "@/components/confirm-dialog"
 import {
   adminCreateKnowledge,
   adminDeleteKnowledge,
@@ -38,6 +40,7 @@ const emptyForm: FormState = {
 }
 
 export default function AdminKnowledge() {
+  const confirm = useConfirm()
   const [items, setItems] = useState<any[]>([])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
@@ -64,7 +67,7 @@ export default function AdminKnowledge() {
         setItems(res.items || [])
         setTotal(res.total ?? (res.items || []).length)
       })
-      .catch((err) => alert(err.message || "加载知识库失败"))
+      .catch((err) => toast.error(err.message || "加载知识库失败"))
       .finally(() => setLoading(false))
   }, [page, pageSize, categoryFilter, statusFilter])
 
@@ -120,21 +123,23 @@ export default function AdminKnowledge() {
 
   const save = async () => {
     if (!form.title.trim() || !form.content.trim()) {
-      alert("请填写标题和教程内容")
+      toast.error("请填写标题和教程内容")
       return
     }
     setSaving(true)
     try {
       if (editing) {
         await adminUpdateKnowledge(editing.id, payload())
+        toast.success("教程已更新")
       } else {
         await adminCreateKnowledge(payload())
+        toast.success("教程已创建")
         setPage(1)
       }
       closeDialog()
       load()
     } catch (err: any) {
-      alert(err.message || "保存教程失败")
+      toast.error(err.message || "保存教程失败")
     } finally {
       setSaving(false)
     }
@@ -152,17 +157,18 @@ export default function AdminKnowledge() {
       })
       load()
     } catch (err: any) {
-      alert(err.message || "更新显示状态失败")
+      toast.error(err.message || "更新显示状态失败")
     }
   }
 
   const remove = async (item: any) => {
-    if (!confirm(`确认删除教程「${item.title}」？`)) return
+    if (!(await confirm({ title: "删除教程", description: `确认删除教程「${item.title}」？`, destructive: true, confirmText: "删除" }))) return
     try {
       await adminDeleteKnowledge(item.id)
+      toast.success("教程已删除")
       load()
     } catch (err: any) {
-      alert(err.message || "删除教程失败")
+      toast.error(err.message || "删除教程失败")
     }
   }
 

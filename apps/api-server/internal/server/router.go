@@ -32,7 +32,12 @@ type Deps struct {
 	// client under the proxy's IP. Set it to your proxy/CDN tier so per-IP rate
 	// limits bucket by the real client IP.
 	TrustedProxies []string
-	TokenSecret    string
+	// TrustedPlatform names a request header gin trusts as the real client IP,
+	// read directly without consulting TrustedProxies. Set for CDNs that inject
+	// a real-client-IP header (e.g. Cloudflare's CF-Connecting-IP) when the
+	// origin only accepts traffic from that CDN. Empty disables it.
+	TrustedPlatform string
+	TokenSecret     string
 }
 
 func New(d Deps) *gin.Engine {
@@ -50,6 +55,14 @@ func New(d Deps) *gin.Engine {
 		// A bad CIDR in config is a deployment error; fail closed to no-trust
 		// rather than silently honoring a spoofable X-Forwarded-For.
 		_ = r.SetTrustedProxies(nil)
+	}
+	// When set, gin reads ClientIP() straight from this header (e.g. Cloudflare's
+	// CF-Connecting-IP) instead of walking X-Forwarded-For against trusted
+	// proxies. This avoids maintaining the CDN's ever-changing egress CIDR list.
+	// SECURITY: only safe when the origin accepts traffic *exclusively* from that
+	// CDN — otherwise a direct client could forge the header to dodge rate limits.
+	if d.TrustedPlatform != "" {
+		r.TrustedPlatform = d.TrustedPlatform
 	}
 	r.Use(gin.Recovery())
 	r.Use(maxBodyBytes(defaultMaxBodyBytes))

@@ -3,6 +3,8 @@ import { cookies, headers } from 'next/headers'
 import { Inter, Space_Grotesk } from 'next/font/google'
 import { I18nProvider } from '@/lib/i18n/context'
 import { ThemeProvider } from '@/components/theme-provider'
+import { ConfirmProvider } from '@/components/confirm-dialog'
+import { Toaster } from '@/components/ui/sonner'
 import { LOCALES } from '@/lib/i18n/locales'
 import { LOCALE_COOKIE_KEY, detectAcceptLanguageLocale, normalizeLocale } from '@/lib/i18n/resolve'
 import './globals.css'
@@ -58,8 +60,11 @@ export default async function RootLayout({
       <body className="font-sans antialiased">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <I18nProvider initialLocale={initialLocale}>
-            {children}
+            <ConfirmProvider>
+              {children}
+            </ConfirmProvider>
           </I18nProvider>
+          <Toaster position="top-center" richColors closeButton />
         </ThemeProvider>
         {Analytics ? <Analytics /> : null}
       </body>

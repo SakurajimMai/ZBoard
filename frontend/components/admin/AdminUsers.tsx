@@ -41,6 +41,8 @@ import {
 } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { AdminPager } from "@/components/admin/AdminPager"
+import { toast } from "sonner"
+import { useConfirm } from "@/components/confirm-dialog"
 import {
   adminBatchUsers,
   adminCreateUser,
@@ -96,6 +98,7 @@ const emptyFilter: UserFilter = {
 }
 
 export default function AdminUsers() {
+  const confirm = useConfirm()
   const [users, setUsers] = useState<any[]>([])
   const [plans, setPlans] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -147,7 +150,7 @@ export default function AdminUsers() {
         setSettings(publicSettings.settings || {})
         setSelected([])
       })
-      .catch((err) => alert(err.message || "加载失败"))
+      .catch((err) => toast.error(err.message || "加载失败"))
       .finally(() => setLoading(false))
   }, [filters, page, pageSize])
 
@@ -194,25 +197,27 @@ export default function AdminUsers() {
 
   const save = async () => {
     if (!form.email.trim()) {
-      alert("请输入邮箱")
+      toast.error("请输入邮箱")
       return
     }
     if (!isEditing && form.password.length < 6) {
-      alert("初始密码至少 6 位")
+      toast.error("初始密码至少 6 位")
       return
     }
     setSaving(true)
     try {
       if (isEditing) {
         await adminUpdateUser(editing.id, payload())
+        toast.success("用户已更新")
       } else {
         await adminCreateUser(payload())
+        toast.success("用户已创建")
         setPage(1)
       }
       closeDialog()
       load()
     } catch (err: any) {
-      alert(err.message || "保存失败")
+      toast.error(err.message || "保存失败")
     } finally {
       setSaving(false)
     }
@@ -230,9 +235,10 @@ export default function AdminUsers() {
         traffic_used: u.traffic_used || 0,
         status: next,
       })
+      toast.success(next === "active" ? "已启用用户" : "已禁用用户")
       load()
     } catch (err: any) {
-      alert(err.message || "状态更新失败")
+      toast.error(err.message || "状态更新失败")
     }
   }
 
@@ -251,26 +257,27 @@ export default function AdminUsers() {
 
   const runBatch = async (action: "enable" | "disable" | "reset_subscription") => {
     if (selected.length === 0) {
-      alert("请先选择用户")
+      toast.error("请先选择用户")
       return
     }
     const label = action === "enable" ? "启用" : action === "disable" ? "禁用" : "重置订阅 URL"
-    if (!confirm(`确认对 ${selected.length} 个用户执行「${label}」？`)) return
+    if (!(await confirm({ title: `批量${label}`, description: `确认对 ${selected.length} 个用户执行「${label}」？`, destructive: action === "disable" }))) return
     try {
       await adminBatchUsers(action, selected)
+      toast.success(`已对 ${selected.length} 个用户执行「${label}」`)
       load()
     } catch (err: any) {
-      alert(err.message || "批量操作失败")
+      toast.error(err.message || "批量操作失败")
     }
   }
 
   const sendBatchEmail = async () => {
     if (selected.length === 0) {
-      alert("请先选择用户")
+      toast.error("请先选择用户")
       return
     }
     if (!mailSubject.trim() || !mailContent.trim()) {
-      alert("请填写邮件标题和内容")
+      toast.error("请填写邮件标题和内容")
       return
     }
     try {
@@ -278,9 +285,9 @@ export default function AdminUsers() {
       setMailOpen(false)
       setMailSubject("")
       setMailContent("")
-      alert("邮件发送任务已完成")
+      toast.success("邮件发送任务已完成")
     } catch (err: any) {
-      alert(err.message || "发送邮件失败")
+      toast.error(err.message || "发送邮件失败")
     }
   }
 
@@ -312,22 +319,22 @@ export default function AdminUsers() {
       const res = await adminGetUserSubscription(u.id)
       const url = buildSubscriptionUrl(res.token, undefined, settings)
       await navigator.clipboard.writeText(url)
-      alert("已复制订阅 URL")
+      toast.success("已复制订阅 URL")
     } catch (err: any) {
-      alert(err.message || "复制订阅 URL 失败")
+      toast.error(err.message || "复制订阅 URL 失败")
     }
   }
 
   const resetUserIdentity = async (u: any) => {
-    if (!confirm("重置 UUID 及订阅 URL 会让旧客户端和旧订阅链接失效，确认继续？")) return
+    if (!(await confirm({ title: "重置 UUID 及订阅 URL", description: "重置后旧客户端和旧订阅链接会立即失效，确认继续？", destructive: true, confirmText: "重置" }))) return
     try {
       const res = await adminResetUserIdentity(u.id)
       const url = buildSubscriptionUrl(res.token, undefined, settings)
       await navigator.clipboard.writeText(url)
-      alert("UUID 和订阅 URL 已重置，新的订阅 URL 已复制")
+      toast.success("UUID 和订阅 URL 已重置，新的订阅 URL 已复制")
       load()
     } catch (err: any) {
-      alert(err.message || "重置身份失败")
+      toast.error(err.message || "重置身份失败")
     }
   }
 
@@ -338,7 +345,7 @@ export default function AdminUsers() {
       setDetailItems(res.items || [])
       setDetailOpen(true)
     } catch (err: any) {
-      alert(err.message || "加载订单失败")
+      toast.error(err.message || "加载订单失败")
     }
   }
 
@@ -349,7 +356,7 @@ export default function AdminUsers() {
       setDetailItems(res.items || [])
       setDetailOpen(true)
     } catch (err: any) {
-      alert(err.message || "加载流量记录失败")
+      toast.error(err.message || "加载流量记录失败")
     }
   }
 

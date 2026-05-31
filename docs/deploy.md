@@ -347,9 +347,18 @@ POST /api/v1/orders/:order_no/pay?provider=nowpayments&pay_type=eth
 | `ZBOARD_DB_DSN` | 是 | 数据库连接串 |
 | `ZBOARD_ADMIN_SETUP_TOKEN` | 是 | 首次初始化管理员密钥 |
 | `ZBOARD_TOKEN_SECRET` | 是 | 会话签名密钥 |
+| `ZBOARD_CORS_ORIGINS` | 否 | 允许的前端域名（逗号分隔，`*` 放行全部）；独立 API 域名部署时必填前端域名 |
+| `ZBOARD_TRUSTED_PROXIES` | 否 | 受信任反代/CDN 的 CIDR 列表（逗号分隔）。空 = 不信任任何代理，限流按直连 IP。反代/CDN 后填这一层网段，使限流按真实客户端 IP 计数 |
+| `ZBOARD_TRUSTED_PLATFORM` | 否 | CDN 真实客户端 IP 头别名：`cloudflare`/`cf`→`CF-Connecting-IP`、`google`/`gae`、`fly`/`flyio`，或直接写头名。与 `ZBOARD_TRUSTED_PROXIES` 二选一，用 CDN 时推荐。**仅当源站只接受该 CDN 回源时安全** |
 | `ZBOARD_EPAY_*` | 否 | 易支付配置 |
 | `ZBOARD_CREEM_*` | 否 | Creem 配置 |
 | `ZBOARD_NOWPAY_*` | 否 | NOWPayments 配置 |
+| `ZBOARD_SMTP_*` | 否 | SMTP 邮件配置（HOST/PORT/USER/PASS/FROM）；留空则验证码仅打印日志 |
+
+> ⚠️ 支付回调依赖后台「站点设置 → site_url」配置一个公网可达的 origin。未配置时
+> `POST /api/v1/orders/:order_no/pay` 返回 `503 site_url_unconfigured` 拒绝发起支付，
+> 避免网关收款后回调指向 `127.0.0.1` 而无法激活套餐。过期订单在发起支付前即被
+> `409 order_expired` 拒绝。详见 [安全设计](./security.md)。
 
 ### Node Agent
 

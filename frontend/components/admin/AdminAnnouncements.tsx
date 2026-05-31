@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { AdminPager } from "@/components/admin/AdminPager"
+import { toast } from "sonner"
+import { useConfirm } from "@/components/confirm-dialog"
 import {
   adminCreateAnnouncement,
   adminDeleteAnnouncement,
@@ -54,6 +56,7 @@ function fromDateTimeLocal(value: string): string | null {
 }
 
 export default function AdminAnnouncements() {
+  const confirm = useConfirm()
   const [items, setItems] = useState<any[]>([])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
@@ -71,7 +74,7 @@ export default function AdminAnnouncements() {
         setItems(res.items || [])
         setTotal(res.total ?? (res.items || []).length)
       })
-      .catch((err) => alert(err.message || "加载公告失败"))
+      .catch((err) => toast.error(err.message || "加载公告失败"))
       .finally(() => setLoading(false))
   }, [page, pageSize])
 
@@ -116,33 +119,36 @@ export default function AdminAnnouncements() {
 
   const save = async () => {
     if (!form.title.trim() || !form.content.trim()) {
-      alert("请填写标题和内容")
+      toast.error("请填写标题和内容")
       return
     }
     setSaving(true)
     try {
       if (editing) {
         await adminUpdateAnnouncement(editing.id, payload())
+        toast.success("公告已更新")
       } else {
         await adminCreateAnnouncement(payload())
+        toast.success("公告已创建")
         setPage(1)
       }
       closeDialog()
       load()
     } catch (err: any) {
-      alert(err.message || "保存公告失败")
+      toast.error(err.message || "保存公告失败")
     } finally {
       setSaving(false)
     }
   }
 
   const remove = async (item: any) => {
-    if (!confirm(`确认删除公告「${item.title}」？`)) return
+    if (!(await confirm({ title: "删除公告", description: `确认删除公告「${item.title}」？`, destructive: true, confirmText: "删除" }))) return
     try {
       await adminDeleteAnnouncement(item.id)
+      toast.success("公告已删除")
       load()
     } catch (err: any) {
-      alert(err.message || "删除公告失败")
+      toast.error(err.message || "删除公告失败")
     }
   }
 
