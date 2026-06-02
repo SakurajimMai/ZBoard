@@ -260,6 +260,32 @@ func TestBase64GRPCURIPinsGunMode(t *testing.T) {
 	}
 }
 
+func TestBase64GRPCURIDefaultsMissingServiceName(t *testing.T) {
+	const cid = "00000000-0000-4000-8000-000000000001"
+	nodes := []store.Node{
+		{
+			ID: 1, NodeCode: "grpc-reality", Name: "GRPC", Host: "g.example.com", Port: 2096,
+			Protocol: "vless", Transport: "grpc", Security: "reality",
+			RealityPublicKey:  "PBK-PUBLIC",
+			RealityPrivateKey: "PRIVATE-KEY-MUST-NOT-LEAK",
+			RealityShortID:    "sid01",
+			RealityServerName: "www.cloudflare.com",
+			Status:            "active",
+		},
+	}
+	users := []store.NodeUser{
+		{NodeID: 1, UserID: 1, ClientID: cid, Protocol: "vless", Enabled: 1},
+	}
+	raw, err := base64.StdEncoding.DecodeString(subrender.Base64(subrender.Build(nodes, users)))
+	if err != nil {
+		t.Fatalf("base64 decode: %v", err)
+	}
+	uri := string(raw)
+	if !strings.Contains(uri, "serviceName=grpc-service") {
+		t.Fatalf("gRPC URI must default missing serviceName for v2rayN compatibility:\n%s", uri)
+	}
+}
+
 func TestDedupNamesAppendsSuffix(t *testing.T) {
 	nodes := []store.Node{
 		{ID: 1, Name: "Same", Host: "a", Port: 1, Protocol: "vless", Transport: "tcp", Security: "tls"},

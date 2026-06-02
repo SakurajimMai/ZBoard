@@ -66,6 +66,8 @@ type NodeForm = {
   sort: string
 }
 
+const DEFAULT_GRPC_SERVICE_NAME = "grpc-service"
+
 const emptyForm: NodeForm = {
   name: "",
   region: "",
@@ -97,6 +99,11 @@ const emptyForm: NodeForm = {
   port_range: "",
   tls_insecure: "1",
   sort: "0",
+}
+
+function normalizeGRPCServiceName(transport: string, serviceName: string) {
+  const value = serviceName.trim()
+  return transport === "grpc" && !value ? DEFAULT_GRPC_SERVICE_NAME : value
 }
 
 const XRAY_TRANSPORTS = [
@@ -263,7 +270,7 @@ export default function AdminNodes() {
       status: n.status === "inactive" ? "inactive" : "active",
       ws_path: n.ws_path || "/",
       ws_host: n.ws_host || "",
-      grpc_service_name: n.grpc_service_name || "",
+      grpc_service_name: normalizeGRPCServiceName(n.transport || "tcp", n.grpc_service_name || ""),
       sni: n.sni || "",
       fingerprint: n.fingerprint || "chrome",
       reality_public_key: n.reality_public_key || "",
@@ -341,6 +348,7 @@ export default function AdminNodes() {
       transport,
       runtime_type: ["mkcp", "httpupgrade", "xhttp"].includes(transport) ? "xray" : current.runtime_type,
       ws_path: isPathHostTransport(transport) ? current.ws_path || "/" : current.ws_path,
+      grpc_service_name: normalizeGRPCServiceName(transport, current.grpc_service_name),
     }))
   }
 
@@ -370,6 +378,7 @@ export default function AdminNodes() {
 
   const payload = () => ({
     ...form,
+    grpc_service_name: normalizeGRPCServiceName(form.transport, form.grpc_service_name),
     port: Number(form.port || 0),
     mux_enabled: Number(form.mux_enabled || 0),
     up_mbps: Number(form.up_mbps || 0),

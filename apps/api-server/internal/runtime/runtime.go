@@ -27,6 +27,16 @@ const (
 	defaultQUICKeyPath         = "/etc/zboard-agent/tls/server.key"
 )
 
+const DefaultGRPCServiceName = "grpc-service"
+
+func NormalizeGRPCServiceName(transport, serviceName string) string {
+	serviceName = strings.TrimSpace(serviceName)
+	if strings.ToLower(strings.TrimSpace(transport)) == "grpc" && serviceName == "" {
+		return DefaultGRPCServiceName
+	}
+	return serviceName
+}
+
 // Build returns (configJSON, sha256, version) for the given runtime type.
 func Build(node *store.Node, users []store.NodeUser, version string) (string, string, error) {
 	if err := ValidateNode(node); err != nil {
@@ -209,7 +219,7 @@ func xray(node *store.Node, users []store.NodeUser) map[string]any {
 		}
 		stream["wsSettings"] = ws
 	case "grpc":
-		stream["grpcSettings"] = map[string]any{"serviceName": node.GRPCServiceName}
+		stream["grpcSettings"] = map[string]any{"serviceName": NormalizeGRPCServiceName(node.Transport, node.GRPCServiceName)}
 	case "httpupgrade":
 		stream["httpupgradeSettings"] = httpTransportSettings(node)
 	case "xhttp":
@@ -416,7 +426,7 @@ func singBox(node *store.Node, users []store.NodeUser) map[string]any {
 		}
 		inbound["transport"] = t
 	case "grpc":
-		inbound["transport"] = map[string]any{"type": "grpc", "service_name": node.GRPCServiceName}
+		inbound["transport"] = map[string]any{"type": "grpc", "service_name": NormalizeGRPCServiceName(node.Transport, node.GRPCServiceName)}
 	}
 
 	return withSingBoxStats(map[string]any{

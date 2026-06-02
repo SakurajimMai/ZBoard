@@ -302,6 +302,33 @@ func TestXrayModernTransportSettings(t *testing.T) {
 	}
 }
 
+func TestXrayGRPCDefaultsMissingServiceName(t *testing.T) {
+	node := &store.Node{
+		ID: 1, Name: "GRPC", Host: "grpc.example.com", Port: 443,
+		Protocol: "vless", Transport: "grpc", Security: "reality",
+		RuntimeType:       "xray",
+		RealityPublicKey:  "PBK",
+		RealityPrivateKey: "PRIVATE-KEY-HEX",
+		RealityShortID:    "sid",
+		RealityServerName: "www.cloudflare.com",
+	}
+	users := []store.NodeUser{{UserID: 1, ClientID: "uuid-1", Enabled: 1}}
+	body, _, err := runtime.Build(node, users, "v1")
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	main := doc["inbounds"].([]any)[0].(map[string]any)
+	stream := main["streamSettings"].(map[string]any)
+	grpc := stream["grpcSettings"].(map[string]any)
+	if grpc["serviceName"] != "grpc-service" {
+		t.Fatalf("grpcSettings.serviceName = %#v, want grpc-service", grpc["serviceName"])
+	}
+}
+
 // Stage 13: Reality must include the *server's* private key + dest in the
 // generated runtime config (it must NOT leak through subscription, but it MUST
 // be present in runtime config the agent applies).

@@ -101,7 +101,7 @@ func Build(nodes []store.Node, nodeUsers []store.NodeUser) []Item {
 			Password:          nu.ClientID,
 			Path:              wsPath,
 			WSHost:            wsHost,
-			Service:           n.GRPCServiceName,
+			Service:           runtime.NormalizeGRPCServiceName(n.Transport, n.GRPCServiceName),
 			SNI:               sni,
 			Fingerprint:       n.Fingerprint,
 			RealityPublicKey:  n.RealityPublicKey,
