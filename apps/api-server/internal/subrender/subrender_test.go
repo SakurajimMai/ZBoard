@@ -286,6 +286,36 @@ func TestBase64GRPCURIDefaultsMissingServiceName(t *testing.T) {
 	}
 }
 
+func TestBase64URITrimsNodeHostWhitespace(t *testing.T) {
+	const cid = "00000000-0000-4000-8000-000000000001"
+	nodes := []store.Node{
+		{
+			ID: 1, NodeCode: "grpc-reality", Name: "GRPC", Host: " us3.example.com ", Port: 20522,
+			Protocol: "vless", Transport: "grpc", Security: "reality",
+			GRPCServiceName:   "grpc-service",
+			RealityPublicKey:  "PBK-PUBLIC",
+			RealityPrivateKey: "PRIVATE-KEY-MUST-NOT-LEAK",
+			RealityShortID:    "sid01",
+			RealityServerName: "www.cloudflare.com",
+			Status:            "active",
+		},
+	}
+	users := []store.NodeUser{
+		{NodeID: 1, UserID: 1, ClientID: cid, Protocol: "vless", Enabled: 1},
+	}
+	raw, err := base64.StdEncoding.DecodeString(subrender.Base64(subrender.Build(nodes, users)))
+	if err != nil {
+		t.Fatalf("base64 decode: %v", err)
+	}
+	uri := string(raw)
+	if strings.Contains(uri, "@ ") || strings.Contains(uri, " .com") {
+		t.Fatalf("host whitespace leaked into URI:\n%s", uri)
+	}
+	if !strings.Contains(uri, "@us3.example.com:20522") {
+		t.Fatalf("URI host was not trimmed correctly:\n%s", uri)
+	}
+}
+
 func TestDedupNamesAppendsSuffix(t *testing.T) {
 	nodes := []store.Node{
 		{ID: 1, Name: "Same", Host: "a", Port: 1, Protocol: "vless", Transport: "tcp", Security: "tls"},

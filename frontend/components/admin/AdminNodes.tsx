@@ -378,6 +378,9 @@ export default function AdminNodes() {
 
   const payload = () => ({
     ...form,
+    name: form.name.trim(),
+    region: form.region.trim(),
+    host: form.host.trim(),
     grpc_service_name: normalizeGRPCServiceName(form.transport, form.grpc_service_name),
     port: Number(form.port || 0),
     mux_enabled: Number(form.mux_enabled || 0),

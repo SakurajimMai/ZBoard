@@ -72,11 +72,12 @@ func Build(nodes []store.Node, nodeUsers []store.NodeUser) []Item {
 		if display == "" {
 			display = n.NodeCode
 		}
+		host := strings.TrimSpace(n.Host)
 		// Defaults: SNI -> host, ws path -> "/" — these are now real columns
 		// on the node, but we tolerate empty strings for backward compatibility.
 		sni := n.SNI
 		if sni == "" {
-			sni = n.Host
+			sni = host
 		}
 		wsPath := n.WSPath
 		if wsPath == "" {
@@ -84,7 +85,7 @@ func Build(nodes []store.Node, nodeUsers []store.NodeUser) []Item {
 		}
 		wsHost := n.WSHost
 		if wsHost == "" {
-			wsHost = n.Host
+			wsHost = host
 		}
 
 		out = append(out, Item{
@@ -92,7 +93,7 @@ func Build(nodes []store.Node, nodeUsers []store.NodeUser) []Item {
 			Sort:              n.Sort,
 			Name:              display,
 			Region:            region,
-			Host:              n.Host,
+			Host:              host,
 			Port:              n.Port,
 			Protocol:          strings.ToLower(n.Protocol),
 			Transport:         strings.ToLower(n.Transport),

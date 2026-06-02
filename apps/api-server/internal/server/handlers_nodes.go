@@ -72,9 +72,9 @@ func adminCreateNode(d Deps) gin.HandlerFunc {
 			return
 		}
 		nodeID, secret, err := d.Store.CreateNode(c.Request.Context(), store.CreateNodeInput{
-			Name:              body.Name,
-			Region:            body.Region,
-			Host:              body.Host,
+			Name:              strings.TrimSpace(body.Name),
+			Region:            strings.TrimSpace(body.Region),
+			Host:              strings.TrimSpace(body.Host),
 			Port:              body.Port,
 			Protocol:          protocol,
 			Transport:         transport,
@@ -318,9 +318,9 @@ func normalizeNodeCreateRuntimeFields(body createNodeBody) (protocol, transport,
 
 func normalizeNodeUpdate(body updateNodeBody) store.UpdateNodeInput {
 	in := store.UpdateNodeInput{
-		Name:              body.Name,
-		Region:            body.Region,
-		Host:              body.Host,
+		Name:              strings.TrimSpace(body.Name),
+		Region:            strings.TrimSpace(body.Region),
+		Host:              strings.TrimSpace(body.Host),
 		Port:              body.Port,
 		Protocol:          defaultNodeString(body.Protocol, "vless"),
 		Transport:         body.Transport,
