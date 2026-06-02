@@ -382,7 +382,7 @@ func TestSettingsPersistAndControlRegistration(t *testing.T) {
 	}
 }
 
-func TestSubscriptionEnforcesDeviceLimit(t *testing.T) {
+func TestSubscriptionDeviceLimitDoesNotBlockRendering(t *testing.T) {
 	r, st, _ := setupAdminCRUDRouter(t)
 	userID, err := st.AdminCreateUser(context.Background(), store.AdminCreateUserInput{
 		Email:        "devices@example.com",
@@ -424,8 +424,15 @@ func TestSubscriptionEnforcesDeviceLimit(t *testing.T) {
 	req.RemoteAddr = "127.0.0.2:10000"
 	rr = httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
-	if rr.Code != http.StatusForbidden || !bytes.Contains(rr.Body.Bytes(), []byte("device_limit_exceeded")) {
-		t.Fatalf("second device should be rejected, status=%d body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("second device should still receive subscription, status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	count, err := st.CountUserDevices(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("count devices: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("over-limit subscription pull should not register a new active device, got %d devices", count)
 	}
 }
 

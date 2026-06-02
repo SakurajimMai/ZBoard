@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -137,8 +136,8 @@ func subRender(d Deps) gin.HandlerFunc {
 				}
 			}
 		}
-		if err := checkSubscriptionDeviceLimit(c.Request.Context(), d.Store, t.UserID, nodeUsers, c.ClientIP(), c.Request.UserAgent()); err != nil {
-			_ = d.Store.LogSubAccess(c.Request.Context(), &t.UserID, hash, target, c.ClientIP(), c.Request.UserAgent(), "deny", "device_limit_exceeded")
+		if err := trackSubscriptionDevice(c.Request.Context(), d.Store, t.UserID, nodeUsers, c.ClientIP(), c.Request.UserAgent()); err != nil {
+			_ = d.Store.LogSubAccess(c.Request.Context(), &t.UserID, hash, target, c.ClientIP(), c.Request.UserAgent(), "deny", "device_tracking_failed")
 			httpx.Fail(c, err)
 			return
 		}
@@ -262,7 +261,7 @@ func ensureSubscriptionNodeUsers(ctx context.Context, st *store.Store, u *store.
 	return changed, nil
 }
 
-func checkSubscriptionDeviceLimit(ctx context.Context, st *store.Store, userID int64, nodeUsers []store.NodeUser, ip, ua string) error {
+func trackSubscriptionDevice(ctx context.Context, st *store.Store, userID int64, nodeUsers []store.NodeUser, ip, ua string) error {
 	limit := subscriptionDeviceLimit(nodeUsers)
 	if limit <= 0 {
 		return st.TouchUserDevice(ctx, userID, subscriptionDeviceFingerprint(ip, ua), ip, ua)
@@ -279,7 +278,7 @@ func checkSubscriptionDeviceLimit(ctx context.Context, st *store.Store, userID i
 			return err
 		}
 		if count >= limit {
-			return httpx.NewError(http.StatusForbidden, "device_limit_exceeded", fmt.Sprintf("套餐最多允许 %d 台设备同时在线", limit))
+			return nil
 		}
 	}
 	return st.TouchUserDevice(ctx, userID, fp, ip, ua)
