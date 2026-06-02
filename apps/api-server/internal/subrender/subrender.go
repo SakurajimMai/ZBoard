@@ -46,6 +46,7 @@ type Item struct {
 	DownMbps          int      // hysteria2 client-advertised download bandwidth
 	PortRange         string   // hysteria2 port hopping range, e.g. "20000-40000"
 	TLSInsecure       int      // allow self-signed QUIC certificates in clients
+	Sort              int      // admin-defined display order; lower comes first
 }
 
 // Build merges nodes + node_users into a deduplicated, ordered Item slice.
@@ -88,6 +89,7 @@ func Build(nodes []store.Node, nodeUsers []store.NodeUser) []Item {
 
 		out = append(out, Item{
 			NodeID:            n.ID,
+			Sort:              n.Sort,
 			Name:              display,
 			Region:            region,
 			Host:              n.Host,
@@ -116,7 +118,15 @@ func Build(nodes []store.Node, nodeUsers []store.NodeUser) []Item {
 			TLSInsecure:       n.TLSInsecure,
 		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].NodeID < out[j].NodeID })
+	// Order by the admin-defined sort first, falling back to NodeID so the
+	// ordering stays stable when two nodes share a sort value (e.g. legacy rows
+	// that all default to 0 before the operator drags them).
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Sort != out[j].Sort {
+			return out[i].Sort < out[j].Sort
+		}
+		return out[i].NodeID < out[j].NodeID
+	})
 	dedupNames(out)
 	return out
 }
@@ -188,6 +198,13 @@ func uriFor(it Item) string {
 			if it.Service != "" {
 				q.Set("serviceName", it.Service)
 			}
+			// Xray gRPC has two modes: "gun" (plain) and "multi" (multiplexed).
+			// Server and client MUST agree. Our server config never sets
+			// multiMode, so it runs in gun mode — but a client URI without an
+			// explicit mode lets the client guess (some default to multi),
+			// which silently fails the REALITY-wrapped handshake. Pin it to gun
+			// to match the server and the de-facto share-link standard.
+			q.Set("mode", "gun")
 		}
 		host := net.JoinHostPort(it.Host, strconv.Itoa(it.Port))
 		return fmt.Sprintf("vless://%s@%s?%s#%s", it.UUID, host, q.Encode(), url.QueryEscape(it.Name))

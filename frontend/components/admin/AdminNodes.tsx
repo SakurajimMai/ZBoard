@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
-import { Copy, Edit3, Plus, RefreshCw, Server, Lock, Network, Sliders, Eye, EyeOff, Wand2 } from "lucide-react"
+import { Copy, Edit3, Plus, RefreshCw, Server, Lock, Network, Sliders, Eye, EyeOff, Wand2, GripVertical, ChevronUp, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -12,7 +12,26 @@ import { Switch } from "@/components/ui/switch"
 import { AdminPager } from "@/components/admin/AdminPager"
 import { toast } from "sonner"
 import { useConfirm } from "@/components/confirm-dialog"
-import { adminCreateNode, adminGenerateRealityConfig, adminGetNodes, adminSyncAllNodeConfigs, adminSyncNodeConfig, adminUpdateNode } from "@/lib/api"
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable"
+import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers"
+import { CSS } from "@dnd-kit/utilities"
+import { adminCreateNode, adminGenerateRealityConfig, adminGetNodes, adminReorderNodes, adminSyncAllNodeConfigs, adminSyncNodeConfig, adminUpdateNode } from "@/lib/api"
 
 type NodeForm = {
   name: string
@@ -44,6 +63,7 @@ type NodeForm = {
   down_mbps: string
   port_range: string
   tls_insecure: string
+  sort: string
 }
 
 const emptyForm: NodeForm = {
@@ -76,6 +96,7 @@ const emptyForm: NodeForm = {
   down_mbps: "200",
   port_range: "",
   tls_insecure: "1",
+  sort: "0",
 }
 
 const XRAY_TRANSPORTS = [
@@ -260,6 +281,7 @@ export default function AdminNodes() {
       down_mbps: String(n.down_mbps || 200),
       port_range: n.port_range || "",
       tls_insecure: String(n.tls_insecure ?? (isQUICProtocol(n.protocol || "") ? 1 : 0)),
+      sort: String(n.sort ?? 0),
     })
     setDialogOpen(true)
   }
@@ -353,6 +375,7 @@ export default function AdminNodes() {
     up_mbps: Number(form.up_mbps || 0),
     down_mbps: Number(form.down_mbps || 0),
     tls_insecure: Number(form.tls_insecure || 0),
+    sort: Number(form.sort || 0),
   })
 
   const save = async () => {
@@ -418,6 +441,50 @@ export default function AdminNodes() {
     }
   }
 
+  // Drag-to-reorder. Desktop: hold the handle and drag (8px activation so a
+  // plain click still hits the edit/sync buttons). Mobile: long-press 200ms to
+  // start dragging, so a normal swipe still scrolls the horizontally-scrolling
+  // table instead of grabbing a row.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+  const [reordering, setReordering] = useState(false)
+
+  // Persist a new ordering: sort = absolute position across pages so multi-page
+  // reorders don't collide. Optimistic — revert + toast on failure.
+  const persistOrder = async (ordered: any[]) => {
+    const prev = nodes
+    setNodes(ordered)
+    setReordering(true)
+    try {
+      const items = ordered.map((n, i) => ({ id: n.id, sort: (page - 1) * pageSize + i }))
+      await adminReorderNodes(items)
+      toast.success("节点顺序已保存,用户重新拉取订阅后生效")
+    } catch (err: any) {
+      setNodes(prev)
+      toast.error(err.message || "保存顺序失败")
+    } finally {
+      setReordering(false)
+    }
+  }
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = nodes.findIndex((n) => n.id === active.id)
+    const newIndex = nodes.findIndex((n) => n.id === over.id)
+    if (oldIndex < 0 || newIndex < 0) return
+    persistOrder(arrayMove(nodes, oldIndex, newIndex))
+  }
+
+  const moveNode = (index: number, dir: -1 | 1) => {
+    const target = index + dir
+    if (target < 0 || target >= nodes.length) return
+    persistOrder(arrayMove(nodes, index, target))
+  }
+
   const copySecret = async () => {
     if (!lastSecret) return
     await navigator.clipboard.writeText(lastSecret).catch(() => {})
@@ -460,6 +527,7 @@ export default function AdminNodes() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-muted/50 border-b">
+                  <th className="w-8 px-2 py-3"></th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">ID</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">名称</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">健康</th>
@@ -470,45 +538,35 @@ export default function AdminNodes() {
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground">操作</th>
                 </tr>
               </thead>
-              <tbody>
-                {nodes.map((n: any) => (
-                  <tr key={n.id} className="border-b hover:bg-accent/50">
-                    <td className="px-4 py-3">{n.id}</td>
-                    <td className="px-4 py-3 font-medium">{n.name}</td>
-                    <td className="px-4 py-3">
-                      <NodeHealth node={n} />
-                    </td>
-                    <td className="px-4 py-3 hidden md:table-cell">{n.region || "-"}</td>
-                    <td className="px-4 py-3 hidden lg:table-cell">
-                      <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">{n.protocol}</span>
-                    </td>
-                    <td className="px-4 py-3 hidden lg:table-cell text-muted-foreground">{n.host}:{n.port}</td>
-                    <td className="px-4 py-3 hidden lg:table-cell">
-                      <div className="leading-tight">
-                        <div className="font-medium">{n.active_user_count || 0} 人使用中</div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {formatTrafficBytes(n.traffic_total)} 总流量
-                        </div>
-                        <div className="mt-0.5 text-[11px] text-muted-foreground">
-                          上 {formatTrafficBytes(n.upload_total)} / 下 {formatTrafficBytes(n.download_total)}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-1">
-                        <Button size="icon" variant="ghost" title="编辑" onClick={() => openEdit(n)}>
-                          <Edit3 className="w-4 h-4" />
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => handleSync(n.id)}>
-                          <RefreshCw className="w-3 h-3 mr-1" /> 同步
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext items={nodes.map((n) => n.id)} strategy={verticalListSortingStrategy}>
+                  <tbody>
+                    {nodes.map((n: any, index: number) => (
+                      <SortableNodeRow
+                        key={n.id}
+                        node={n}
+                        isFirst={index === 0}
+                        isLast={index === nodes.length - 1}
+                        busy={reordering}
+                        onMoveUp={() => moveNode(index, -1)}
+                        onMoveDown={() => moveNode(index, 1)}
+                        onEdit={() => openEdit(n)}
+                        onSync={() => handleSync(n.id)}
+                      />
+                    ))}
+                  </tbody>
+                </SortableContext>
+              </DndContext>
             </table>
           </div>
+          <p className="border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+            拖动 <GripVertical className="inline h-3 w-3 -mt-0.5" /> 手柄或点击 ↑↓ 调整顺序，顺序决定用户订阅链接里节点的排列。
+          </p>
         </div>
       )}
       <AdminPager
@@ -577,12 +635,15 @@ export default function AdminNodes() {
                       <Input value={form.region} onChange={(e) => setForm({ ...form, region: e.target.value })} placeholder="HK / JP / US" className="h-10" />
                     </Field>
                   </Row>
-                  <Row cols={3} template="1fr 110px 130px">
+                  <Row cols={4} template="1fr 100px 90px 120px">
                     <Field label="服务器地址" required>
                       <Input value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} placeholder="example.com 或 IP" className="h-10" />
                     </Field>
                     <Field label="端口" required>
                       <Input type="number" min="1" max="65535" value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} className="h-10" />
+                    </Field>
+                    <Field label="排序" hint="越小越靠前">
+                      <Input type="number" value={form.sort} onChange={(e) => setForm({ ...form, sort: e.target.value })} className="h-10" />
                     </Field>
                     <Field label="状态">
                       <Select value={form.status} onValueChange={(status: "active" | "inactive") => setForm({ ...form, status })}>
@@ -908,6 +969,89 @@ function NodeHealth({ node }: { node: any }) {
         </div>
       </div>
     </div>
+  )
+}
+
+function SortableNodeRow({
+  node,
+  isFirst,
+  isLast,
+  busy,
+  onMoveUp,
+  onMoveDown,
+  onEdit,
+  onSync,
+}: {
+  node: any
+  isFirst: boolean
+  isLast: boolean
+  busy: boolean
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onEdit: () => void
+  onSync: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: node.id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    // Lift the dragged row above its siblings and keep it opaque so the
+    // grabbed item stays readable while in motion.
+    zIndex: isDragging ? 10 : undefined,
+    position: isDragging ? "relative" : undefined,
+    background: isDragging ? "var(--accent)" : undefined,
+  }
+  return (
+    <tr ref={setNodeRef} style={style} className="border-b hover:bg-accent/50">
+      <td className="px-2 py-3 align-middle">
+        <button
+          type="button"
+          className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
+          aria-label="拖动排序"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      </td>
+      <td className="px-4 py-3">{node.id}</td>
+      <td className="px-4 py-3 font-medium">{node.name}</td>
+      <td className="px-4 py-3">
+        <NodeHealth node={node} />
+      </td>
+      <td className="px-4 py-3 hidden md:table-cell">{node.region || "-"}</td>
+      <td className="px-4 py-3 hidden lg:table-cell">
+        <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">{node.protocol}</span>
+      </td>
+      <td className="px-4 py-3 hidden lg:table-cell text-muted-foreground">{node.host}:{node.port}</td>
+      <td className="px-4 py-3 hidden lg:table-cell">
+        <div className="leading-tight">
+          <div className="font-medium">{node.active_user_count || 0} 人使用中</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {formatTrafficBytes(node.traffic_total)} 总流量
+          </div>
+          <div className="mt-0.5 text-[11px] text-muted-foreground">
+            上 {formatTrafficBytes(node.upload_total)} / 下 {formatTrafficBytes(node.download_total)}
+          </div>
+        </div>
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex items-center justify-end gap-1">
+          <Button size="icon" variant="ghost" title="上移" onClick={onMoveUp} disabled={isFirst || busy}>
+            <ChevronUp className="w-4 h-4" />
+          </Button>
+          <Button size="icon" variant="ghost" title="下移" onClick={onMoveDown} disabled={isLast || busy}>
+            <ChevronDown className="w-4 h-4" />
+          </Button>
+          <Button size="icon" variant="ghost" title="编辑" onClick={onEdit}>
+            <Edit3 className="w-4 h-4" />
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onSync}>
+            <RefreshCw className="w-3 h-3 mr-1" /> 同步
+          </Button>
+        </div>
+      </td>
+    </tr>
   )
 }
 

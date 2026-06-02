@@ -174,6 +174,7 @@ func New(d Deps) *gin.Engine {
 			authed.GET("/nodes", adminListNodes(d))
 			authed.POST("/reality/generate", adminGenerateRealityConfig())
 			authed.POST("/nodes", adminCreateNode(d))
+			authed.POST("/nodes/reorder", adminReorderNodes(d))
 			authed.PUT("/nodes/:id", adminUpdateNode(d))
 			authed.POST("/nodes/:id/sync-config", adminSyncNodeConfig(d))
 			authed.POST("/nodes/sync-config-all", adminSyncAllNodeConfigs(d))

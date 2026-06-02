@@ -407,6 +407,13 @@ export async function adminSyncAllNodeConfigs() {
   }>('/api/admin/v1/nodes/sync-config-all', { method: 'POST' })
 }
 
+export async function adminReorderNodes(items: { id: number; sort: number }[]) {
+  return adminRequest<{ ok: boolean }>('/api/admin/v1/nodes/reorder', {
+    method: 'POST',
+    body: JSON.stringify({ items }),
+  })
+}
+
 export async function adminGetPaymentProviders() {
   return adminRequest<{ items: any[] }>('/api/admin/v1/payment-providers')
 }

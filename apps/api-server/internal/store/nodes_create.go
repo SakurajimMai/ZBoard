@@ -111,18 +111,26 @@ func (s *Store) CreateNode(ctx context.Context, in CreateNodeInput) (int64, stri
 	}
 	defer tx.Rollback()
 
+	// New nodes append to the end of the sort order (max(sort)+1) so a freshly
+	// created node doesn't jump to the top by sharing the default sort=0 with
+	// existing nodes. COALESCE handles the empty-table case.
+	var nextSort int
+	if err := tx.GetContext(ctx, &nextSort, `SELECT COALESCE(MAX(sort), -1) + 1 FROM nodes`); err != nil {
+		return 0, "", err
+	}
+
 	insertNode := `INSERT INTO nodes(node_code, name, region, host, port, protocol, transport, security, runtime_type,
 		ws_path, ws_host, grpc_service_name, sni, fingerprint, reality_public_key, reality_short_id, reality_server_name,
 		flow, alpn, mux_enabled, ss_method, reality_private_key, reality_dest,
-		obfs_password, congestion_control, up_mbps, down_mbps, port_range, tls_insecure)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		obfs_password, congestion_control, up_mbps, down_mbps, port_range, tls_insecure, sort)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	region := strings.TrimSpace(in.Region)
 	args := []any{
 		code, in.Name, region, in.Host, in.Port, in.Protocol, in.Transport, in.Security, in.RuntimeType,
 		in.WSPath, in.WSHost, in.GRPCServiceName, in.SNI, in.Fingerprint,
 		in.RealityPublicKey, in.RealityShortID, in.RealityServerName,
 		in.Flow, in.ALPN, in.MuxEnabled, in.SSMethod, in.RealityPrivateKey, in.RealityDest,
-		in.ObfsPassword, in.CongestionControl, in.UpMbps, in.DownMbps, in.PortRange, in.TLSInsecure,
+		in.ObfsPassword, in.CongestionControl, in.UpMbps, in.DownMbps, in.PortRange, in.TLSInsecure, nextSort,
 	}
 	var nodeID int64
 	if s.Dialect == config.DialectPostgres {

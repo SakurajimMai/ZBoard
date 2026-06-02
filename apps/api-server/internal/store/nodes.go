@@ -41,6 +41,7 @@ type Node struct {
 	DownMbps          int        `db:"down_mbps" json:"down_mbps"`                   // hysteria2 advertised download bandwidth
 	PortRange         string     `db:"port_range" json:"port_range"`                 // hysteria2 port hopping, e.g. "20000-40000"
 	TLSInsecure       int        `db:"tls_insecure" json:"tls_insecure"`             // allow self-signed QUIC certificates in client subscriptions
+	Sort              int        `db:"sort" json:"sort"`                             // ascending display order in subscriptions; lower = earlier
 }
 
 type NodeView struct {
@@ -84,6 +85,7 @@ type UpdateNodeInput struct {
 	DownMbps          int
 	PortRange         string
 	TLSInsecure       int
+	Sort              int
 }
 
 const nodeColumns = `id, node_code, name, region, host, port, protocol, transport, security,
@@ -91,10 +93,10 @@ const nodeColumns = `id, node_code, name, region, host, port, protocol, transpor
 	ws_path, ws_host, grpc_service_name, sni, fingerprint,
 	reality_public_key, reality_short_id, reality_server_name,
 	flow, alpn, mux_enabled, ss_method, reality_private_key, reality_dest,
-	obfs_password, congestion_control, up_mbps, down_mbps, port_range, tls_insecure`
+	obfs_password, congestion_control, up_mbps, down_mbps, port_range, tls_insecure, sort`
 
 func (s *Store) ListActiveNodes(ctx context.Context) ([]Node, error) {
-	q := `SELECT ` + nodeColumns + ` FROM nodes WHERE status = 'active' ORDER BY id ASC`
+	q := `SELECT ` + nodeColumns + ` FROM nodes WHERE status = 'active' ORDER BY sort ASC, id ASC`
 	var rows []Node
 	if err := s.DB.SelectContext(ctx, &rows, q); err != nil {
 		return nil, err
@@ -113,7 +115,7 @@ func (s *Store) ListAllNodesPage(ctx context.Context, p PageParams) ([]Node, int
 	if err := s.DB.GetContext(ctx, &total, `SELECT COUNT(*) FROM nodes`); err != nil {
 		return nil, 0, err
 	}
-	q := `SELECT ` + nodeColumns + ` FROM nodes ORDER BY id ASC`
+	q := `SELECT ` + nodeColumns + ` FROM nodes ORDER BY sort ASC, id ASC`
 	q = s.Rebind(q + ` LIMIT ? OFFSET ?`)
 	var rows []Node
 	if err := s.DB.SelectContext(ctx, &rows, q, p.PageSize, p.Offset()); err != nil {
@@ -165,7 +167,7 @@ func (s *Store) ListAllNodeViewsPage(ctx context.Context, p PageParams, offlineT
 				GROUP BY node_id
 			) latest ON latest.node_id = h.node_id AND latest.reported_at = h.reported_at
 		) ah ON ah.node_id = n.id
-		ORDER BY n.id ASC`
+		ORDER BY n.sort ASC, n.id ASC`
 	q = s.Rebind(q + ` LIMIT ? OFFSET ?`)
 	var rows []NodeView
 	activeSince := Now().Add(-time.Duration(activeWindowSeconds) * time.Second)
@@ -187,6 +189,7 @@ func prefixedNodeColumns(alias string) string {
 		"reality_public_key", "reality_short_id", "reality_server_name",
 		"flow", "alpn", "mux_enabled", "ss_method", "reality_private_key", "reality_dest",
 		"obfs_password", "congestion_control", "up_mbps", "down_mbps", "port_range", "tls_insecure",
+		"sort",
 	}
 	out := ""
 	for i, col := range cols {
@@ -230,6 +233,7 @@ func (s *Store) UpdateNode(ctx context.Context, id int64, in UpdateNodeInput) er
 		reality_public_key = ?, reality_short_id = ?, reality_server_name = ?,
 		flow = ?, alpn = ?, mux_enabled = ?, ss_method = ?, reality_private_key = ?, reality_dest = ?,
 		obfs_password = ?, congestion_control = ?, up_mbps = ?, down_mbps = ?, port_range = ?, tls_insecure = ?,
+		sort = ?,
 		updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
 	region := in.Region
 	_, err := s.DB.ExecContext(ctx, q,
@@ -239,7 +243,35 @@ func (s *Store) UpdateNode(ctx context.Context, id int64, in UpdateNodeInput) er
 		in.RealityPublicKey, in.RealityShortID, in.RealityServerName,
 		in.Flow, in.ALPN, in.MuxEnabled, in.SSMethod, in.RealityPrivateKey, in.RealityDest,
 		in.ObfsPassword, in.CongestionControl, in.UpMbps, in.DownMbps, in.PortRange, in.TLSInsecure,
+		in.Sort,
 		id,
 	)
 	return err
+}
+
+// NodeSort is a single {id, sort} pair for batch reordering.
+type NodeSort struct {
+	ID   int64
+	Sort int
+}
+
+// ReorderNodes updates the sort value of multiple nodes in one transaction.
+// Used by the admin drag-to-reorder UI; ordering only affects subscription
+// display order, so this never touches runtime config or triggers a sync.
+func (s *Store) ReorderNodes(ctx context.Context, items []NodeSort) error {
+	if len(items) == 0 {
+		return nil
+	}
+	tx, err := s.DB.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	q := s.Rebind(`UPDATE nodes SET sort = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+	for _, it := range items {
+		if _, err := tx.ExecContext(ctx, q, it.Sort, it.ID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

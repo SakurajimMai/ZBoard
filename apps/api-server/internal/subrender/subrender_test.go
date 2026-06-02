@@ -57,6 +57,38 @@ func TestBuildIncludesEnabledOnly(t *testing.T) {
 	}
 }
 
+// TestBuildOrdersBySortThenID confirms the admin drag-to-reorder sort value
+// drives subscription order: a higher node ID with a lower sort must come
+// first, and equal sort values fall back to node ID for a stable order.
+func TestBuildOrdersBySortThenID(t *testing.T) {
+	nodes := sampleNodes()
+	// Reverse the natural ID order via sort: node 3 first, then 1, then 2.
+	nodes[0].Sort = 10 // ID 1
+	nodes[1].Sort = 20 // ID 2
+	nodes[2].Sort = 5  // ID 3
+	items := subrender.Build(nodes, sampleNodeUsers())
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(items))
+	}
+	gotIDs := []int64{items[0].NodeID, items[1].NodeID, items[2].NodeID}
+	wantIDs := []int64{3, 1, 2}
+	for i := range wantIDs {
+		if gotIDs[i] != wantIDs[i] {
+			t.Fatalf("sort order = %v, want %v", gotIDs, wantIDs)
+		}
+	}
+
+	// Equal sort values must fall back to ascending node ID.
+	for i := range nodes {
+		nodes[i].Sort = 0
+	}
+	items = subrender.Build(nodes, sampleNodeUsers())
+	if items[0].NodeID != 1 || items[1].NodeID != 2 || items[2].NodeID != 3 {
+		t.Fatalf("equal-sort tiebreak should be ascending ID, got %d,%d,%d",
+			items[0].NodeID, items[1].NodeID, items[2].NodeID)
+	}
+}
+
 func TestClashMetaContainsKeyFields(t *testing.T) {
 	out := subrender.ClashMeta(subrender.Build(sampleNodes(), sampleNodeUsers()))
 	for _, want := range []string{
@@ -190,6 +222,41 @@ func TestBuildSkipsIncompleteRealityNodes(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "bad.example.com") {
 		t.Fatalf("invalid reality node leaked into subscription:\n%s", raw)
+	}
+}
+
+// gRPC VLESS URIs must pin mode=gun. Our server config never sets multiMode
+// (so it runs in gun mode); a URI without an explicit mode lets the client
+// guess and some default to multi, which silently fails the handshake.
+func TestBase64GRPCURIPinsGunMode(t *testing.T) {
+	const cid = "00000000-0000-4000-8000-000000000001"
+	nodes := []store.Node{
+		{
+			ID: 1, NodeCode: "grpc-reality", Name: "GRPC", Host: "g.example.com", Port: 2096,
+			Protocol: "vless", Transport: "grpc", Security: "reality",
+			GRPCServiceName:   "update",
+			RealityPublicKey:  "PBK-PUBLIC",
+			RealityPrivateKey: "PRIVATE-KEY-MUST-NOT-LEAK",
+			RealityShortID:    "sid01",
+			RealityServerName: "www.cloudflare.com",
+			Status:            "active",
+		},
+	}
+	users := []store.NodeUser{
+		{NodeID: 1, UserID: 1, ClientID: cid, Protocol: "vless", Enabled: 1},
+	}
+	raw, err := base64.StdEncoding.DecodeString(subrender.Base64(subrender.Build(nodes, users)))
+	if err != nil {
+		t.Fatalf("base64 decode: %v", err)
+	}
+	uri := string(raw)
+	for _, want := range []string{"type=grpc", "serviceName=update", "mode=gun"} {
+		if !strings.Contains(uri, want) {
+			t.Errorf("gRPC URI missing %q\n%s", want, uri)
+		}
+	}
+	if strings.Contains(uri, "PRIVATE-KEY-MUST-NOT-LEAK") {
+		t.Fatalf("reality private key LEAKED into URI:\n%s", uri)
 	}
 }
 

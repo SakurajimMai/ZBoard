@@ -46,6 +46,7 @@ type createNodeBody struct {
 type updateNodeBody struct {
 	createNodeBody
 	Status string `json:"status"`
+	Sort   int    `json:"sort"`
 }
 
 func adminCreateNode(d Deps) gin.HandlerFunc {
@@ -345,6 +346,7 @@ func normalizeNodeUpdate(body updateNodeBody) store.UpdateNodeInput {
 		DownMbps:          body.DownMbps,
 		PortRange:         body.PortRange,
 		TLSInsecure:       normalizeNodeTLSInsecure(defaultNodeString(body.Protocol, "vless"), body.TLSInsecure),
+		Sort:              body.Sort,
 	}
 	if in.Transport == "" {
 		in.Transport = "tcp"
@@ -402,4 +404,44 @@ func normalizeNodeTLSInsecure(protocol string, raw *int) int {
 		return 1
 	}
 	return 0
+}
+
+type reorderNodesBody struct {
+	Items []struct {
+		ID   int64 `json:"id" binding:"required"`
+		Sort int   `json:"sort"`
+	} `json:"items" binding:"required"`
+}
+
+// adminReorderNodes persists a new display order for nodes. Ordering only
+// affects subscription rendering (subrender sorts by Sort, then NodeID), so
+// this never touches runtime config or triggers a config sync — clients pick
+// up the new order on their next subscription pull.
+func adminReorderNodes(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body reorderNodesBody
+		if err := c.ShouldBindJSON(&body); err != nil {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", err.Error()))
+			return
+		}
+		if len(body.Items) == 0 {
+			httpx.Fail(c, httpx.NewError(http.StatusBadRequest, "bad_request", "items 不能为空"))
+			return
+		}
+		items := make([]store.NodeSort, 0, len(body.Items))
+		for _, it := range body.Items {
+			items = append(items, store.NodeSort{ID: it.ID, Sort: it.Sort})
+		}
+		if err := d.Store.ReorderNodes(c.Request.Context(), items); err != nil {
+			httpx.Fail(c, err)
+			return
+		}
+		a := c.MustGet(ctxAdminKey).(*store.AdminUser)
+		_ = d.Store.WriteAudit(c.Request.Context(), store.AuditEntry{
+			ActorType: "admin", ActorID: ptrInt64(a.ID),
+			Action: "node.reorder", ResourceType: "node", ResourceID: "",
+			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+		})
+		httpx.OK(c, gin.H{"ok": true})
+	}
 }
