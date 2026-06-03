@@ -194,23 +194,23 @@ export default function AdminSettingsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold">系统设置</h1>
-          <p className="text-sm text-muted-foreground mt-1">集中配置注册、订阅提醒、邮件服务和站点展示规则。</p>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">集中配置注册、订阅提醒、邮件服务和站点展示规则。</p>
         </div>
-        <Button onClick={save} disabled={saving}>
+        <Button onClick={save} disabled={saving} className="w-full sm:w-auto">
           <Save className="w-4 h-4" />
           {saving ? "保存中..." : "保存设置"}
         </Button>
       </div>
 
-      <div className="flex flex-wrap gap-2 rounded-lg border bg-muted/40 p-1">
+      <div className="flex gap-2 overflow-x-auto rounded-lg border bg-muted/40 p-1 md:flex-wrap">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm transition ${
+            className={`flex min-h-10 shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm transition ${
               activeTab === tab.id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -530,31 +530,31 @@ export default function AdminSettingsPage() {
 
 function SettingsSection({ icon: Icon, title, subtitle, children }: { icon: any; title: string; subtitle: string; children: ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-xl border bg-card">
-      <div className="flex items-center gap-4 border-b px-5 py-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <Icon className="w-6 h-6" />
+    <section className="overflow-hidden rounded-xl border bg-card shadow-xs">
+      <div className="flex flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-center sm:px-5">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary sm:h-12 sm:w-12 sm:rounded-xl">
+          <Icon className="h-5 w-5 sm:h-6 sm:w-6" />
         </div>
-        <div>
+        <div className="min-w-0">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="text-sm text-muted-foreground">{subtitle}</p>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{subtitle}</p>
         </div>
       </div>
-      <div className="p-5">{children}</div>
+      <div className="p-4 sm:p-5">{children}</div>
     </section>
   )
 }
 
 function Grid({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-1 gap-4 md:grid-cols-2">{children}</div>
+  return <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">{children}</div>
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
+    <div className="min-w-0 space-y-1.5">
+      <Label className="text-sm leading-none">{label}</Label>
       {children}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {hint && <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>}
     </div>
   )
 }
@@ -609,12 +609,12 @@ function SwitchRow({ label, desc, checked, onCheckedChange }: {
   onCheckedChange: (checked: boolean) => void
 }) {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <div>
+    <div className="flex items-start justify-between gap-4 rounded-lg border bg-background/60 p-3">
+      <div className="min-w-0">
         <div className="text-sm font-medium">{label}</div>
-        {desc && <div className="text-xs text-muted-foreground mt-1">{desc}</div>}
+        {desc && <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{desc}</div>}
       </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      <Switch className="mt-0.5 shrink-0" checked={checked} onCheckedChange={onCheckedChange} />
     </div>
   )
 }
@@ -633,7 +633,7 @@ function RadioGroup({
   return (
     <div className="space-y-2">
       <Label>{label}</Label>
-      <div className="flex flex-wrap gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {options.map((option) => {
           const active = value === option.value
           return (
@@ -641,7 +641,7 @@ function RadioGroup({
               key={option.value}
               type="button"
               onClick={() => onValueChange(option.value)}
-              className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm transition ${
+              className={`inline-flex min-h-11 items-center gap-2 rounded-lg border px-4 py-2 text-sm transition ${
                 active ? "border-primary bg-primary/5 text-primary" : "bg-background hover:border-foreground/30"
               }`}
             >
@@ -827,21 +827,21 @@ function PaymentSettingsPanel() {
     <SettingsSection icon={CreditCard} title="支付设置" subtitle="配置用户购买套餐和重置流量时可用的支付渠道">
       <div className="space-y-5">
         {notice && <div className="rounded-lg border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">{notice}</div>}
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2">
           {paymentProviderTemplates.map((tpl) => {
             const form = forms[tpl.name]
             if (!form) return null
             return (
               <div key={tpl.name} className="rounded-lg border bg-background p-4">
                 <div className="flex items-start justify-between gap-4">
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="text-base font-semibold">{tpl.displayName}</h3>
                       <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{tpl.providerType}</span>
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">{tpl.description}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{tpl.description}</p>
                   </div>
-                  <Switch checked={form.enabled} onCheckedChange={(checked) => updateForm(tpl.name, { enabled: checked })} />
+                  <Switch className="shrink-0" checked={form.enabled} onCheckedChange={(checked) => updateForm(tpl.name, { enabled: checked })} />
                 </div>
 
                 <div className="mt-4 space-y-4">
@@ -960,7 +960,7 @@ function CaptchaPanel(props: {
   const provider = (props.provider || "none") as CaptchaProvider
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {providerCards.map((card) => {
           const active = provider === card.id
           return (
@@ -968,7 +968,7 @@ function CaptchaPanel(props: {
               key={card.id}
               type="button"
               onClick={() => props.onProviderChange(card.id)}
-              className={`flex flex-col items-start gap-1 rounded-lg border bg-background p-3 text-left transition ${
+              className={`flex min-h-20 flex-col items-start gap-1 rounded-lg border bg-background p-3 text-left transition ${
                 active ? "border-primary ring-2 ring-primary/30 shadow-sm" : "hover:border-foreground/30"
               }`}
             >
@@ -993,7 +993,7 @@ function CaptchaPanel(props: {
           {provider === "turnstile" && (
             <div className="space-y-2">
               <Label>验证模式</Label>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                 {turnstileModes.map((mode) => {
                   const active = props.turnstileMode === mode.id
                   return (
@@ -1001,7 +1001,7 @@ function CaptchaPanel(props: {
                       key={mode.id}
                       type="button"
                       onClick={() => props.onTurnstileModeChange(mode.id)}
-                      className={`rounded-lg border bg-background p-3 text-left transition ${
+                      className={`min-h-20 rounded-lg border bg-background p-3 text-left transition ${
                         active ? "border-primary ring-2 ring-primary/30" : "hover:border-foreground/30"
                       }`}
                     >
@@ -1029,9 +1029,9 @@ function CaptchaPanel(props: {
 
 function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className="flex items-center justify-between gap-4 rounded-lg border bg-background/60 px-3 py-2.5">
       <div className="text-sm">{label}</div>
-      <Switch checked={checked} onCheckedChange={onChange} />
+      <Switch className="shrink-0" checked={checked} onCheckedChange={onChange} />
     </div>
   )
 }

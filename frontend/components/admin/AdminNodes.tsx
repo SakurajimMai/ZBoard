@@ -506,20 +506,20 @@ export default function AdminNodes() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">节点管理</h1>
           <p className="text-sm text-muted-foreground mt-1">共 {total} 个节点</p>
         </div>
-        <div className="flex gap-2">
-          <Button size="sm" onClick={load} variant="outline">
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          <Button size="sm" onClick={load} variant="outline" className="min-h-9">
             <RefreshCw className="w-4 h-4 mr-1" /> 刷新
           </Button>
-          <Button size="sm" onClick={handleSyncAll} variant="outline" disabled={syncingAll || nodes.length === 0}>
+          <Button size="sm" onClick={handleSyncAll} variant="outline" disabled={syncingAll || nodes.length === 0} className="min-h-9">
             <RefreshCw className={`w-4 h-4 mr-1 ${syncingAll ? "animate-spin" : ""}`} />
             {syncingAll ? "同步中..." : "全部同步"}
           </Button>
-          <Button size="sm" onClick={openCreate}>
+          <Button size="sm" onClick={openCreate} className="min-h-9">
             <Plus className="w-4 h-4 mr-1" /> 新建节点
           </Button>
         </div>
@@ -535,47 +535,41 @@ export default function AdminNodes() {
         </div>
       ) : (
         <div className="rounded-lg border bg-card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-muted/50 border-b">
-                  <th className="w-8 px-2 py-3"></th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">ID</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">名称</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">健康</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">地区</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">协议</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">地址</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">在线/流量</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">操作</th>
-                </tr>
-              </thead>
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                modifiers={[restrictToVerticalAxis, restrictToParentElement]}
-                onDragEnd={handleDragEnd}
-              >
-                <SortableContext items={nodes.map((n) => n.id)} strategy={verticalListSortingStrategy}>
-                  <tbody>
-                    {nodes.map((n: any, index: number) => (
-                      <SortableNodeRow
-                        key={n.id}
-                        node={n}
-                        isFirst={index === 0}
-                        isLast={index === nodes.length - 1}
-                        busy={reordering}
-                        onMoveUp={() => moveNode(index, -1)}
-                        onMoveDown={() => moveNode(index, 1)}
-                        onEdit={() => openEdit(n)}
-                        onSync={() => handleSync(n.id)}
-                      />
-                    ))}
-                  </tbody>
-                </SortableContext>
-              </DndContext>
-            </table>
+          <div className="hidden border-b bg-muted/50 px-4 py-3 text-sm xl:grid xl:grid-cols-[2.5rem_4rem_minmax(10rem,1.1fr)_minmax(11rem,1fr)_minmax(7rem,.7fr)_minmax(6rem,.6fr)_minmax(13rem,1fr)_minmax(12rem,.9fr)_minmax(11rem,auto)] xl:items-center xl:gap-3">
+            <span />
+            <span className="font-medium text-muted-foreground">ID</span>
+            <span className="font-medium text-muted-foreground">名称</span>
+            <span className="font-medium text-muted-foreground">健康</span>
+            <span className="font-medium text-muted-foreground">地区</span>
+            <span className="font-medium text-muted-foreground">协议</span>
+            <span className="font-medium text-muted-foreground">地址</span>
+            <span className="font-medium text-muted-foreground">在线/流量</span>
+            <span className="text-right font-medium text-muted-foreground">操作</span>
           </div>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={nodes.map((n) => n.id)} strategy={verticalListSortingStrategy}>
+              <div className="divide-y">
+                {nodes.map((n: any, index: number) => (
+                  <SortableNodeRow
+                    key={n.id}
+                    node={n}
+                    isFirst={index === 0}
+                    isLast={index === nodes.length - 1}
+                    busy={reordering}
+                    onMoveUp={() => moveNode(index, -1)}
+                    onMoveDown={() => moveNode(index, 1)}
+                    onEdit={() => openEdit(n)}
+                    onSync={() => handleSync(n.id)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
           <p className="border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
             拖动 <GripVertical className="inline h-3 w-3 -mt-0.5" /> 手柄或点击 ↑↓ 调整顺序，顺序决定用户订阅链接里节点的排列。
           </p>
@@ -593,10 +587,10 @@ export default function AdminNodes() {
       />
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); else setDialogOpen(true) }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0 gap-0">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden p-0 gap-0 sm:max-w-[min(92vw,56rem)]">
+          <DialogHeader className="px-4 pt-5 pb-4 border-b sm:px-6">
             <DialogTitle className="text-lg">{editing ? "编辑节点" : "新建节点"}</DialogTitle>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-xs leading-relaxed text-muted-foreground mt-1">
               {editing
                 ? "保存后会自动下发配置；也可在节点列表中手动重新同步。"
                 : "创建后将返回一次性节点密钥，请立即记录并填入 Agent 配置。"}
@@ -604,30 +598,32 @@ export default function AdminNodes() {
           </DialogHeader>
 
           {lastSecret ? (
-            <div className="px-6 py-6 space-y-4">
+            <div className="max-h-[calc(92dvh-5rem)] overflow-y-auto px-4 py-5 space-y-4 sm:px-6">
               <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-4">
                 <p className="font-semibold text-amber-900">⚠ 节点已创建，请立即保存密钥</p>
                 <p className="text-sm text-amber-800 mt-1">该密钥只返回一次，关闭对话框后无法再次查看。</p>
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">节点密钥 (node_secret)</Label>
-                <div className="mt-1.5 flex items-center gap-2">
+                <div className="mt-1.5 flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Input
                     readOnly
                     value={secretRevealed ? lastSecret : "•".repeat(Math.min(lastSecret.length, 48))}
-                    className="font-mono text-xs h-10"
+                    className="h-10 min-w-0 font-mono text-xs"
                   />
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    onClick={() => setSecretRevealed(!secretRevealed)}
-                    title={secretRevealed ? "隐藏" : "显示"}
-                  >
-                    {secretRevealed ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                  <Button size="icon" variant="outline" onClick={copySecret} title="复制密钥">
-                    <Copy className="w-4 h-4" />
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      onClick={() => setSecretRevealed(!secretRevealed)}
+                      title={secretRevealed ? "隐藏" : "显示"}
+                    >
+                      {secretRevealed ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </Button>
+                    <Button size="icon" variant="outline" onClick={copySecret} title="复制密钥">
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
               </div>
               <div className="flex justify-end pt-2">
@@ -636,7 +632,7 @@ export default function AdminNodes() {
             </div>
           ) : (
             <>
-              <div className="px-6 py-5 space-y-6">
+              <div className="max-h-[calc(92dvh-10rem)] overflow-y-auto px-4 py-5 space-y-5 sm:px-6">
                 {/* Section: 基础信息 */}
                 <Section title="基础信息" icon={<Server className="w-4 h-4" />}>
                   <Row cols={2}>
@@ -924,7 +920,7 @@ export default function AdminNodes() {
                   </Section>
                 )}
               </div>
-              <div className="px-6 py-4 border-t bg-muted/30 flex justify-end gap-2">
+              <div className="sticky bottom-0 flex flex-col-reverse gap-2 border-t bg-background/95 px-4 py-4 backdrop-blur sm:flex-row sm:justify-end sm:px-6">
                 <Button variant="outline" onClick={closeDialog} disabled={saving}>取消</Button>
                 <Button onClick={save} disabled={saving} className="min-w-24">
                   {saving ? "保存中..." : editing ? "保存修改" : "创建节点"}
@@ -941,20 +937,20 @@ export default function AdminNodes() {
 function Section({ title, icon, children, collapsible = false }: { title: string; icon?: ReactNode; children: ReactNode; collapsible?: boolean }) {
   const [open, setOpen] = useState(!collapsible)
   return (
-    <section className="rounded-lg border bg-card/50">
+    <section className="overflow-hidden rounded-lg border bg-card/50">
       <button
         type="button"
         onClick={() => collapsible && setOpen(!open)}
-        className={`w-full flex items-center gap-2 px-4 py-2.5 text-left ${collapsible ? "cursor-pointer hover:bg-accent/50" : "cursor-default"}`}
+        className={`flex min-h-12 w-full items-center gap-2 px-4 py-3 text-left ${collapsible ? "cursor-pointer hover:bg-accent/50" : "cursor-default"}`}
         disabled={!collapsible}
       >
         {icon && <span className="text-primary">{icon}</span>}
-        <h3 className="text-sm font-semibold flex-1">{title}</h3>
+        <h3 className="min-w-0 flex-1 text-sm font-semibold">{title}</h3>
         {collapsible && (
           <span className="text-xs text-muted-foreground">{open ? "收起" : "展开"}</span>
         )}
       </button>
-      {open && <div className="px-4 pb-4 space-y-3 border-t pt-3">{children}</div>}
+      {open && <div className="space-y-4 border-t px-4 pb-4 pt-4">{children}</div>}
     </section>
   )
 }
@@ -970,13 +966,13 @@ function NodeHealth({ node }: { node: any }) {
   const lastSeen = node.last_heartbeat_at ? new Date(node.last_heartbeat_at).toLocaleString("zh-CN") : "无心跳"
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 items-center gap-2">
       <span className={`h-2.5 w-2.5 rounded-full ${color.split(" ")[0]}`} aria-hidden="true" />
-      <div className="leading-tight">
+      <div className="min-w-0 leading-tight">
         <div className={`text-xs font-medium ${color.split(" ")[1]}`}>
           {node.health_label || "异常"}
         </div>
-        <div className="text-[11px] text-muted-foreground">
+        <div className="break-words text-[11px] text-muted-foreground">
           {node.runtime_status || "-"} · {lastSeen}
         </div>
       </div>
@@ -1013,75 +1009,122 @@ function SortableNodeRow({
     position: isDragging ? "relative" : undefined,
     background: isDragging ? "var(--accent)" : undefined,
   }
+  const trafficSummary = (
+    <div className="leading-tight">
+      <div className="font-medium">{node.active_user_count || 0} 人使用中</div>
+      <div className="mt-1 text-xs text-muted-foreground">
+        {formatTrafficBytes(node.traffic_total)} 总流量
+      </div>
+      <div className="mt-0.5 text-[11px] text-muted-foreground">
+        上 {formatTrafficBytes(node.upload_total)} / 下 {formatTrafficBytes(node.download_total)}
+      </div>
+    </div>
+  )
+
+  const actions = (
+    <div className="flex flex-wrap items-center justify-end gap-1.5">
+      <Button size="icon-sm" variant="ghost" title="上移" aria-label="上移" onClick={onMoveUp} disabled={isFirst || busy}>
+        <ChevronUp className="w-4 h-4" />
+      </Button>
+      <Button size="icon-sm" variant="ghost" title="下移" aria-label="下移" onClick={onMoveDown} disabled={isLast || busy}>
+        <ChevronDown className="w-4 h-4" />
+      </Button>
+      <Button size="icon-sm" variant="ghost" title="编辑" aria-label="编辑" onClick={onEdit}>
+        <Edit3 className="w-4 h-4" />
+      </Button>
+      <Button size="sm" variant="ghost" onClick={onSync}>
+        <RefreshCw className="w-3 h-3 mr-1" /> 同步
+      </Button>
+    </div>
+  )
+
   return (
-    <tr ref={setNodeRef} style={style} className="border-b hover:bg-accent/50">
-      <td className="px-2 py-3 align-middle">
+    <div ref={setNodeRef} style={style} className="hover:bg-accent/40">
+      <div className="p-4 xl:hidden">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <button
+              type="button"
+              className="mt-0.5 flex size-9 shrink-0 cursor-grab touch-none items-center justify-center rounded-md border bg-background text-muted-foreground hover:text-foreground active:cursor-grabbing"
+              aria-label="拖动排序"
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="truncate font-medium">{node.name}</span>
+                <span className="rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">{node.protocol}</span>
+                <span className="text-xs text-muted-foreground">#{node.id}</span>
+              </div>
+              <div className="mt-1 break-all text-xs text-muted-foreground">{node.host}:{node.port}</div>
+              <div className="mt-1 text-xs text-muted-foreground">{node.region || "未设置地区"}</div>
+            </div>
+          </div>
+          <NodeHealth node={node} />
+        </div>
+        <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+          <div className="rounded-md bg-muted/50 px-3 py-2">
+            <span className="block text-muted-foreground">在线</span>
+            <span className="text-sm font-medium text-foreground">{node.active_user_count || 0} 人</span>
+          </div>
+          <div className="rounded-md bg-muted/50 px-3 py-2">
+            <span className="block text-muted-foreground">流量</span>
+            <span className="text-sm font-medium text-foreground">{formatTrafficBytes(node.traffic_total)}</span>
+          </div>
+        </div>
+        <div className="mt-3">{actions}</div>
+      </div>
+
+      <div className="hidden px-4 py-3 xl:grid xl:grid-cols-[2.5rem_4rem_minmax(10rem,1.1fr)_minmax(11rem,1fr)_minmax(7rem,.7fr)_minmax(6rem,.6fr)_minmax(13rem,1fr)_minmax(12rem,.9fr)_minmax(11rem,auto)] xl:items-center xl:gap-3">
         <button
           type="button"
-          className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
+          className="flex size-8 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing"
           aria-label="拖动排序"
           {...attributes}
           {...listeners}
         >
           <GripVertical className="h-4 w-4" />
         </button>
-      </td>
-      <td className="px-4 py-3">{node.id}</td>
-      <td className="px-4 py-3 font-medium">{node.name}</td>
-      <td className="px-4 py-3">
+        <span>{node.id}</span>
+        <span className="min-w-0 truncate font-medium">{node.name}</span>
         <NodeHealth node={node} />
-      </td>
-      <td className="px-4 py-3 hidden md:table-cell">{node.region || "-"}</td>
-      <td className="px-4 py-3 hidden lg:table-cell">
-        <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">{node.protocol}</span>
-      </td>
-      <td className="px-4 py-3 hidden lg:table-cell text-muted-foreground">{node.host}:{node.port}</td>
-      <td className="px-4 py-3 hidden lg:table-cell">
-        <div className="leading-tight">
-          <div className="font-medium">{node.active_user_count || 0} 人使用中</div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            {formatTrafficBytes(node.traffic_total)} 总流量
-          </div>
-          <div className="mt-0.5 text-[11px] text-muted-foreground">
-            上 {formatTrafficBytes(node.upload_total)} / 下 {formatTrafficBytes(node.download_total)}
-          </div>
-        </div>
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex items-center justify-end gap-1">
-          <Button size="icon" variant="ghost" title="上移" onClick={onMoveUp} disabled={isFirst || busy}>
-            <ChevronUp className="w-4 h-4" />
-          </Button>
-          <Button size="icon" variant="ghost" title="下移" onClick={onMoveDown} disabled={isLast || busy}>
-            <ChevronDown className="w-4 h-4" />
-          </Button>
-          <Button size="icon" variant="ghost" title="编辑" onClick={onEdit}>
-            <Edit3 className="w-4 h-4" />
-          </Button>
-          <Button size="sm" variant="ghost" onClick={onSync}>
-            <RefreshCw className="w-3 h-3 mr-1" /> 同步
-          </Button>
-        </div>
-      </td>
-    </tr>
+        <span className="min-w-0 truncate">{node.region || "-"}</span>
+        <span>
+          <span className="rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">{node.protocol}</span>
+        </span>
+        <span className="min-w-0 break-all text-muted-foreground">{node.host}:{node.port}</span>
+        {trafficSummary}
+        {actions}
+      </div>
+    </div>
   )
 }
 
 function Row({ cols, template, children }: { cols?: number; template?: string; children: ReactNode }) {
-  const style = template ? { gridTemplateColumns: template } : undefined
-  const className = template ? "grid gap-3" : `grid gap-3 grid-cols-1 sm:grid-cols-${cols || 2}`
+  const columnClasses: Record<number, string> = {
+    1: "",
+    2: "sm:grid-cols-2",
+    3: "sm:grid-cols-2 xl:grid-cols-3",
+    4: "sm:grid-cols-2 xl:grid-cols-4",
+  }
+  const style = template ? ({ "--zboard-grid-template": template } as React.CSSProperties) : undefined
+  const className = template
+    ? "grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-[var(--zboard-grid-template)]"
+    : `grid grid-cols-1 gap-4 ${columnClasses[cols || 2] || columnClasses[2]}`
   return <div className={className} style={style}>{children}</div>
 }
 
 function Field({ label, required, hint, children }: { label: string; required?: boolean; hint?: string; children: ReactNode }) {
   return (
-    <div className="space-y-1.5">
-      <Label className="text-xs font-medium">
+    <div className="min-w-0 space-y-1.5">
+      <Label className="text-xs font-medium leading-none">
         {label}
         {required && <span className="text-red-500 ml-0.5">*</span>}
       </Label>
       {children}
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+      {hint && <p className="text-[11px] leading-relaxed text-muted-foreground">{hint}</p>}
     </div>
   )
 }
