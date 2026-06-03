@@ -534,8 +534,10 @@ export default function AdminNodes() {
           </Button>
         </div>
       ) : (
-        <div className="rounded-lg border bg-card overflow-hidden">
-          <div className="hidden border-b bg-muted/50 px-4 py-3 text-sm xl:grid xl:grid-cols-[2.5rem_4rem_minmax(10rem,1.1fr)_minmax(11rem,1fr)_minmax(7rem,.7fr)_minmax(6rem,.6fr)_minmax(13rem,1fr)_minmax(12rem,.9fr)_minmax(11rem,auto)] xl:items-center xl:gap-3">
+        <div className="rounded-lg border bg-card">
+          <div className="overflow-x-auto">
+            <div className="xl:min-w-[84rem]">
+              <div className="hidden border-b bg-muted/50 px-4 py-3 text-sm xl:grid xl:grid-cols-[2.5rem_4rem_minmax(10rem,1.1fr)_minmax(11rem,1fr)_minmax(7rem,.7fr)_minmax(6rem,.6fr)_minmax(13rem,1fr)_minmax(12rem,.9fr)_minmax(11rem,auto)] xl:items-center xl:gap-3">
             <span />
             <span className="font-medium text-muted-foreground">ID</span>
             <span className="font-medium text-muted-foreground">名称</span>
@@ -570,6 +572,8 @@ export default function AdminNodes() {
               </div>
             </SortableContext>
           </DndContext>
+            </div>
+          </div>
           <p className="border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
             拖动 <GripVertical className="inline h-3 w-3 -mt-0.5" /> 手柄或点击 ↑↓ 调整顺序，顺序决定用户订阅链接里节点的排列。
           </p>
@@ -587,7 +591,7 @@ export default function AdminNodes() {
       />
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); else setDialogOpen(true) }}>
-        <DialogContent className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden p-0 gap-0 sm:max-w-[min(92vw,56rem)]">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex max-h-[90dvh] flex-col overflow-hidden p-0 gap-0 sm:max-w-[min(92vw,56rem)]">
           <DialogHeader className="px-4 pt-5 pb-4 border-b sm:px-6">
             <DialogTitle className="text-lg">{editing ? "编辑节点" : "新建节点"}</DialogTitle>
             <p className="text-xs leading-relaxed text-muted-foreground mt-1">
@@ -598,7 +602,7 @@ export default function AdminNodes() {
           </DialogHeader>
 
           {lastSecret ? (
-            <div className="max-h-[calc(92dvh-5rem)] overflow-y-auto px-4 py-5 space-y-4 sm:px-6">
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 space-y-4 sm:px-6">
               <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-4">
                 <p className="font-semibold text-amber-900">⚠ 节点已创建，请立即保存密钥</p>
                 <p className="text-sm text-amber-800 mt-1">该密钥只返回一次，关闭对话框后无法再次查看。</p>
@@ -632,7 +636,7 @@ export default function AdminNodes() {
             </div>
           ) : (
             <>
-              <div className="max-h-[calc(92dvh-10rem)] overflow-y-auto px-4 py-5 space-y-5 sm:px-6">
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 space-y-5 sm:px-6">
                 {/* Section: 基础信息 */}
                 <Section title="基础信息" icon={<Server className="w-4 h-4" />}>
                   <Row cols={2}>
@@ -920,7 +924,7 @@ export default function AdminNodes() {
                   </Section>
                 )}
               </div>
-              <div className="sticky bottom-0 flex flex-col-reverse gap-2 border-t bg-background/95 px-4 py-4 backdrop-blur sm:flex-row sm:justify-end sm:px-6">
+              <div className="flex flex-col-reverse gap-2 border-t bg-background/95 px-4 py-4 backdrop-blur sm:flex-row sm:justify-end sm:px-6">
                 <Button variant="outline" onClick={closeDialog} disabled={saving}>取消</Button>
                 <Button onClick={save} disabled={saving} className="min-w-24">
                   {saving ? "保存中..." : editing ? "保存修改" : "创建节点"}
