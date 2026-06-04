@@ -17,18 +17,30 @@ function bytesToMB(bytes: number) {
   return (bytes / 1048576).toFixed(3)
 }
 
-function bytesToGB(bytes: number) {
-  return (bytes / 1073741824).toFixed(3)
-}
-
 function formatDay(day: string) {
   const parts = day.split("-")
   if (parts.length === 3) return `${parts[1]}/${parts[2]}`
   return day
 }
 
+type TrafficUnit = { unit: string; divisor: number }
+
+function selectTrafficUnit(maxBytes: number): TrafficUnit {
+  if (maxBytes >= 1099511627776) return { unit: "TB", divisor: 1099511627776 }
+  if (maxBytes >= 1073741824) return { unit: "GB", divisor: 1073741824 }
+  if (maxBytes >= 1048576) return { unit: "MB", divisor: 1048576 }
+  if (maxBytes >= 1024) return { unit: "KB", divisor: 1024 }
+  return { unit: "B", divisor: 1 }
+}
+
+function formatTrafficValue(value: number) {
+  if (value >= 100) return value.toFixed(0)
+  if (value >= 10) return value.toFixed(1)
+  if (value === 0) return "0"
+  return value.toFixed(2)
+}
+
 export default function Subscription() {
-  const [user, setUser] = useState<any>(null)
   const [trafficLogs, setTrafficLogs] = useState<any[]>([])
   const [dailyTraffic, setDailyTraffic] = useState<any[]>([])
   const [nodes, setNodes] = useState<any[]>([])
@@ -44,7 +56,7 @@ export default function Subscription() {
       getDailyTraffic(30).catch(() => ({ items: [], days: 30 })),
     ])
       .then(([meRes, logsRes, nodesRes, dailyRes]) => {
-        setUser(meRes.user)
+        void meRes.user
         setTrafficLogs(logsRes.items || [])
         setNodes(nodesRes.items || [])
         setDailyTraffic(dailyRes.items || [])
@@ -78,10 +90,12 @@ export default function Subscription() {
     upload: Number(bytesToMB(log.upload_delta)),
   }))
 
+  const dailyMaxBytes = Math.max(...dailyTraffic.map((d) => Number(d.upload || 0) + Number(d.download || 0)), 0)
+  const dailyUnit = selectTrafficUnit(dailyMaxBytes)
   const dailyChartData = dailyTraffic.map((d) => ({
     day: formatDay(d.day),
-    upload: Number(bytesToGB(d.upload)),
-    download: Number(bytesToGB(d.download)),
+    upload: Number(formatTrafficValue((d.upload || 0) / dailyUnit.divisor)),
+    download: Number(formatTrafficValue((d.download || 0) / dailyUnit.divisor)),
   }))
 
   const regionMap: Record<string, string> = {
@@ -211,11 +225,11 @@ export default function Subscription() {
                   <BarChart data={dailyChartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis dataKey="day" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} unit=" GB" />
-                    <Tooltip formatter={(v: number) => [`${v} GB`, ""]} />
+                    <YAxis tick={{ fontSize: 11 }} unit={` ${dailyUnit.unit}`} />
+                    <Tooltip formatter={(v: number) => [`${formatTrafficValue(v)} ${dailyUnit.unit}`, ""]} />
                     <Legend />
-                    <Bar dataKey="download" name="下载 (GB)" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="upload" name="上传 (GB)" stackId="a" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="download" name={`下载 (${dailyUnit.unit})`} stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="upload" name={`上传 (${dailyUnit.unit})`} stackId="a" fill="#38bdf8" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

@@ -147,16 +147,31 @@ func (s *Store) ListAllNodeViewsPage(ctx context.Context, p PageParams, offlineT
 		LEFT JOIN (
 			SELECT node_id, COUNT(DISTINCT user_id) AS active_user_count
 			FROM traffic_logs
-			WHERE total_delta > 0 AND reported_at >= ?
+			WHERE ` + trafficTotalExpr("") + ` > 0 AND reported_at >= ?
 			GROUP BY node_id
 		) nu ON nu.node_id = n.id
 		LEFT JOIN (
-			SELECT node_id,
-				SUM(upload_delta) AS upload_total,
-				SUM(download_delta) AS download_total,
-				SUM(total_delta) AS traffic_total
-			FROM traffic_logs
-			GROUP BY node_id
+			SELECT n2.id AS node_id,
+				CASE WHEN COALESCE(tl.upload_total, 0) >= COALESCE(nut.upload_total, 0) THEN COALESCE(tl.upload_total, 0) ELSE COALESCE(nut.upload_total, 0) END AS upload_total,
+				CASE WHEN COALESCE(tl.download_total, 0) >= COALESCE(nut.download_total, 0) THEN COALESCE(tl.download_total, 0) ELSE COALESCE(nut.download_total, 0) END AS download_total,
+				CASE WHEN COALESCE(tl.traffic_total, 0) >= COALESCE(nut.traffic_total, 0) THEN COALESCE(tl.traffic_total, 0) ELSE COALESCE(nut.traffic_total, 0) END AS traffic_total
+			FROM nodes n2
+			LEFT JOIN (
+				SELECT node_id,
+					SUM(upload_delta) AS upload_total,
+					SUM(download_delta) AS download_total,
+					SUM(` + trafficTotalExpr("") + `) AS traffic_total
+				FROM traffic_logs
+				GROUP BY node_id
+			) tl ON tl.node_id = n2.id
+			LEFT JOIN (
+				SELECT node_id,
+					SUM(upload) AS upload_total,
+					SUM(download) AS download_total,
+					SUM(upload + download) AS traffic_total
+				FROM node_users
+				GROUP BY node_id
+			) nut ON nut.node_id = n2.id
 		) tl ON tl.node_id = n.id
 		LEFT JOIN (
 			SELECT h.node_id, h.runtime_status

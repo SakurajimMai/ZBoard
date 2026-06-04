@@ -144,21 +144,21 @@ func (s *Store) AdminTrafficTrend(ctx context.Context, days int) ([]TrafficTrend
 	switch s.Dialect {
 	case config.DialectMySQL:
 		query = `SELECT DATE_FORMAT(reported_at, '%Y-%m-%d') AS day,
-			COALESCE(SUM(total_delta), 0) AS total
+			COALESCE(SUM(` + trafficTotalExpr("") + `), 0) AS total
 			FROM traffic_logs
 			WHERE reported_at >= ?
 			GROUP BY day ORDER BY day ASC`
 		args = []any{start}
 	case config.DialectPostgres:
 		query = `SELECT TO_CHAR(reported_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
-			COALESCE(SUM(total_delta), 0) AS total
+			COALESCE(SUM(` + trafficTotalExpr("") + `), 0) AS total
 			FROM traffic_logs
 			WHERE reported_at >= $1
 			GROUP BY day ORDER BY day ASC`
 		args = []any{start}
 	default:
 		query = `SELECT strftime('%Y-%m-%d', reported_at) AS day,
-			COALESCE(SUM(total_delta), 0) AS total
+			COALESCE(SUM(` + trafficTotalExpr("") + `), 0) AS total
 			FROM traffic_logs
 			WHERE reported_at >= ?
 			GROUP BY day ORDER BY day ASC`
@@ -170,6 +170,13 @@ func (s *Store) AdminTrafficTrend(ctx context.Context, days int) ([]TrafficTrend
 	byDay := make(map[string]int64, len(rows))
 	for _, row := range rows {
 		byDay[row.Day] = row.Total
+	}
+	fallbackTotal, err := s.unloggedTrafficTotal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if fallbackTotal > 0 {
+		byDay[dayStart(Now().UTC()).Format("2006-01-02")] += fallbackTotal
 	}
 	out := make([]TrafficTrendPoint, 0, days)
 	for i := 0; i < days; i++ {

@@ -14,6 +14,14 @@ type TrafficDelta struct {
 	DownloadDelta int64
 }
 
+func trafficTotalExpr(alias string) string {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+	return "CASE WHEN " + prefix + "total_delta > 0 THEN " + prefix + "total_delta ELSE " + prefix + "upload_delta + " + prefix + "download_delta END"
+}
+
 func (s *Store) RecordTraffic(ctx context.Context, deltas []TrafficDelta) error {
 	if len(deltas) == 0 {
 		return nil
@@ -27,8 +35,8 @@ func (s *Store) RecordTraffic(ctx context.Context, deltas []TrafficDelta) error 
 	insertLog := s.Rebind(`INSERT INTO traffic_logs(user_id, node_id, upload_delta, download_delta, total_delta, reported_at)
 		VALUES (?, ?, ?, ?, ?, ?)`)
 	upsertSnap := s.Rebind(upsertSnapshotSQL(s.Dialect))
-	bumpUser := s.Rebind(`UPDATE users SET traffic_used = traffic_used + ? WHERE id = ?`)
-	bumpNU := s.Rebind(`UPDATE node_users SET upload = upload + ?, download = download + ? WHERE user_id = ? AND node_id = ?`)
+	bumpUser := s.Rebind(`UPDATE users SET traffic_used = traffic_used + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+	bumpNU := s.Rebind(`UPDATE node_users SET upload = upload + ?, download = download + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND node_id = ?`)
 
 	for _, d := range deltas {
 		total := d.UploadDelta + d.DownloadDelta
@@ -51,23 +59,25 @@ func (s *Store) RecordTraffic(ctx context.Context, deltas []TrafficDelta) error 
 func upsertSnapshotSQL(dialect config.Dialect) string {
 	switch dialect {
 	case config.DialectMySQL:
-		return `INSERT INTO user_traffic_snapshots(user_id, upload_total, download_total, total_used)
-			VALUES (?, ?, ?, ?)
-			ON DUPLICATE KEY UPDATE upload_total = upload_total + ?, download_total = download_total + ?, total_used = total_used + ?`
+		return `INSERT INTO user_traffic_snapshots(user_id, upload_total, download_total, total_used, updated_at)
+			VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+			ON DUPLICATE KEY UPDATE upload_total = upload_total + ?, download_total = download_total + ?, total_used = total_used + ?, updated_at = CURRENT_TIMESTAMP`
 	case config.DialectPostgres:
-		return `INSERT INTO user_traffic_snapshots(user_id, upload_total, download_total, total_used)
-			VALUES (?, ?, ?, ?)
+		return `INSERT INTO user_traffic_snapshots(user_id, upload_total, download_total, total_used, updated_at)
+			VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
 			ON CONFLICT (user_id) DO UPDATE
-				SET upload_total = user_traffic_snapshots.upload_total + EXCLUDED.upload_total,
-				    download_total = user_traffic_snapshots.download_total + EXCLUDED.download_total,
-				    total_used = user_traffic_snapshots.total_used + EXCLUDED.total_used`
+				SET upload_total = user_traffic_snapshots.upload_total + ?,
+				    download_total = user_traffic_snapshots.download_total + ?,
+				    total_used = user_traffic_snapshots.total_used + ?,
+				    updated_at = CURRENT_TIMESTAMP`
 	default:
-		return `INSERT INTO user_traffic_snapshots(user_id, upload_total, download_total, total_used)
-			VALUES (?, ?, ?, ?)
+		return `INSERT INTO user_traffic_snapshots(user_id, upload_total, download_total, total_used, updated_at)
+			VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
 			ON CONFLICT(user_id) DO UPDATE SET
 				upload_total = user_traffic_snapshots.upload_total + excluded.upload_total,
 				download_total = user_traffic_snapshots.download_total + excluded.download_total,
-				total_used = user_traffic_snapshots.total_used + excluded.total_used`
+				total_used = user_traffic_snapshots.total_used + excluded.total_used,
+				updated_at = CURRENT_TIMESTAMP`
 	}
 }
 
@@ -84,11 +94,25 @@ func (s *Store) ListTrafficSnapshots(ctx context.Context, limit int) ([]UserTraf
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	q := s.Rebind(`SELECT s.user_id, s.upload_total, s.download_total, u.traffic_used AS total_used,
-			u.traffic_limit, s.updated_at
-		FROM user_traffic_snapshots s
-		JOIN users u ON u.id = s.user_id
-		ORDER BY u.traffic_used DESC LIMIT ?`)
+	q := s.Rebind(`SELECT u.id AS user_id,
+			CASE WHEN COALESCE(s.upload_total, 0) >= COALESCE(nu.upload_total, 0) THEN COALESCE(s.upload_total, 0) ELSE COALESCE(nu.upload_total, 0) END AS upload_total,
+			CASE WHEN COALESCE(s.download_total, 0) >= COALESCE(nu.download_total, 0) THEN COALESCE(s.download_total, 0) ELSE COALESCE(nu.download_total, 0) END AS download_total,
+			CASE
+				WHEN u.traffic_used >= COALESCE(s.total_used, 0) AND u.traffic_used >= COALESCE(nu.total_used, 0) THEN u.traffic_used
+				WHEN COALESCE(s.total_used, 0) >= COALESCE(nu.total_used, 0) THEN COALESCE(s.total_used, 0)
+				ELSE COALESCE(nu.total_used, 0)
+			END AS total_used,
+			u.traffic_limit,
+			COALESCE(s.updated_at, u.updated_at) AS updated_at
+		FROM users u
+		LEFT JOIN user_traffic_snapshots s ON s.user_id = u.id
+		LEFT JOIN (
+			SELECT user_id, SUM(upload) AS upload_total, SUM(download) AS download_total, SUM(upload + download) AS total_used
+			FROM node_users
+			GROUP BY user_id
+		) nu ON nu.user_id = u.id
+		WHERE u.traffic_used > 0 OR COALESCE(s.total_used, 0) > 0 OR COALESCE(nu.total_used, 0) > 0
+		ORDER BY total_used DESC LIMIT ?`)
 	var rows []UserTrafficSnapshot
 	if err := s.DB.SelectContext(ctx, &rows, q, limit); err != nil {
 		return nil, err
@@ -97,13 +121,27 @@ func (s *Store) ListTrafficSnapshots(ctx context.Context, limit int) ([]UserTraf
 }
 
 func (s *Store) FindTrafficSnapshotByUser(ctx context.Context, userID int64) (*UserTrafficSnapshot, error) {
-	q := s.Rebind(`SELECT s.user_id, s.upload_total, s.download_total, u.traffic_used AS total_used,
-			u.traffic_limit, s.updated_at
-		FROM user_traffic_snapshots s
-		JOIN users u ON u.id = s.user_id
-		WHERE s.user_id = ?`)
+	q := s.Rebind(`SELECT u.id AS user_id,
+			CASE WHEN COALESCE(s.upload_total, 0) >= COALESCE(nu.upload_total, 0) THEN COALESCE(s.upload_total, 0) ELSE COALESCE(nu.upload_total, 0) END AS upload_total,
+			CASE WHEN COALESCE(s.download_total, 0) >= COALESCE(nu.download_total, 0) THEN COALESCE(s.download_total, 0) ELSE COALESCE(nu.download_total, 0) END AS download_total,
+			CASE
+				WHEN u.traffic_used >= COALESCE(s.total_used, 0) AND u.traffic_used >= COALESCE(nu.total_used, 0) THEN u.traffic_used
+				WHEN COALESCE(s.total_used, 0) >= COALESCE(nu.total_used, 0) THEN COALESCE(s.total_used, 0)
+				ELSE COALESCE(nu.total_used, 0)
+			END AS total_used,
+			u.traffic_limit,
+			COALESCE(s.updated_at, u.updated_at) AS updated_at
+		FROM users u
+		LEFT JOIN user_traffic_snapshots s ON s.user_id = u.id
+		LEFT JOIN (
+			SELECT user_id, SUM(upload) AS upload_total, SUM(download) AS download_total, SUM(upload + download) AS total_used
+			FROM node_users
+			WHERE user_id = ?
+			GROUP BY user_id
+		) nu ON nu.user_id = u.id
+		WHERE u.id = ?`)
 	var row UserTrafficSnapshot
-	if err := s.DB.GetContext(ctx, &row, q, userID); err != nil {
+	if err := s.DB.GetContext(ctx, &row, q, userID, userID); err != nil {
 		return nil, err
 	}
 	return &row, nil
@@ -124,7 +162,8 @@ func (s *Store) ListTrafficLogs(ctx context.Context, limit int) ([]TrafficLog, e
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	q := s.Rebind(`SELECT id, user_id, node_id, upload_delta, download_delta, total_delta, reported_at, created_at
+	q := s.Rebind(`SELECT id, user_id, node_id, upload_delta, download_delta,
+			` + trafficTotalExpr("") + ` AS total_delta, reported_at, created_at
 		FROM traffic_logs ORDER BY id DESC LIMIT ?`)
 	var rows []TrafficLog
 	if err := s.DB.SelectContext(ctx, &rows, q, limit); err != nil {
@@ -137,7 +176,8 @@ func (s *Store) ListTrafficLogsByUser(ctx context.Context, userID int64, limit i
 	if limit <= 0 || limit > 200 {
 		limit = 100
 	}
-	q := s.Rebind(`SELECT id, user_id, node_id, upload_delta, download_delta, total_delta, reported_at, created_at
+	q := s.Rebind(`SELECT id, user_id, node_id, upload_delta, download_delta,
+			` + trafficTotalExpr("") + ` AS total_delta, reported_at, created_at
 		FROM traffic_logs WHERE user_id = ? ORDER BY id DESC LIMIT ?`)
 	var rows []TrafficLog
 	if err := s.DB.SelectContext(ctx, &rows, q, userID, limit); err != nil {
@@ -166,7 +206,7 @@ func (s *Store) ListDailyTrafficByUser(ctx context.Context, userID int64, days i
 		q = `SELECT DATE_FORMAT(reported_at, '%Y-%m-%d') AS day,
 			COALESCE(SUM(upload_delta), 0) AS upload,
 			COALESCE(SUM(download_delta), 0) AS download,
-			COALESCE(SUM(total_delta), 0) AS total
+			COALESCE(SUM(` + trafficTotalExpr("") + `), 0) AS total
 			FROM traffic_logs
 			WHERE user_id = ? AND reported_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)
 			GROUP BY day ORDER BY day ASC`
@@ -174,7 +214,7 @@ func (s *Store) ListDailyTrafficByUser(ctx context.Context, userID int64, days i
 		q = `SELECT TO_CHAR(reported_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
 			COALESCE(SUM(upload_delta), 0) AS upload,
 			COALESCE(SUM(download_delta), 0) AS download,
-			COALESCE(SUM(total_delta), 0) AS total
+			COALESCE(SUM(` + trafficTotalExpr("") + `), 0) AS total
 			FROM traffic_logs
 			WHERE user_id = $1 AND reported_at >= NOW() - ($2::int || ' days')::interval
 			GROUP BY day ORDER BY day ASC`
@@ -182,7 +222,7 @@ func (s *Store) ListDailyTrafficByUser(ctx context.Context, userID int64, days i
 		q = `SELECT strftime('%Y-%m-%d', reported_at) AS day,
 			COALESCE(SUM(upload_delta), 0) AS upload,
 			COALESCE(SUM(download_delta), 0) AS download,
-			COALESCE(SUM(total_delta), 0) AS total
+			COALESCE(SUM(` + trafficTotalExpr("") + `), 0) AS total
 			FROM traffic_logs
 			WHERE user_id = ? AND reported_at >= datetime('now', ?)
 			GROUP BY day ORDER BY day ASC`
@@ -200,7 +240,109 @@ func (s *Store) ListDailyTrafficByUser(ctx context.Context, userID int64, days i
 	if err != nil {
 		return nil, err
 	}
+	fallback, err := s.unloggedTrafficTotalForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if fallback > 0 {
+		today := dayStart(Now().UTC()).Format("2006-01-02")
+		found := false
+		for i := range rows {
+			if rows[i].Day == today {
+				rows[i].Total += fallback
+				rows[i].Download += fallback
+				found = true
+				break
+			}
+		}
+		if !found {
+			rows = append(rows, DailyTrafficPoint{
+				Day:      today,
+				Download: fallback,
+				Total:    fallback,
+			})
+		}
+	}
 	return rows, nil
+}
+
+type trafficFallbackRow struct {
+	TrafficUsed    int64 `db:"traffic_used"`
+	SnapshotTotal  int64 `db:"snapshot_total"`
+	NodeUsersTotal int64 `db:"node_users_total"`
+	LoggedTotal    int64 `db:"logged_total"`
+}
+
+func (s *Store) unloggedTrafficTotal(ctx context.Context) (int64, error) {
+	q := `SELECT u.traffic_used,
+			COALESCE(s.total_used, 0) AS snapshot_total,
+			COALESCE(nu.total_used, 0) AS node_users_total,
+			COALESCE(tl.logged_total, 0) AS logged_total
+		FROM users u
+		LEFT JOIN user_traffic_snapshots s ON s.user_id = u.id
+		LEFT JOIN (
+			SELECT user_id, SUM(upload + download) AS total_used
+			FROM node_users
+			GROUP BY user_id
+		) nu ON nu.user_id = u.id
+		LEFT JOIN (
+			SELECT user_id, SUM(` + trafficTotalExpr("") + `) AS logged_total
+			FROM traffic_logs
+			GROUP BY user_id
+		) tl ON tl.user_id = u.id`
+	var rows []trafficFallbackRow
+	if err := s.DB.SelectContext(ctx, &rows, s.Rebind(q)); err != nil {
+		return 0, err
+	}
+	var total int64
+	for _, row := range rows {
+		authoritative := maxInt64(row.TrafficUsed, row.SnapshotTotal, row.NodeUsersTotal)
+		if authoritative > row.LoggedTotal {
+			total += authoritative - row.LoggedTotal
+		}
+	}
+	return total, nil
+}
+
+func (s *Store) unloggedTrafficTotalForUser(ctx context.Context, userID int64) (int64, error) {
+	q := `SELECT u.traffic_used,
+			COALESCE(s.total_used, 0) AS snapshot_total,
+			COALESCE(nu.total_used, 0) AS node_users_total,
+			COALESCE(tl.logged_total, 0) AS logged_total
+		FROM users u
+		LEFT JOIN user_traffic_snapshots s ON s.user_id = u.id
+		LEFT JOIN (
+			SELECT user_id, SUM(upload + download) AS total_used
+			FROM node_users
+			WHERE user_id = ?
+			GROUP BY user_id
+		) nu ON nu.user_id = u.id
+		LEFT JOIN (
+			SELECT user_id, SUM(` + trafficTotalExpr("") + `) AS logged_total
+			FROM traffic_logs
+			WHERE user_id = ?
+			GROUP BY user_id
+		) tl ON tl.user_id = u.id
+		WHERE u.id = ?`
+	var row trafficFallbackRow
+	if err := s.DB.GetContext(ctx, &row, s.Rebind(q), userID, userID, userID); err != nil {
+		return 0, err
+	}
+	authoritative := maxInt64(row.TrafficUsed, row.SnapshotTotal, row.NodeUsersTotal)
+	if authoritative <= row.LoggedTotal {
+		return 0, nil
+	}
+	return authoritative - row.LoggedTotal, nil
+}
+
+func maxInt64(values ...int64) int64 {
+	var max int64
+	for _, value := range values {
+		if value > max {
+			max = value
+		}
+	}
+	return max
 }
 
 // ResetUserTraffic zeroes out the user's traffic counters across users,

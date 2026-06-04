@@ -6,6 +6,23 @@ import { adminGetOverview, adminGetUsers } from "@/lib/api"
 
 type RevenuePoint = { month: string; label: string; revenue: number }
 type TrafficPoint = { day: string; label: string; total: number; tb: number }
+type TrafficUnit = { unit: string; divisor: number }
+
+function selectTrafficUnit(maxBytes: number): TrafficUnit {
+  if (maxBytes >= 1099511627776) return { unit: "TB", divisor: 1099511627776 }
+  if (maxBytes >= 1073741824) return { unit: "GB", divisor: 1073741824 }
+  if (maxBytes >= 1048576) return { unit: "MB", divisor: 1048576 }
+  if (maxBytes >= 1024) return { unit: "KB", divisor: 1024 }
+  return { unit: "B", divisor: 1 }
+}
+
+function formatTrafficValue(bytes: number, unit: TrafficUnit) {
+  const value = bytes / unit.divisor
+  if (unit.unit === "B") return String(Math.round(value))
+  if (value >= 100) return value.toFixed(0)
+  if (value >= 10) return value.toFixed(1)
+  return value.toFixed(2)
+}
 
 export default function AdminOverview() {
   const [stats, setStats] = useState({
@@ -164,14 +181,17 @@ function RevenueBarChart({ data }: { data: RevenuePoint[] }) {
 }
 
 function TrafficAreaChart({ data }: { data: TrafficPoint[] }) {
-  const max = Math.max(...data.map((d) => d.tb), 1)
+  const maxBytes = Math.max(...data.map((d) => d.total), 0)
+  const trafficUnit = selectTrafficUnit(maxBytes)
+  const max = Math.max(...data.map((d) => d.total / trafficUnit.divisor), maxBytes > 0 ? 0 : 1)
   const width = 560
   const height = 220
   const padding = 24
   const points = data.map((d, i) => {
     const x = data.length <= 1 ? padding : padding + (i * (width - padding * 2)) / (data.length - 1)
-    const y = height - padding - (d.tb / max) * (height - padding * 2)
-    return { ...d, x, y }
+    const value = d.total / trafficUnit.divisor
+    const y = height - padding - (value / max) * (height - padding * 2)
+    return { ...d, value, x, y }
   })
   const line = points.map((p) => `${p.x},${p.y}`).join(" ")
   const area = points.length > 0
@@ -181,7 +201,7 @@ function TrafficAreaChart({ data }: { data: TrafficPoint[] }) {
 
   return (
     <div className="rounded-2xl border bg-card p-5">
-      <h2 className="font-semibold text-lg mb-5">近 7 天总流量 (TB)</h2>
+      <h2 className="font-semibold text-lg mb-5">近 7 天总流量 ({trafficUnit.unit})</h2>
       <div className="relative">
         <svg viewBox={`0 0 ${width} ${height}`} className="h-64 w-full overflow-visible">
           {ticks.map((tick) => {
@@ -189,7 +209,9 @@ function TrafficAreaChart({ data }: { data: TrafficPoint[] }) {
             return (
               <g key={tick}>
                 <line x1={padding} y1={y} x2={width - padding} y2={y} stroke="hsl(var(--border))" strokeDasharray="4 4" />
-                <text x={0} y={y + 4} className="fill-muted-foreground text-[11px]">{tick.toFixed(max >= 10 ? 0 : 1)} TB</text>
+                <text x={0} y={y + 4} className="fill-muted-foreground text-[11px]">
+                  {formatTrafficValue(tick * trafficUnit.divisor, trafficUnit)} {trafficUnit.unit}
+                </text>
               </g>
             )
           })}
@@ -198,7 +220,7 @@ function TrafficAreaChart({ data }: { data: TrafficPoint[] }) {
           {points.map((p) => (
             <g key={p.day} className="group">
               <circle cx={p.x} cy={p.y} r="4" fill="hsl(var(--primary))" />
-              <title>{`${p.label}: ${p.tb.toFixed(3)} TB`}</title>
+              <title>{`${p.label}: ${formatTrafficValue(p.total, trafficUnit)} ${trafficUnit.unit}`}</title>
             </g>
           ))}
         </svg>
