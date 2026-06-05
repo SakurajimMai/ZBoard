@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState, useEffect } from "react"
 import {
+  Activity,
   LayoutDashboard,
   BookOpen,
   Users,
@@ -40,6 +41,7 @@ export default function AdminSidebar() {
   const navItems = [
     { href: "/admin",          label: t.admin.overview,  icon: LayoutDashboard },
     { href: "/admin/users",    label: t.admin.users,     icon: Users },
+    { href: "/admin/active-users", label: "活跃用户", icon: Activity },
     { href: "/admin/nodes",    label: t.admin.nodes,     icon: Server },
     { href: "/admin/plans",    label: t.admin.plans,     icon: Package },
     { href: "/admin/orders",   label: t.admin.orders,    icon: ShoppingBag },

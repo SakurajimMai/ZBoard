@@ -450,6 +450,22 @@ export async function adminGetTrafficUsers() {
   return adminRequest<{ items: any[] }>('/api/admin/v1/traffic/users')
 }
 
+export async function adminGetActiveUsers(params?: PageQuery & { date?: string }) {
+  return adminRequest<{
+    date: string
+    items: any[]
+    summary: {
+      active_users: number
+      upload_total: number
+      download_total: number
+      traffic_total: number
+    }
+    page: number
+    page_size: number
+    total: number
+  }>(`/api/admin/v1/active-users${pageQuery(params)}`)
+}
+
 export async function getPublicSettings() {
   return request<{ settings: Record<string, string> }>('/api/v1/settings')
 }

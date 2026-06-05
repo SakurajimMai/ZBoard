@@ -143,6 +143,7 @@ func New(d Deps) *gin.Engine {
 			authed.GET("/overview", adminOverview(d))
 			authed.GET("/audit-logs", adminAuditLogs(d))
 			authed.GET("/users", adminListUsers(d))
+			authed.GET("/active-users", adminListActiveUsers(d))
 			authed.POST("/users/batch", adminBatchUsers(d))
 			authed.POST("/users", adminCreateUser(d))
 			authed.PUT("/users/:id", adminUpdateUser(d))

@@ -171,13 +171,6 @@ func (s *Store) AdminTrafficTrend(ctx context.Context, days int) ([]TrafficTrend
 	for _, row := range rows {
 		byDay[row.Day] = row.Total
 	}
-	fallbackTotal, err := s.unloggedTrafficTotal(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if fallbackTotal > 0 {
-		byDay[dayStart(Now().UTC()).Format("2006-01-02")] += fallbackTotal
-	}
 	out := make([]TrafficTrendPoint, 0, days)
 	for i := 0; i < days; i++ {
 		t := start.AddDate(0, 0, i)
